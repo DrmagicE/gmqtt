@@ -1,60 +1,59 @@
 # Gmqtt
-Gmqtt is a MQTT broker that fully implements the MQTT protocol V3.1.1 written in Go.
-This repository also provides a MQTT protocol pack/unpack packet for implementing MQTT clients or testing
+本库的内容有：
+* 基于Go语言实现的V3.1.1版本的MQTT服务器
+* MQTT V3.1.1 版本的协议解析库
 
-# Features
-* Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
-* Support tls/ssl and websocket
+# 功能特性
+* 内置了一些钩子方法，让使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
+* 支持tls/ssl以及ws/wss
 
-
-# Installation
-```go get github.com/DrmagicE/gmqtt```
-
-# Get Started
-Use the following command to start a simple broker that listens on port 1883
+# 安装
+```$ go get github.com/DrmagicE/gmqtt```
+# 开始
+下列命令将监听1883端口，并开启一个MQTT服务器
 ```
 $ cd cmd
 $ go run main.go
 ```
-# Examples
-There are some examples in `/examples`. 
+# 例子
+在`\examples`文件夹中有许多例子，里面介绍了一些本库的基本使用方法。 
 
-# Documentation
+# 文档说明
 
-## Hooks
-Gmqtt implements the following hooks:
-* OnAccept  (Only for tcp/ssl, not for ws/wss)
+## 钩子
+Gmqtt实现了下列钩子方法
+* OnAccept  (仅支持在tcp/ssl下,websocket不支持)
 * OnConnect 
 * OnSubscribe
 * OnPublish
 * OnClose
 * OnStop
 
-See /examples/hook for more detail.
+在 `/examples/hook` 中有钩子的使用方法介绍。
 
 ### OnAccept
-This method is called after  `net.Listener.Accept` when using tcp or ssl.
-
+当使用tcp或者ssl方式连接的时候，该钩子方法会在`net.Listener.Accept`之后调用，
+如果返回false，则会直接关闭tcp连接。
 ```
 //If returns is `false`, it will close the `net.Conn` directly
 type OnAccept func(conn net.Conn) bool
 ```
-This hook may be used to block some invalid connections.(blacklist, rate-limiting, etc..) 
+该钩子方法可以拒绝一些非法链接，可以用做自定义黑名单，连接速率限制等功能。
 
 ### OnConnect()
-This method is called after receiving MQTT CONNECT packet.
-It returns the code of CONNACK packet.
+接收到登录报文之后会调用该方法。
+该方法返回CONNACK报文当中的code值。
 ```
 //return the code of connack packet
 type OnConnect func(client *Client) (code uint8)
 ```
-This hook may be used to implement  Authentication process.For example:
+该方法可以用作鉴权实现，比如：
 ```
 ...
 server.OnConnect = func(client *server.Client) (code uint8) {
   username := client.ClientOption().Username
   password := client.ClientOption().Password
-  if validateUser(username, password) { //Authentication info may save in DB,File System, memory, etc.
+  if validateUser(username, password) { //鉴权信息可以保存在数据库，文件，内存等地方
     return packets.CODE_ACCEPTED
   } else {
     return packets.CODE_BAD_USERNAME_OR_PSW
@@ -63,39 +62,40 @@ server.OnConnect = func(client *server.Client) (code uint8) {
 
 ```
 ### OnSubscribe()
-This method is called after receiving MQTT SUBSCRIBE packet.
+接收到SUBSCRIBE报文之后调用。
+该方法返回允许当前订阅主题的最大QoS等级。
 It returns the maximum QoS level that was granted to the subscription that was requested by the SUBSCRIBE packet.
 ```
-//Allowed return codes:
-//0x00 - Success - Maximum QoS 0
-//0x01 - Success - Maximum QoS 1
-//0x02 - Success - Maximum QoS 2
-//0x80 - Failure
+//允许的一些返回值:
+//0x00 - 成功 - 最大 QoS 0
+//0x01 - 成功 - 最大 QoS 1
+//0x02 - 成功 - 最大 QoS 2
+//0x80 - 订阅失败
 type OnSubscribe func(client *Client, topic packets.Topic) uint8
 ```
-This hook may be used to implement  ACL(Access Control List) process.For example:
+该方法可以用作实现ACL访问控制，比如：
 ```
 ...
 server.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
-  if client.ClientOption().Username == "root" { //alow root user to subscribe whatever he wants
+  if client.ClientOption().Username == "root" { //root用户想订阅什么就订阅什么
     return topic.Qos
   } else {
     if topic.Qos <= packets.QOS_1 {
       return topic.Qos
     }
-    return packets.QOS_1   //for other users, the maximum QoS level is QoS1
+    return packets.QOS_1   //对于其他用户，最多只能订阅到QoS1等级
   }
   
 }
 ```
 
 ### OnPublish()
-This method is called after receiving MQTT PUBLISH packet.
+接收到PUBLISH报文之后调用。
 ```
-//Whether the publish packet will be delivered or not.
+//返回该报文是否会被继续分发下去
 type OnPublish func(client *Client, publish *packets.Publish) bool
 ```
-For example:
+比如：
 ```
 ...
 server.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
@@ -113,26 +113,26 @@ server.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
 >If a Server implementation does not authorize a PUBLISH to be performed by a Client; it has no way of informing that Client. It MUST either 1.make a positive acknowledgement, according to the normal QoS rules, or 2.close the Network Connection [MQTT-3.3.5-2].
 
 ### OnClose()
-This method is called after Network Connection close.
+当网络连接关闭之后调用
 ```
 //This is called after Network Connection close
 type OnClose func(client *Client)
 ```
 
 ### OnStop()
-This method is called after `server.Stop()`
+但mqtt服务停止的时候调用
 ```
 type OnStop func()
 ```
 
-## Server Stop Process
-Call `server.Stop()` to stop the broker gracefully:
-1. close all `net.Listener`
-2. close all clients and wait until close Complete
-3. exit
+## 服务停止流程
+调用 `server.Stop()` 将服务优雅关闭:
+1. 关闭所有的`net.Listener`
+2. 关闭所有的client，一直等待，直到所有的client全部关闭
+3. 退出
 
-# Test
-## Unit Test
+# 测试
+## 单元测试
 ```
 $ cd server
 $ go test 
@@ -141,16 +141,12 @@ $ go test
 $ cd pkg/packets
 $ go test
 ```
-## Integration Test
-Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+## 集成测试
+通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
-* More test(Unit/Integration)
-* Benchmark test
-* Message persistence
-* Website monitor
-* Cli mqtt client
-
-
-
-
+* 更多的测试（单元测试/集成测试）
+* 性能测试
+* 消息持久化
+* 网页监控
+* 控制台MQTT客户端
