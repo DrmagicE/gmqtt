@@ -1,4 +1,5 @@
 # Gmqtt
+[English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md).
 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * MQTT V3.1.1 版本的协议解析库
@@ -128,7 +129,7 @@ type OnStop func()
 ## 服务停止流程
 调用 `server.Stop()` 将服务优雅关闭:
 1. 关闭所有的`net.Listener`
-2. 关闭所有的client，一直等待，直到所有的client全部关闭
+2. 关闭所有的client，一直等待，直到所有的client的`OnClose`方法调用完毕
 3. 退出
 
 # 测试
