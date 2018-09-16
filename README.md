@@ -30,7 +30,7 @@ Gmqtt implements the following hooks:
 * OnClose
 * OnStop
 
-See /example/hook for more detail.
+See /examples/hook for more detail.
 
 ### OnAccept
 This method is called after  `net.Listener.Accept` when using tcp or ssl.
