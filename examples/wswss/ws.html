@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ws</title>
+    <script src="paho-mqtt-min.js"></script>
+</head>
+<body>
+<div id="log"></div>
+
+Topic:<input id="topic" />
+Payload:<input id="payload" />
+<input type="button" value="send" onclick="send()"/>
+<br>
+
+
+Topic:<input id="subtopic"/><input type="button" value="subscribe" onclick="subscribe()">
+
+</body>
+</html>
+<script>
+
+    function log(str) {
+        html = document.getElementById("log").innerHTML
+        document.getElementById("log").innerHTML += str+"<br>"
+    }
+
+    client = new Paho.MQTT.Client("localhost", 8080,"clientIdws");
+
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+    // connect the client
+    client.connect({onSuccess:onConnect});
+    // called when the client connects
+    function onConnect() {
+        // Once a connection has been made, make a subscription and send a message.
+        log("login success")
+        client.subscribe("/ws",{qos:1,onSuccess:function () {
+                log("topic: /ws  subscribed")
+            }});
+    }
+    // called when the client loses its connection
+    function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+            log("onConnectionLost:"+responseObject.errorMessage);
+        }
+    }
+    // called when a message arrives
+    function onMessageArrived(message) {
+        log("msg ："+message.payloadString+" recived from topic:"+message.destinationName)
+    }
+
+    function send() {
+        topic = document.getElementById("topic").value
+        payload = document.getElementById("payload").value
+        log("publish msg: "+payload+" to topic:"+topic)
+        client.send(topic, payload, 1, false)
+    }
+
+    function subscribe() {
+        topic = document.getElementById("subtopic").value
+        client.subscribe(topic,{qos:1,onSuccess:function () {
+                log("topic: "+ topic +"  subscribed")
+            }})
+    }
+</script>
+
+
