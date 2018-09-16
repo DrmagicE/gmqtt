@@ -1,5 +1,5 @@
 # Gmqtt
-Gmqtt is a MQTT broker that fully implements the MQTT protocol V3.1.1 written in Go.
+Gmqtt is a Golang MQTT broker that fully implements the MQTT protocol V3.1.1.
 This repository also provides a MQTT protocol pack/unpack packet for implementing MQTT clients or testing
 
 # Features
