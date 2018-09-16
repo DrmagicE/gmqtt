@@ -8,14 +8,16 @@ This repository also provides a MQTT protocol pack/unpack packet for implementin
 
 
 # Installation
-```go get github.com/eclipse/paho.mqtt.golang```
+```go get github.com/DrmagicE/gmqtt```
 
 # Get Started
 Use the following command to start a simple broker that listen on port 1883
 ```
-$ cd cmd
+$ cd /cmd
 $ go run main.go
 ```
+# Examples
+There are some examples in `/examples` folder. 
 
 # Documentation
 
@@ -128,5 +130,26 @@ Call `server.Stop()` to stop the broker gracefully:
 1. close all `net.Listener`
 2. close all clients and wait until close Complete
 3. exit
+
+# Test
+## Unit Test
+```
+$ cd server
+$ go test 
+```
+```
+$ cd pkg/packets
+$ go test
+```
+## Integration Test
+Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+
+# TODO
+* More test(Unit/Integration)
+* Benchmark test
+* Website monitor
+* Cli mqtt client
+
+
 
 
