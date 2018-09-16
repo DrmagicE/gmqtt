@@ -1,5 +1,5 @@
-# Gmqtt
 [English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md).
+# Gmqtt
 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * MQTT V3.1.1 版本的协议解析库
