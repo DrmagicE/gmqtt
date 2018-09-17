@@ -145,6 +145,7 @@ $ go test
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
+* Configration
 * More test(Unit/Integration)
 * Benchmark test
 * Message persistence
