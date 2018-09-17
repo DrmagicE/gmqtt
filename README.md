@@ -146,6 +146,7 @@ $ go test
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
+* 增加配置项
 * 更多的测试（单元测试/集成测试）
 * 性能测试
 * 消息持久化
