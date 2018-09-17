@@ -63,21 +63,21 @@ func putBufioWriter(bw *bufio.Writer) {
 }
 
 type Client struct {
-	mu     sync.Mutex
-	server *Server
-	wg     sync.WaitGroup
-	rwc    net.Conn //raw tcp connection
-	bufr         *bufio.Reader
-	bufw         *bufio.Writer
-	packetReader *packets.Reader
-	packetWriter *packets.Writer
-	in  chan packets.Packet
-	out chan packets.Packet
+	mu            sync.Mutex
+	server        *Server
+	wg            sync.WaitGroup
+	rwc           net.Conn //raw tcp connection
+	bufr          *bufio.Reader
+	bufw          *bufio.Writer
+	packetReader  *packets.Reader
+	packetWriter  *packets.Writer
+	in            chan packets.Packet
+	out           chan packets.Packet
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
-	status  int32 //client状态
-	session *session
-	error   chan error //错误
+	status        int32         //client状态
+	session       *session
+	error         chan error     //错误
 	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
 	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
 	//自定义数据 user data
@@ -91,7 +91,7 @@ func (c *Client) UserData() interface{} {
 	return c.userData
 }
 
-func (c *Client) SetUserData(data interface{})  {
+func (c *Client) SetUserData(data interface{}) {
 	c.userMutex.Lock()
 	defer c.userMutex.Unlock()
 	c.userData = data
@@ -139,7 +139,6 @@ func (client *Client) setError(error error) {
 	}
 }
 
-
 func (client *Client) writeLoop() {
 	var err error
 	defer func() {
@@ -186,11 +185,9 @@ func (client *Client) writeLoop() {
 	}
 }
 
-
 func (client *Client) writePacket(packet packets.Packet) error {
 	return client.packetWriter.WritePacket(packet)
 }
-
 
 func (client *Client) readLoop() {
 	var err error
@@ -294,13 +291,15 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		client.setConnected()
 		if sessionReuse {
 			//离线队列
-			for {
-				if client.session.offlineQueue.Front() == nil {
-					break
+			go func() {
+				for {
+					if client.session.offlineQueue.Front() == nil {
+						break
+					}
+					client.out <- client.session.offlineQueue.Remove(client.session.offlineQueue.Front()).(packets.Packet)
 				}
-				client.out <- client.session.offlineQueue.Remove(client.session.offlineQueue.Front()).(packets.Packet)
-			}
-			close(client.session.ready)
+				close(client.session.ready)
+			}()
 		} else {
 			close(client.session.ready)
 		}
@@ -417,7 +416,6 @@ clearIn:
 	}
 }
 
-
 func (client *Client) internalClose() {
 	client.sessionLogout()
 	putBufioReader(client.bufr)
@@ -475,7 +473,7 @@ func (client *Client) readHandle() {
 					client.server.retainedMsgMu.Lock()
 					for _, msg := range client.server.retainedMsg {
 						s.deliver(msg, true) //retain msg
-				}
+					}
 					client.server.retainedMsgMu.Unlock()
 				}
 			case *packets.Publish:
@@ -592,7 +590,7 @@ func (client *Client) redeliver() {
 			s.inflightMu.Lock()
 			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
 				if inflight, ok := inflight.Value.(*inflightElem); ok {
-					if time.Now().Unix() - inflight.at.Unix() >= REDELIVER_TIME {
+					if time.Now().Unix()-inflight.at.Unix() >= REDELIVER_TIME {
 						switch inflight.packet.(type) { //publish 和 pubrel要重发
 						case *packets.Publish:
 							publish := inflight.packet.(*packets.Publish)

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
@@ -38,10 +37,9 @@ type Server struct {
 }
 
 type WsServer struct {
-	Addr      string
-	TLSConfig *tls.Config
-	CertFile  string
-	KeyFile   string
+	Server http.Server
+	CertFile string
+	KeyFile string
 }
 
 type OnAccept func(conn net.Conn) bool
@@ -188,13 +186,11 @@ func (ws *wsConn) Write(p []byte) (n int, err error) {
 func (srv *Server) serveWebSocket(ws *WsServer) {
 	var err error
 	if ws.CertFile != "" && ws.KeyFile != "" {
-		httpServer := &http.Server{Addr: ws.Addr, TLSConfig: ws.TLSConfig}
-		err = httpServer.ListenAndServeTLS(ws.CertFile, ws.KeyFile)
+		err = ws.Server.ListenAndServeTLS(ws.CertFile, ws.KeyFile)
 	} else {
-		httpServer := &http.Server{Addr: ws.Addr}
-		err = httpServer.ListenAndServe()
+		err = ws.Server.ListenAndServe()
 	}
-	if err != nil {
+	if err != http.ErrServerClosed {
 		panic(err.Error())
 	}
 }
@@ -257,6 +253,12 @@ func (srv *Server) Stop(ctx context.Context) error {
 	for _, l := range srv.tcpListener {
 		l.Close()
 	}
+
+
+	for _,ws := range srv.websocketServer {
+		ws.Server.Shutdown(ctx)
+	}
+
 	//关闭所有的client
 	//closing all client
 	srv.mu.Lock()
