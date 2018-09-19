@@ -9,7 +9,7 @@
 * 支持tls/ssl以及ws/wss
 
 # 安装
-```$ go get github.com/DrmagicE/gmqtt```
+```$ go get github.com/DrmagicE/gmqtt/server```
 # 开始
 下列命令将监听1883端口，并开启一个MQTT服务器
 ```
