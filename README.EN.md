@@ -217,6 +217,7 @@ Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
 * Benchmark test
+* Log 
 * Message persistence
 * More test(Unit/Integration)
 * Website monitor
