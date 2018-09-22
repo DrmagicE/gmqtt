@@ -125,6 +125,7 @@ func (c *Connect) Unpack(r io.Reader) error {
 		return err
 	}
 	if !bytes.Equal(restBuffer[0:6], []byte{0, 4, 77, 81, 84, 84}) { //protocol name
+
 		return ErrInvalProtocolName // [MQTT-3.1.2-1] 不符合的protocol name直接关闭
 	}
 	c.ProtocolName = []byte{77, 81, 84, 84}

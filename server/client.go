@@ -199,6 +199,14 @@ func (client *Client) readLoop() {
 		client.wg.Done()
 	}()
 	for {
+/*		select {
+		case <-client.server.exitChan:
+			return
+		case <-client.close:
+			return
+		default:
+
+		}*/
 		var packet packets.Packet
 		if client.Status() == CONNECTED {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
@@ -248,12 +256,14 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	select {
 	case <-client.close:
 		return
+
 	case p = <-client.in: //first packet
 	case <-time.After(5 * time.Second):
 		err = ErrConnectTimeOut
 		return
 	}
 	conn, flag := p.(*packets.Connect)
+
 	if !flag {
 		err = ErrInvalStatus
 		return
@@ -272,6 +282,7 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 		client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 	}
+
 	err = client.sessionLogin(conn)
 	return
 }
@@ -304,6 +315,7 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 			close(client.session.ready)
 		}
 	}()
+
 	if connect.AckCode != packets.CODE_ACCEPTED {
 		err = errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
 		return
@@ -572,6 +584,7 @@ func (client *Client) readHandle() {
 
 //session重发,退出条件，client连接关闭
 func (client *Client) redeliver() {
+
 	var err error
 	s := client.session
 	defer func() {
@@ -581,7 +594,8 @@ func (client *Client) redeliver() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-	timer := time.NewTicker(time.Second * REDELIVER_TIME)
+	retryInterval := client.server.config.deliveryRetryInterval
+	timer := time.NewTicker(retryInterval)
 	for {
 		select {
 		case <-client.close: //关闭广播
@@ -590,7 +604,7 @@ func (client *Client) redeliver() {
 			s.inflightMu.Lock()
 			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
 				if inflight, ok := inflight.Value.(*inflightElem); ok {
-					if time.Now().Unix()-inflight.at.Unix() >= REDELIVER_TIME {
+					if time.Now().Unix()-inflight.at.Unix() >= int64(retryInterval.Seconds()) {
 						switch inflight.packet.(type) { //publish 和 pubrel要重发
 						case *packets.Publish:
 							publish := inflight.packet.(*packets.Publish)

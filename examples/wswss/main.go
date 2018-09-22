@@ -22,10 +22,10 @@ func main() {
 	}
 	s.AddTCPListenner(ln)
 	ws := &server.WsServer{
-		Server:http.Server{Addr:":8080"},
+		Server:&http.Server{Addr:":8080"},
 	}
 	wss := &server.WsServer{
-		Server:http.Server{Addr:":8081"},
+		Server:&http.Server{Addr:":8081"},
 		CertFile:"../testcerts/server.crt",
 		KeyFile:"../testcerts/server.key",
 	}

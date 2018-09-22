@@ -8,7 +8,7 @@ import (
 )
 
 
-const MAX_INFLIGHT_LEN = 20
+
 
 type session struct {
 	needStore     bool
@@ -57,7 +57,7 @@ func newSession(client *Client) *session {
 //inflight 入队
 func (s *session) setInflight(elem *inflightElem) {
 	s.inflightMu.Lock()
-	if s.inflight.Len() == MAX_INFLIGHT_LEN {
+	if s.inflight.Len() == s.client.server.config.maxInflightMessages {
 		s.inflightMu.Unlock() //释放锁,防止阻塞的时候，unsetInflight无法获得锁
 		//达到了最大值,阻塞等
 		select {
@@ -116,7 +116,13 @@ func (s *session) onlineWrite(packet packets.Packet) {
 		s.client.setError(ErrWriteBufFull)
 	}
 }
+
 func (s *session) offlineWrite(packet packets.Packet) {
+	if pub,ok:= packet.(*packets.Publish);ok {
+		if pub.Qos == packets.QOS_0 && s.client.server.config.queueQos0Messages == false {
+			return
+		}
+	}
 	s.offlineQueue.PushBack(packet)
 }
 
@@ -137,7 +143,6 @@ func (s *session) deliver(incoming *packets.Publish, isRetain bool) {
 			}
 		}
 	}
-
 	s.topicsMu.Unlock()
 	if isMatch { //匹配
 		publish := incoming.CopyPublish()

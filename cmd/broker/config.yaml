@@ -1,0 +1,7 @@
+delivery_retry_interval: 20
+max_inflight_messages: 20
+queue_qos0_messages: true
+profile: {cpu: "cpuprofile", mem: "memprofile"}
+listener:
+- {protocol: mqtt, addr: ':1883', certfile: , keyfile:  }
+- {protocol: websocket, addr: ':8081', certfile: ,keyfile: }

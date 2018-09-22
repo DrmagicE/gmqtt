@@ -12,7 +12,11 @@ const test_max_len = 20
 
 //mock client,only for session_test.go
 func mockClient() *Client {
-	b := &Server{}
+	b := &Server{
+		config : &config{
+			maxInflightMessages:test_max_len,
+		},
+	}
 	return b.newClient(nil)
 }
 
