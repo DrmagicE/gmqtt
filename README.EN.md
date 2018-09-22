@@ -8,7 +8,7 @@ This repository also provides a MQTT protocol pack/unpack packet for implementin
 
 
 # Installation
-```go get github.com/DrmagicE/gmqtt```
+```go get github.com/DrmagicE/gmqtt/server```
 
 # Get Started
 Use the following command to start a simple broker that listens on port 1883
@@ -145,6 +145,7 @@ $ go test
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
+* pprof
 * Configration
 * More test(Unit/Integration)
 * Benchmark test

@@ -9,7 +9,7 @@
 * 支持tls/ssl以及ws/wss
 
 # 安装
-```$ go get github.com/DrmagicE/gmqtt```
+```$ go get github.com/DrmagicE/gmqtt/server```
 # 开始
 下列命令将监听1883端口，并开启一个MQTT服务器
 ```
@@ -146,6 +146,7 @@ $ go test
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
+* 增加pprof分析
 * 增加配置项
 * 更多的测试（单元测试/集成测试）
 * 性能测试
