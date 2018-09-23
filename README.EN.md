@@ -1,6 +1,8 @@
 # Gmqtt
-Gmqtt is a Golang MQTT broker that fully implements the MQTT protocol V3.1.1.
-This repository also provides a MQTT protocol pack/unpack packet for implementing MQTT clients or testing
+Gmqtt provides:
+*  MQTT broker that fully implements the MQTT protocol V3.1.1.
+*  Golang MQTT broker package for secondary development.
+*  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
 
 # Features
 * Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
@@ -8,16 +10,86 @@ This repository also provides a MQTT protocol pack/unpack packet for implementin
 
 
 # Installation
-```go get github.com/DrmagicE/gmqtt/server```
+```go get github.com/DrmagicE/gmqtt/cmd/broker```
 
 # Get Started
-Use the following command to start a simple broker that listens on port 1883
+## Build-in MQTT broker
+Use the following command to start a simple broker that listens on port 1883 for TCP and 8080 for websocket.
 ```
 $ cd cmd
 $ go run main.go
 ```
-# Examples
-There are some examples in `/examples`. 
+### Build-in MQTT Broker Configration
+See `cmd/broker/config.yaml`:
+```
+# Delivery retry interval .Defaults to 20 seconds
+delivery_retry_interval: 20
+# The maximum number of QoS 1 or 2 messages that can be in the process of being transmitted simultaneously. Defaults to 20
+max_inflight_messages: 20
+# Set to true to queue messages with QoS 0 when a persistent client is disconnected.Defaults to true.
+queue_qos0_messages: true
+# pprof
+# pprof.cpu:The file to store CPU profile, if specified.
+# pprof.mem:The file to store memory profile, if specified.
+profile: {cpu: "cpuprofile", mem: "memprofile"}
+# listener
+# listener.$.protocol:Set the protocol to accept for this listener. Can be mqtt, the default, or websockets.
+# listener.$.addr:Bind address, it wil pass to net.Listen(network, address string) address parameter.
+# listener.$.certfile:The cert file path,if using tls/ssl.
+# listenr.$.keyfile:The key file path,if using tls/ssl.
+listener:
+- {protocol: mqtt, addr: ':1883', certfile: , keyfile:  }
+- {protocol: websocket, addr: ':8080', certfile: ,keyfile: }
+```
+
+`cmd/broker/config.yaml` is the default config file.
+Use the following command to specify a config file:
+
+`$ go run main.go -config <config-file-path>`
+
+## Using `gmqtt/server` Package for Secondary Development
+The features of build-in MQTT broker is not rich enough.It is not implementing some features such as Authentication, ACL etc..
+So It is recommend to use `gmqtt/server` package to customized your broker: 
+
+```
+func main() {
+	s := server.NewServer()
+	ln, err := net.Listen("tcp",":1883")
+	if err != nil {
+		log.Fatalln(err.Error())
+		return
+	}
+	crt, err := tls.LoadX509KeyPair("../testcerts/server.crt", "../testcerts/server.key")
+	if err != nil {
+		log.Fatalln(err.Error())
+		return
+	}
+	tlsConfig := &tls.Config{}
+	tlsConfig.Certificates = []tls.Certificate{crt}
+	tlsln, err := tls.Listen("tcp",":8883",tlsConfig)
+	if err != nil {
+		log.Fatalln(err.Error())
+		return
+	}
+	s.AddTCPListenner(ln)
+	s.AddTCPListenner(tlsln)
+	//Setting hook methods & configration before s.Run()
+	s.OnConnect = .... Authentication
+	s.OnSubscribe = ....ACL
+	s.SetQueueQos0Messages(false)
+	....
+	
+	
+	s.Run()
+	fmt.Println("started...")
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	<-signalCh
+	s.Stop(context.Background())
+	fmt.Println("stopped")
+}
+```
+See `/examples` for more details.
 
 # Documentation
 
@@ -145,11 +217,11 @@ $ go test
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
-* pprof
-* Configration
-* More test(Unit/Integration)
 * Benchmark test
+* Log 
 * Message persistence
+* Vendoring
+* More test(Unit/Integration)
 * Website monitor
 * Cli mqtt client
 
