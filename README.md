@@ -215,10 +215,11 @@ $ go test
 ## 集成测试
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
-# TODO
+# TODO 
 * 性能测试
 * 日志
 * 消息持久化
+* Vendoring
 * 更多的测试（单元测试/集成测试）
 * 网页监控
 * MQTT客户端
