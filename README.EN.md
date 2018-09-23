@@ -32,6 +32,8 @@ queue_qos0_messages: true
 # pprof.cpu:The file to store CPU profile, if specified.
 # pprof.mem:The file to store memory profile, if specified.
 profile: {cpu: "cpuprofile", mem: "memprofile"}
+# Set to true to enable logging. Defaults to false 
+logging: false
 # listener
 # listener.$.protocol:Set the protocol to accept for this listener. Can be mqtt, the default, or websockets.
 # listener.$.addr:Bind address, it wil pass to net.Listen(network, address string) address parameter.
@@ -218,7 +220,6 @@ Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
 * Benchmark test
-* Log 
 * Message persistence
 * Vendoring
 * More test(Unit/Integration)
