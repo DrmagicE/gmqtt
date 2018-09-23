@@ -44,6 +44,7 @@ listener:
 
 `cmd/broker/config.yaml` is the default config file.
 Use the following command to specify a config file:
+
 `$ go run main.go -config <config-file-path>`
 
 ## Using `gmqtt/server` Package for Secondary Development
