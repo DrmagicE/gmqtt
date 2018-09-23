@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"fmt"
 )
 
 type Connect struct {
@@ -26,6 +27,12 @@ type Connect struct {
 	Username []byte
 	Password []byte
 	AckCode  uint8 //ack的返回码
+}
+
+func (c *Connect) String() string {
+	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanSession: %v, KeepAlive: %v, ClientId: %s, Username: %s, Password: %s" +
+		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
+		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanSession, c.KeepAlive, c.ClientId, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }
 
 func (c *Connect) Pack(w io.Writer) error {

@@ -3,9 +3,14 @@ package packets
 
 import (
 	"io"
+	"fmt"
 )
 type Disconnect struct {
 	FixHeader *FixHeader
+}
+
+func (c *Disconnect) String() string {
+	return fmt.Sprintf("Disconnect")
 }
 
 func (d *Disconnect) Pack(w io.Writer) error {

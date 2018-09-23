@@ -3,6 +3,7 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 type Subscribe struct {
@@ -10,6 +11,15 @@ type Subscribe struct {
 	PacketId PacketId
 
 	Topics []Topic //suback响应之前填充
+}
+
+func (c *Subscribe) String() string {
+	str := fmt.Sprintf("Subscribe, Pid: %v",c.PacketId)
+
+	for k, t := range c.Topics {
+		str += fmt.Sprintf(", Topic[%d][Name: %s, Qos: %v]",k, t.Name, t.Qos)
+	}
+	return str
 }
 
 

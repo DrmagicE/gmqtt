@@ -5,43 +5,56 @@ import (
 	"errors"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
-	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+	"github.com/DrmagicE/gmqtt/logger"
+
 )
 
 var (
 	ErrInvalWsMsgType = errors.New("invalid websocket message type") // [MQTT-6.0.0-1]
 )
 
+
 //Default configration
 const (
 	DefaultDeliveryRetryInterval = 20 * time.Second
-	DefaultQueueQos0Messages = true
-	DefaultMaxInflightMessages = 20
+	DefaultQueueQos0Messages     = true
+	DefaultMaxInflightMessages   = 20
 )
+
+
+var log = &logger.Logger{}
+
+
+func SetLogger(l *logger.Logger) {
+	log = l
+}
+
+
+
 
 type config struct {
 	deliveryRetryInterval time.Duration
 	queueQos0Messages     bool
-	maxInflightMessages int
+	maxInflightMessages   int
 }
 
 type Server struct {
 	sync.WaitGroup
-	connectMu         sync.Mutex
-	mu                sync.RWMutex //gard session map
-	sessions          map[string]*session
-	tcpListener       []net.Listener //tcp listeners
-	websocketServer   []*WsServer    //websocket server
-	exitChan          chan struct{}
-	retainedMsgMu     sync.Mutex
-	retainedMsg       map[string]*packets.Publish
-	incoming          chan *packets.Publish
-	config *config
-	
+	connectMu       sync.Mutex
+	mu              sync.RWMutex //gard session map
+	sessions        map[string]*session
+	tcpListener     []net.Listener //tcp listeners
+	websocketServer []*WsServer    //websocket server
+	exitChan        chan struct{}
+	retainedMsgMu   sync.Mutex
+	retainedMsg     map[string]*packets.Publish
+	incoming        chan *packets.Publish
+	config          *config
+
 	//hooks
 	OnAccept    OnAccept
 	OnConnect   OnConnect
@@ -87,14 +100,13 @@ func NewServer() *Server {
 		sessions:    make(map[string]*session),
 		incoming:    make(chan *packets.Publish, 8192),
 		retainedMsg: make(map[string]*packets.Publish),
-		config:&config{
-			deliveryRetryInterval:DefaultDeliveryRetryInterval,
-			queueQos0Messages:DefaultQueueQos0Messages,
-			maxInflightMessages:DefaultMaxInflightMessages,
+		config: &config{
+			deliveryRetryInterval: DefaultDeliveryRetryInterval,
+			queueQos0Messages:     DefaultQueueQos0Messages,
+			maxInflightMessages:   DefaultMaxInflightMessages,
 		},
 	}
 }
-
 
 func (srv *Server) SetDeliveryRetryInterval(duration time.Duration) {
 	srv.config.deliveryRetryInterval = duration
@@ -108,13 +120,11 @@ func (srv *Server) SetMaxInflightMessages(i int) {
 	srv.config.maxInflightMessages = i
 }
 
-
 func (srv *Server) AddTCPListenner(ln ...net.Listener) {
 	for _, v := range ln {
 		srv.tcpListener = append(srv.tcpListener, v)
 	}
 }
-
 
 func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
 	for _, v := range Server {
@@ -136,8 +146,6 @@ func (srv *Server) routing() {
 		}
 	}
 }
-
-
 
 func (srv *Server) serveTcp(l net.Listener) {
 	defer func() {

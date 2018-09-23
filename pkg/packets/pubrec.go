@@ -3,12 +3,17 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 //qos 2 step1
 type Pubrec struct {
 	FixHeader *FixHeader
 	PacketId PacketId
+}
+
+func (c *Pubrec) String() string {
+	return fmt.Sprintf("Pubrec, Pid: %v",c.PacketId)
 }
 
 

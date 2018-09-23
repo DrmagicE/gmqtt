@@ -3,6 +3,7 @@ package packets
 import (
 	"encoding/binary"
 	"io"
+	"fmt"
 )
 
 type Unsubscribe struct {
@@ -13,6 +14,9 @@ type Unsubscribe struct {
 }
 
 
+func (c *Unsubscribe) String() string {
+	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v",c.PacketId, c.Topics)
+}
 
 
 //suback

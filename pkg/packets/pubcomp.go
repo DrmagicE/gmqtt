@@ -3,12 +3,18 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 type Pubcomp struct {
 	FixHeader *FixHeader
 	PacketId
 }
+
+func (c *Pubcomp) String() string {
+	return fmt.Sprintf("Pubcomp, Pid: %v",c.PacketId)
+}
+
 
 
 func NewPubcompPacket(fh *FixHeader,r io.Reader) (*Pubcomp,error) {

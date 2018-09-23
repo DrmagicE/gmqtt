@@ -1,9 +1,9 @@
 package run
 
 import (
-	"io/ioutil"
-	"gopkg.in/yaml.v2"
 	"fmt"
+	"gopkg.in/yaml.v2"
+	"io/ioutil"
 )
 
 const ProtocolMQTT = "mqtt"
@@ -13,17 +13,19 @@ const ProtocolWebsocket = "websocket"
 //Default configration
 const (
 	DefaultDeliveryRetryInterval = 20
-	DefaultQueueQos0Messages = true
-	DefaultMaxInflightMessages = 20
+	DefaultQueueQos0Messages     = true
+	DefaultMaxInflightMessages   = 20
+	DefaultLogging               = false
 )
 
 //监听地址,类型：tcp/ssl ws/wss
 type Config struct {
-	DeliveryRetryInterval int64  `yaml:"delivery_retry_interval"`
-	QueueQos0Messages     bool `yaml:"queue_qos0_messages"`
-	MaxInflightMessages   int  `yaml:"max_inflight_messages"`
-	ProfileConfig         ProfileConfig `yaml:"profile"`
+	DeliveryRetryInterval int64            `yaml:"delivery_retry_interval"`
+	QueueQos0Messages     bool             `yaml:"queue_qos0_messages"`
+	MaxInflightMessages   int              `yaml:"max_inflight_messages"`
+	ProfileConfig         ProfileConfig    `yaml:"profile"`
 	Listener              []ListenerConfig `yaml:"listener,flow"`
+	Logging               bool             `yaml:"logging"`
 }
 
 type ProfileConfig struct {
@@ -39,14 +41,14 @@ type ListenerConfig struct {
 }
 
 func (c *Config) Validate() error {
-	for _,v := range c.Listener {
+	for _, v := range c.Listener {
 		if v.Protocol != ProtocolMQTT && v.Protocol != ProtocolWebsocket {
-			return fmt.Errorf("invalid protocol name '%s',expect 'mqtt' or 'websocket'",v.Protocol)
+			return fmt.Errorf("invalid protocol name '%s',expect 'mqtt' or 'websocket'", v.Protocol)
 		}
-		if v.KeyFile != "" && v.CertFile == ""{
+		if v.KeyFile != "" && v.CertFile == "" {
 			return fmt.Errorf("invalid tls/ssl configration, 'certfile missing'")
 		}
-		if v.KeyFile == "" && v.CertFile != ""{
+		if v.KeyFile == "" && v.CertFile != "" {
 			return fmt.Errorf("invalid tls/ssl configration, 'keyfile' missing")
 		}
 		if v.Addr == "" {
@@ -58,13 +60,12 @@ func (c *Config) Validate() error {
 
 func NewConfig() *Config {
 	return &Config{
-		DeliveryRetryInterval:DefaultDeliveryRetryInterval,
-		QueueQos0Messages:DefaultQueueQos0Messages,
-		MaxInflightMessages:DefaultMaxInflightMessages,
+		DeliveryRetryInterval: DefaultDeliveryRetryInterval,
+		QueueQos0Messages:     DefaultQueueQos0Messages,
+		MaxInflightMessages:   DefaultMaxInflightMessages,
+		Logging:               DefaultLogging,
 	}
 }
-
-
 
 // loads the config from a yaml config file
 func (c *Config) FromConfigFile(fpath string) error {
@@ -77,7 +78,7 @@ func (c *Config) FromConfigFile(fpath string) error {
 		return err
 	}
 	if len(c.Listener) == 0 {
-		c.Listener = make([]ListenerConfig,1)
+		c.Listener = make([]ListenerConfig, 1)
 		c.Listener[0].Protocol = ProtocolMQTT
 		c.Listener[0].Addr = ":1883"
 	}

@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
 )
 
 type dummyAddr string

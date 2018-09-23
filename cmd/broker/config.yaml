@@ -1,7 +1,21 @@
+# 超时重传间隔秒数，默认20秒
 delivery_retry_interval: 20
+# 最大飞行窗口，默认20条
 max_inflight_messages: 20
+# 是否为离线的保持会话客户端转发QoS0消息，默认转发
 queue_qos0_messages: true
+# pprof 监控文件，默认不开启pprof
+# pprof.cpu CPU监控文件
+# pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
+
+# 是否打印日志，调试时使用，默认false不打印
+logging: true
+# listener
+# listener.$.protocol 支持mqtt或者websocket
+# listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
+# listener.$.certfile 如果使用tls/ssl，填写cert文件路径
+# listenr.$.keyfile 如果使用tls/ssl，填写key文件路径
 listener:
 - {protocol: mqtt, addr: ':1883', certfile: , keyfile:  }
 - {protocol: websocket, addr: ':8080', certfile: ,keyfile: }

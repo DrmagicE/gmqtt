@@ -106,7 +106,6 @@ func (c *Client) ClientOption() ClientOptions {
 }
 
 func (c *Client) setConnecting() {
-
 	atomic.StoreInt32(&c.status, CONNECTING)
 }
 func (c *Client) setConnected() {
@@ -175,6 +174,7 @@ func (client *Client) writeLoop() {
 					client.session.setInflight(inflightElem)
 				}
 			}
+			log.Printf("%-15s %v: %s ","sending to",client.rwc.RemoteAddr(),packet)
 			err = client.writePacket(packet)
 
 			if err != nil {
@@ -217,6 +217,7 @@ func (client *Client) readLoop() {
 		if err != nil {
 			return
 		}
+		log.Printf("%-15s %v: %s ","received from",client.rwc.RemoteAddr(),packet)
 		client.in <- packet
 	}
 }
@@ -310,8 +311,10 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 					client.out <- client.session.offlineQueue.Remove(client.session.offlineQueue.Front()).(packets.Packet)
 				}
 				close(client.session.ready)
+				log.Printf("%-15s %v: logined with session reuse","",client.rwc.RemoteAddr())
 			}()
 		} else {
+			log.Printf("%-15s %v: logined with new session","",client.rwc.RemoteAddr())
 			close(client.session.ready)
 		}
 	}()
@@ -332,6 +335,7 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 	clientId := client.opts.ClientId
 	oldSession := server.Session(clientId)
 	if oldSession != nil {
+		log.Printf("%-15s %v: logging with duplicate ClientId: %s","",client.rwc.RemoteAddr(), client.ClientOption().ClientId)
 		if client.opts.CleanSession == true {
 			oldSession.needStore = false
 		}
@@ -350,6 +354,7 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		}
 	} else {
 		// new session
+
 		client.session = newSession(client)
 		server.SetSession(client.session)
 		return
@@ -389,13 +394,16 @@ clearIn:
 		go func() {
 			client.server.incoming <- willMsg
 		}()
-	}
 
+	}
 	if client.session.needStore == false {
+		log.Printf("%-15s %v: logout & cleaning session","",client.rwc.RemoteAddr())
 		delete(server.sessions, client.opts.ClientId)
 	} else { //保持session
 		//填充离线队列，未确认的publish 和 pubrel
 		//write unacknowledged publish & pubrel to offline msg queue
+		log.Printf("%-15s %v: logout & storing session","",client.rwc.RemoteAddr())
+
 		for e := s.inflight.Front(); e != nil; e = e.Next() {
 			if inflight, ok := e.Value.(*inflightElem); ok {
 				switch inflight.packet.(type) {
@@ -456,6 +464,7 @@ func (client *Client) readHandle() {
 		case <-client.close:
 			return
 		case packet := <-client.in:
+
 			switch packet.(type) {
 			case *packets.Subscribe:
 				sub := packet.(*packets.Subscribe)
@@ -609,9 +618,11 @@ func (client *Client) redeliver() {
 						case *packets.Publish:
 							publish := inflight.packet.(*packets.Publish)
 							publish.Dup = true //重发标志
+							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),publish)
 							s.write(publish)
 						case *packets.Pubrel:
 							pubrel := inflight.packet.(*packets.Pubrel)
+							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),pubrel)
 							s.write(pubrel)
 						}
 					}

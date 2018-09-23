@@ -3,6 +3,7 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 //qos2 step2
@@ -12,6 +13,11 @@ type Pubrel struct {
 
 
 	Dup bool //是否重发标记，不属于协议包内容
+}
+
+
+func (c *Pubrel) String() string {
+	return fmt.Sprintf("Pubrel, Pid: %v",c.PacketId)
 }
 
 

@@ -6,6 +6,9 @@ import (
 	"net"
 	"net/http"
 	"time"
+	"github.com/DrmagicE/gmqtt/logger"
+	"os"
+	"log"
 )
 
 func NewServer(config *Config) (*server.Server, error) {
@@ -48,6 +51,9 @@ func NewServer(config *Config) (*server.Server, error) {
 			}
 			srv.AddWebSocketServer(ws)
 		}
+	}
+	if config.Logging  {
+		server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	}
 
 	return srv, nil

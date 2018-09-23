@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 
+	"fmt"
 )
 
 type Publish struct {
@@ -15,6 +16,12 @@ type Publish struct {
 	PacketId //报文标识符
 	Payload []byte
 }
+
+func (c *Publish) String() string {
+	return fmt.Sprintf("Publish, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
+		c.PacketId, c.Dup, c.Qos, c.Retain, c.TopicName, c.Payload)
+}
+
 
 //copy一份分发
 func (p *Publish) CopyPublish() *Publish{

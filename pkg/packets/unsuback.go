@@ -3,12 +3,17 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 //响应
 type Unsuback struct {
 	FixHeader *FixHeader
 	PacketId PacketId
+}
+
+func (c *Unsuback) String() string {
+	return fmt.Sprintf("Unsuback, Pid: %v, Payload: %v",c.PacketId)
 }
 
 

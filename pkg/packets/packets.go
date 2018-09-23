@@ -61,10 +61,11 @@ type PacketId = uint16
 const MAX_PACKET_ID PacketId = 65535
 const MIN_PACKET_ID PacketId = 1
 
-//reader依赖
+
 type Packet interface{
 	Pack(w io.Writer) error
 	Unpack(r io.Reader) error
+	String() string //for logging
 }
 
 type FixHeader struct {

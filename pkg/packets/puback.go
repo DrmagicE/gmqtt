@@ -3,12 +3,18 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 type Puback struct {
 	FixHeader *FixHeader
 	PacketId
 }
+
+func (c *Puback) String() string {
+	return fmt.Sprintf("Puback, Pid: %v",c.PacketId)
+}
+
 
 
 //from reader

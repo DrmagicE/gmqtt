@@ -3,6 +3,7 @@ package packets
 import (
 	"io"
 	"encoding/binary"
+	"fmt"
 )
 
 type Suback struct {
@@ -10,6 +11,14 @@ type Suback struct {
 	PacketId PacketId
 	Payload []byte
 }
+
+
+
+
+func (c *Suback) String() string {
+	return fmt.Sprintf("Suback, Pid: %v, Payload: %v",c.PacketId, c.Payload)
+}
+
 
 //new suback
 func NewSubackPacket(fh *FixHeader,r io.Reader) (*Suback,error) {

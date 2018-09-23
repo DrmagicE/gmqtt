@@ -123,6 +123,7 @@ func (s *session) offlineWrite(packet packets.Packet) {
 			return
 		}
 	}
+	log.Printf("%-15s[%s] %s ","queueing offline msg cid", s.client.ClientOption().ClientId, packet)
 	s.offlineQueue.PushBack(packet)
 }
 

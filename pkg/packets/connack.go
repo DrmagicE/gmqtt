@@ -2,6 +2,7 @@ package packets
 
 import (
 	"io"
+	"fmt"
 )
 
 const (
@@ -18,6 +19,10 @@ type Connack struct {
 	FixHeader *FixHeader
 	Code byte
 	SessionPresent int
+}
+
+func (c *Connack) String() string {
+	return fmt.Sprintf("Connack, Code:%v, SessionPresent:%v",c.Code, c.SessionPresent)
 }
 
 func (c *Connack) Pack(w io.Writer) error {

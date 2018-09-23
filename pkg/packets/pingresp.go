@@ -2,11 +2,17 @@ package packets
 
 import (
 	"io"
+	"fmt"
 )
 
 type Pingresp struct {
 	FixHeader *FixHeader
 }
+
+func (c *Pingresp) String() string {
+	return fmt.Sprintf("Pingresp")
+}
+
 
 func (p *Pingresp) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PINGRESP, Flags: 0, RemainLength: 0}

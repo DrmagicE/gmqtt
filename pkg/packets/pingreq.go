@@ -2,11 +2,17 @@ package packets
 
 import (
 	"io"
+	"fmt"
 )
 
 type Pingreq struct {
 	FixHeader *FixHeader
 }
+
+func (c *Pingreq) String() string {
+	return fmt.Sprintf("Pingreq")
+}
+
 
 func NewPingreqPacket(fh *FixHeader,r io.Reader) (*Pingreq,error) {
 	if fh.Flags != FLAG_RESERVED {

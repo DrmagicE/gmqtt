@@ -9,8 +9,8 @@ import (
 	"log"
 )
 
-
 func main() {
+
 	cmd := &run.Command{}
 	if err := cmd.Run(os.Args[1:]...); err != nil {
 		fmt.Println(err)

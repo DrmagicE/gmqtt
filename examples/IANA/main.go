@@ -17,6 +17,7 @@ import (
 
 func main() {
 	s := server.NewServer()
+
 	ln, err := net.Listen("tcp",":1883")
 	if err != nil {
 		log.Fatalln(err.Error())

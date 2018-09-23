@@ -32,6 +32,9 @@ func (p *mockPublishPacket) Unpack(r io.Reader) error {
 	return nil
 }
 
+func (p *mockPublishPacket) String() string {
+	return "mock"
+}
 
 func fullInflightSession() *session {
 	session := newSession(mockClient())
