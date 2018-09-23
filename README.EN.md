@@ -219,6 +219,7 @@ Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 * Benchmark test
 * Log 
 * Message persistence
+* Vendoring
 * More test(Unit/Integration)
 * Website monitor
 * Cli mqtt client
