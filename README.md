@@ -33,7 +33,7 @@ queue_qos0_messages: true
 # pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
 # 是否打印日志，调试时使用，默认false不打印
-logging: true
+logging: false
 # listener
 # listener.$.protocol 支持mqtt或者websocket
 # listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
