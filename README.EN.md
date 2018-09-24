@@ -1,4 +1,4 @@
-# Gmqtt
+# Gmqtt [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt)
 Gmqtt provides:
 *  MQTT broker that fully implements the MQTT protocol V3.1.1.
 *  Golang MQTT broker package for secondary development.
