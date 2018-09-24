@@ -237,7 +237,7 @@ func TestConnect(t *testing.T) {
 		}
 
 		if opts.CleanSession != true {
-			t.Fatalf("CleanSession error,want true, got %s", opts.CleanSession)
+			t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
 		}
 
 		if opts.ClientId != "MQTT" {
@@ -249,7 +249,7 @@ func TestConnect(t *testing.T) {
 		}
 
 		if opts.WillRetain != false {
-			t.Fatalf("WillRetain error,want false, got %s", opts.WillRetain)
+			t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
 		}
 
 		willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}

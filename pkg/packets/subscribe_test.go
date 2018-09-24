@@ -184,7 +184,7 @@ func TestWriteSubscribePacket(t *testing.T) {
 
 		if p,ok := packet.(*Subscribe);ok {
 			if len(p.Topics) != len(sub.Topics) {
-				t.Fatalf("len(p.Topics) error,want %d, got %d", len(sub.Topics), p.Topics)
+				t.Fatalf("len(p.Topics) error,want %d, got %v", len(sub.Topics), p.Topics)
 			}
 			for k,v := range p.Topics {
 				if v != sub.Topics[k] {
