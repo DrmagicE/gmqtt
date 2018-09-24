@@ -12,6 +12,7 @@ import (
 
 type session struct {
 	needStore     bool
+	clientMu     sync.Mutex
 	client        *Client
 	topicsMu      sync.Mutex
 	subTopics     map[string]packets.Topic //所有订阅的subscribe
@@ -30,6 +31,12 @@ type session struct {
 	offlineQueue   *list.List //保存离线消息
 	offlineAt      time.Time  //离线时间
 	ready          chan struct{}
+}
+
+func (s *session) SetClient(client *Client) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	s.client = client
 }
 
 type inflightElem struct {

@@ -283,7 +283,6 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 		client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 	}
-
 	err = client.sessionLogin(conn)
 	return
 }
@@ -343,7 +342,8 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		if client.opts.CleanSession == false && oldSession.client.opts.CleanSession == false {
 			//reuse old session
 			client.session = oldSession
-			oldSession.client = client
+			oldSession.SetClient(client)
+			//oldSession.client = client
 			sessionReuse = true
 			return
 		} else {

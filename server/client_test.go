@@ -690,7 +690,7 @@ func TestRetainMsg(t *testing.T) {
 				t.Fatalf("Dup error, want %t, got %t", false, true)
 			}
 			if pub.Qos != packets.QOS_1 {
-				t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, pub.Qos)
+				t.Fatalf("Qos error, want %d, got %d", packets.QOS_1, pub.Qos)
 			}
 
 			if !pub.Retain {
