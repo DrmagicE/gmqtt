@@ -1,0 +1,14 @@
+language: go
+
+go:
+  - "1.8.x"
+  - "1.9.x"
+  - "1.10.x"
+  - master
+
+before_install:
+  - go get -t -v -u github.com/DrmagicE/gmqtt/cmd/broker
+
+script:
+  -  go test ./pkg/packets
+#  - go test -bench=. -benchmem=true -run=none ./...
