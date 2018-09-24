@@ -3,7 +3,7 @@ language: go
 go:
   - "1.9.x"
   - "1.10.x"
-  - master
+  #- master
 
 before_install:
   - go get -t -v github.com/DrmagicE/gmqtt/cmd/broker
