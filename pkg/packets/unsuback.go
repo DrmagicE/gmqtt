@@ -13,7 +13,7 @@ type Unsuback struct {
 }
 
 func (c *Unsuback) String() string {
-	return fmt.Sprintf("Unsuback, Pid: %v, Payload: %v",c.PacketId)
+	return fmt.Sprintf("Unsuback, Pid: %v",c.PacketId)
 }
 
 
