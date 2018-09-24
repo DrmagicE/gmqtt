@@ -34,8 +34,6 @@ func SetLogger(l *logger.Logger) {
 }
 
 
-
-
 type config struct {
 	deliveryRetryInterval time.Duration
 	queueQos0Messages     bool

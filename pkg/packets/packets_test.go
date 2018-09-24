@@ -138,10 +138,10 @@ func TestRemainLengthEncodeDecode(t *testing.T) {
 	for k,v := range lengths {
 		result,err := DecodeRemainLength(k)
 		if err != nil {
-			t.Fatalf("DecodeRemainLength(%v) unexpected error:", err)
+			t.Fatalf("DecodeRemainLength(%v) error:%s", k,err)
 		}
 		if !bytes.Equal(v,result) {
-			t.Fatalf("DecodeRemainLength(%v) error, want %d, but %d", v, result)
+			t.Fatalf("DecodeRemainLength(%v) error, want %d, but %d",k, v, result)
 		}
 
 		reader := bytes.NewReader(v)

@@ -46,7 +46,7 @@ func TestWritePublishPacket(t *testing.T) {
 		}
 		n, err := buf.ReadByte()
 		if err != io.EOF {
-			t.Fatalf("ReadByte() error,want io.EOF,got %s and %n bytes",err,n)
+			t.Fatalf("ReadByte() error,want io.EOF,got %s and %v bytes",err,n)
 		}
 
 		if p,ok := packet.(*Publish);ok {
