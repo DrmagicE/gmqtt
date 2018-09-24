@@ -105,7 +105,7 @@ func (c *rwTestConn) Close() error {
 
 func newTestServer() *Server {
 	s := NewServer()
-	s.SetDeliveryRetryInterval(5 * time.Second)
+	s.SetDeliveryRetryInterval(10 * time.Second)
 	ln := &testListener{acceptReady: make(chan struct{})}
 	s.AddTCPListenner(ln)
 	return s
