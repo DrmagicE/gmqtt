@@ -9,5 +9,5 @@ before_install:
   - go get -t -v github.com/DrmagicE/gmqtt/cmd/broker
 
 script:
-  -  go test ./pkg/packets
-  -  go test ./server
+  -  go test -race ./pkg/packets
+  -  go test -race ./server

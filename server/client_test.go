@@ -11,7 +11,12 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"github.com/DrmagicE/gmqtt/logger"
+	"os"
+	log2 "log"
 )
+
+const test_redelivery_internal = 5 * time.Second
 
 type dummyAddr string
 
@@ -105,7 +110,8 @@ func (c *rwTestConn) Close() error {
 
 func newTestServer() *Server {
 	s := NewServer()
-	s.SetDeliveryRetryInterval(10 * time.Second)
+	s.SetDeliveryRetryInterval(test_redelivery_internal)
+	SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))
 	ln := &testListener{acceptReady: make(chan struct{})}
 	s.AddTCPListenner(ln)
 	return s
@@ -170,6 +176,7 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 		ln.conn.PushBack(conn)
 		cc[i] = conn
 	}
+
 	srv.Run()
 	ln.acceptReady <- struct{}{}
 	var conn1, conn2 *packets.Connect
@@ -549,10 +556,15 @@ func TestUnsubscribe(t *testing.T) {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Unsuback{}), reflect.TypeOf(p))
 	}
 
+	srv.mu.RLock()
 	se := srv.sessions["MQTT"]
+	srv.mu.RUnlock()
+	se.topicsMu.Lock()
 	if _, ok := se.subTopics["/a/b/+"]; ok {
 		t.Fatalf("subTopics error,the topic dose not delete from map")
 	}
+	se.topicsMu.Unlock()
+
 
 	pub := &packets.Publish{
 		Dup:       false,
@@ -604,9 +616,13 @@ func TestOnSubscribe(t *testing.T) {
 		if !bytes.Equal(p.Payload, []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
 		}
+		srv.mu.RLock()
+		srv.sessions["MQTT"].topicsMu.Lock()
 		if len(srv.sessions["MQTT"].subTopics) != 1 {
 			t.Fatalf("len(subTopics) error, want 1, got %d", len(srv.sessions["MQTT"].subTopics))
 		}
+		srv.sessions["MQTT"].topicsMu.Unlock()
+		srv.mu.RUnlock()
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Suback{}), reflect.TypeOf(packet))
 	}
@@ -640,6 +656,7 @@ func TestRetainMsg(t *testing.T) {
 		},
 	}
 	err = writePacket(c, sub)
+	srv.retainedMsgMu.Lock()
 	if retain, ok := srv.retainedMsg["a/b"]; ok {
 		if retain.Qos != pub.Qos {
 			t.Fatalf("Qos error, want %d, got %d", pub.Qos, retain.Qos)
@@ -653,6 +670,7 @@ func TestRetainMsg(t *testing.T) {
 	} else {
 		t.Fatalf("retained Msg error")
 	}
+	srv.retainedMsgMu.Unlock()
 	var pp []packets.Packet
 	for i := 0; i < 2; i++ { //read suback & publish
 		p, err := readPacket(c)
@@ -777,7 +795,7 @@ func TestQos1Redelivery(t *testing.T) {
 			originalPid = pub.PacketId
 		}
 	}
-	p, err := readPacketWithTimeOut(c, (REDELIVER_TIME+1)*time.Second)
+	p, err := readPacketWithTimeOut(c, (test_redelivery_internal + 1) * time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -798,7 +816,7 @@ func TestQos1Redelivery(t *testing.T) {
 			t.Fatalf("PacketId error, want %d, got %d", originalPid, pub.PacketId)
 		}
 	}
-	puback := pub1.NewPuback()
+	puback := p.(*packets.Publish).NewPuback()
 	err = writePacket(c, puback)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
@@ -1016,7 +1034,9 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	readPacket(reciver) //suback
 	disconnect := &packets.Disconnect{}
 	writePacket(reciver, disconnect)
-	reciver.Close()
+
+	readPacket(reciver) //close()
+
 	for i := 0x31; i <= 0x35; i++ { //assic 1 to 5
 		pub := &packets.Publish{
 			Dup:       false,

@@ -613,13 +613,15 @@ func (client *Client) redeliver() {
 			s.inflightMu.Lock()
 			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
 				if inflight, ok := inflight.Value.(*inflightElem); ok {
-					if time.Now().Unix()-inflight.at.Unix() >= int64(retryInterval.Seconds()) {
+					if time.Now().Unix() - inflight.at.Unix() >= int64(retryInterval.Seconds()) {
 						switch inflight.packet.(type) { //publish 和 pubrel要重发
 						case *packets.Publish:
 							publish := inflight.packet.(*packets.Publish)
-							publish.Dup = true //重发标志
+							pub := publish.CopyPublish()
+							pub.Dup = true
+							pub.PacketId = publish.PacketId
 							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),publish)
-							s.write(publish)
+							s.write(pub)
 						case *packets.Pubrel:
 							pubrel := inflight.packet.(*packets.Pubrel)
 							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),pubrel)
