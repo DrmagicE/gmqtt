@@ -1,5 +1,6 @@
 [English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md).
-# Gmqtt
+# Gmqtt [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt)
+
 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
