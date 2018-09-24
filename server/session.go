@@ -39,6 +39,12 @@ func (s *session) SetClient(client *Client) {
 	s.client = client
 }
 
+func (s *session) Client() *Client {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	return s.client
+}
+
 type inflightElem struct {
 	at     time.Time //进入时间
 	pid    packets.PacketId
@@ -108,7 +114,7 @@ func (s *session) freePacketId(id packets.PacketId) {
 }
 
 func (s *session) write(packet packets.Packet) {
-	if s.client.Status() == CONNECTED { //在线消息
+	if s.Client().Status() == CONNECTED { //在线消息
 		s.onlineWrite(packet)
 	} else { //离线消息
 		s.offlineWrite(packet)
