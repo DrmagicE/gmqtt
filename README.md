@@ -32,6 +32,8 @@ queue_qos0_messages: true
 # pprof.cpu CPU监控文件
 # pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
+# 是否打印日志，调试时使用，默认false不打印
+logging: false
 # listener
 # listener.$.protocol 支持mqtt或者websocket
 # listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
@@ -217,7 +219,6 @@ $ go test
 
 # TODO 
 * 性能测试
-* 日志
 * 消息持久化
 * Vendoring
 * 更多的测试（单元测试/集成测试）
