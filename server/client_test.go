@@ -11,9 +11,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-	"github.com/DrmagicE/gmqtt/logger"
-	"os"
-	log2 "log"
 )
 
 const test_redelivery_internal = 5 * time.Second
@@ -111,7 +108,7 @@ func (c *rwTestConn) Close() error {
 func newTestServer() *Server {
 	s := NewServer()
 	s.SetDeliveryRetryInterval(test_redelivery_internal)
-	SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))
+	//SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))
 	ln := &testListener{acceptReady: make(chan struct{})}
 	s.AddTCPListenner(ln)
 	return s
