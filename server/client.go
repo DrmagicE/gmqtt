@@ -174,9 +174,10 @@ func (client *Client) writeLoop() {
 					client.session.setInflight(inflightElem)
 				}
 			}
-			log.Printf("%-15s %v: %s ","sending to",client.rwc.RemoteAddr(),packet)
+			if log != nil {
+				log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
+			}
 			err = client.writePacket(packet)
-
 			if err != nil {
 				return
 			}
@@ -199,14 +200,14 @@ func (client *Client) readLoop() {
 		client.wg.Done()
 	}()
 	for {
-/*		select {
-		case <-client.server.exitChan:
-			return
-		case <-client.close:
-			return
-		default:
+		/*		select {
+				case <-client.server.exitChan:
+					return
+				case <-client.close:
+					return
+				default:
 
-		}*/
+				}*/
 		var packet packets.Packet
 		if client.Status() == CONNECTED {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
@@ -217,7 +218,10 @@ func (client *Client) readLoop() {
 		if err != nil {
 			return
 		}
-		log.Printf("%-15s %v: %s ","received from",client.rwc.RemoteAddr(),packet)
+		if log != nil {
+			log.Printf("%-15s %v: %s ", "received from", client.rwc.RemoteAddr(), packet)
+		}
+
 		client.in <- packet
 	}
 }
@@ -310,10 +314,15 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 					client.out <- client.session.offlineQueue.Remove(client.session.offlineQueue.Front()).(packets.Packet)
 				}
 				close(client.session.ready)
-				log.Printf("%-15s %v: logined with session reuse","",client.rwc.RemoteAddr())
+				if log != nil {
+					log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
+				}
 			}()
 		} else {
-			log.Printf("%-15s %v: logined with new session","",client.rwc.RemoteAddr())
+			if log != nil {
+				log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
+			}
+
 			close(client.session.ready)
 		}
 	}()
@@ -334,7 +343,10 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 	clientId := client.opts.ClientId
 	oldSession := server.Session(clientId)
 	if oldSession != nil {
-		log.Printf("%-15s %v: logging with duplicate ClientId: %s","",client.rwc.RemoteAddr(), client.ClientOption().ClientId)
+		if log != nil {
+			log.Printf("%-15s %v: logging with duplicate ClientId: %s", "", client.rwc.RemoteAddr(), client.ClientOption().ClientId)
+		}
+
 		if client.opts.CleanSession == true {
 			oldSession.needStore = false
 		}
@@ -354,7 +366,6 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		}
 	} else {
 		// new session
-
 		client.session = newSession(client)
 		server.SetSession(client.session)
 		return
@@ -368,6 +379,8 @@ func (client *Client) sessionLogout() {
 	}
 	<-client.session.ready
 	s := client.session
+	s.Lock()
+	defer s.Unlock()
 	server := client.server
 	server.mu.Lock()
 	defer server.mu.Unlock()
@@ -394,30 +407,40 @@ clearIn:
 		go func() {
 			client.server.incoming <- willMsg
 		}()
-
 	}
+
 	if client.session.needStore == false {
-		log.Printf("%-15s %v: logout & cleaning session","",client.rwc.RemoteAddr())
+		if log != nil {
+			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
+		}
+
 		delete(server.sessions, client.opts.ClientId)
 	} else { //保持session
 		//填充离线队列，未确认的publish 和 pubrel
 		//write unacknowledged publish & pubrel to offline msg queue
-		log.Printf("%-15s %v: logout & storing session","",client.rwc.RemoteAddr())
+		if log != nil {
+			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
+		}
+
 
 		for e := s.inflight.Front(); e != nil; e = e.Next() {
+
 			if inflight, ok := e.Value.(*inflightElem); ok {
 				switch inflight.packet.(type) {
 				case *packets.Publish:
 					publish := inflight.packet.(*packets.Publish)
 					publish.Dup = true
-					s.write(publish)
+
+					s.offlineWrite(publish)
+
 				case *packets.Pubrel:
 					pubrel := inflight.packet.(*packets.Pubrel)
 					pubrel.Dup = true
-					s.write(pubrel)
+					s.offlineWrite(pubrel)
 				}
 			}
 		}
+
 		s.inflight.Init()
 		//clear  out
 	clearOut:
@@ -425,7 +448,7 @@ clearIn:
 			select {
 			case p := <-client.out:
 				if p, ok := p.(*packets.Publish); ok {
-					s.write(p)
+					s.offlineWrite(p)
 				}
 			default:
 				break clearOut
@@ -613,18 +636,22 @@ func (client *Client) redeliver() {
 			s.inflightMu.Lock()
 			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
 				if inflight, ok := inflight.Value.(*inflightElem); ok {
-					if time.Now().Unix() - inflight.at.Unix() >= int64(retryInterval.Seconds()) {
+					if time.Now().Unix()-inflight.at.Unix() >= int64(retryInterval.Seconds()) {
 						switch inflight.packet.(type) { //publish 和 pubrel要重发
 						case *packets.Publish:
 							publish := inflight.packet.(*packets.Publish)
 							pub := publish.CopyPublish()
 							pub.Dup = true
 							pub.PacketId = publish.PacketId
-							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),publish)
+							if log != nil {
+								log.Printf("%-15s %v: %s", "redelivering:", client.rwc.RemoteAddr(), publish)
+							}
 							s.write(pub)
 						case *packets.Pubrel:
 							pubrel := inflight.packet.(*packets.Pubrel)
-							log.Printf("%-15s %v: %s","redelivering:",client.rwc.RemoteAddr(),pubrel)
+							if log != nil {
+								log.Printf("%-15s %v: %s", "redelivering:", client.rwc.RemoteAddr(), pubrel)
+							}
 							s.write(pubrel)
 						}
 					}

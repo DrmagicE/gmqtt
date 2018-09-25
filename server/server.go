@@ -3,20 +3,18 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/DrmagicE/gmqtt/logger"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
 	"sync"
 	"time"
-	"github.com/DrmagicE/gmqtt/logger"
-
 )
 
 var (
 	ErrInvalWsMsgType = errors.New("invalid websocket message type") // [MQTT-6.0.0-1]
 )
-
 
 //Default configration
 const (
@@ -25,14 +23,11 @@ const (
 	DefaultMaxInflightMessages   = 20
 )
 
-
 var log = &logger.Logger{}
-
 
 func SetLogger(l *logger.Logger) {
 	log = l
 }
-
 
 type config struct {
 	deliveryRetryInterval time.Duration
@@ -44,14 +39,17 @@ type Server struct {
 	sync.WaitGroup
 	connectMu       sync.Mutex
 	mu              sync.RWMutex //gard session map
+
 	sessions        map[string]*session
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket server
 	exitChan        chan struct{}
 	retainedMsgMu   sync.Mutex
 	retainedMsg     map[string]*packets.Publish
-	incoming        chan *packets.Publish
-	config          *config
+
+	incoming chan *packets.Publish
+
+	config *config
 
 	//hooks
 	OnAccept    OnAccept
@@ -251,11 +249,13 @@ func (srv *Server) newClient(c net.Conn) *Client {
 		opts:          &ClientOptions{},
 		cleanWillFlag: false,
 	}
-	client.setConnecting()
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
+	client.setConnecting()
 	return client
 }
+
+
 
 func (srv *Server) Run() {
 	go srv.routing()

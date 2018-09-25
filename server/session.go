@@ -11,15 +11,14 @@ import (
 
 
 type session struct {
+	sync.Mutex
 	needStore     bool
-	clientMu     sync.Mutex
 	client        *Client
 	topicsMu      sync.Mutex
 	subTopics     map[string]packets.Topic //所有订阅的subscribe
 	inflightMu    sync.Mutex
 	inflight      *list.List    //传输中等待确认的报文
 	inflightToken chan struct{} //inflight达到最大值的时候阻塞
-
 	//QOS=2 的情况下，判断报文是否是客户端重发报文，如果重发，则不分发.
 	// 确保[MQTT-4.3.3-2]中：在收发送PUBREC报文确认任何到对应的PUBREL报文之前，接收者必须后续的具有相同标识符的PUBLISH报文。
 	// 在这种情况下，它不能重复分发消息给任何后续的接收者
@@ -33,15 +32,18 @@ type session struct {
 	ready          chan struct{}
 }
 
+
+
+
 func (s *session) SetClient(client *Client) {
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	s.client = client
 }
 
 func (s *session) Client() *Client {
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	return s.client
 }
 
@@ -114,7 +116,9 @@ func (s *session) freePacketId(id packets.PacketId) {
 }
 
 func (s *session) write(packet packets.Packet) {
-	if s.Client().Status() == CONNECTED { //在线消息
+	s.Lock()
+	defer s.Unlock()
+	if s.client.Status() == CONNECTED { //在线消息
 		s.onlineWrite(packet)
 	} else { //离线消息
 		s.offlineWrite(packet)
@@ -136,7 +140,7 @@ func (s *session) offlineWrite(packet packets.Packet) {
 			return
 		}
 	}
-	log.Printf("%-15s[%s] %s ","queueing offline msg cid", s.Client().ClientOption().ClientId, packet)
+	log.Printf("%-15s[%s] %s ","queueing offline msg cid", s.client.ClientOption().ClientId, packet)
 	s.offlineQueue.PushBack(packet)
 }
 
