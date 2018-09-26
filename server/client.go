@@ -2,12 +2,12 @@ package server
 
 import (
 	"bufio"
+	"container/list"
 	"errors"
 	"fmt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,6 +83,8 @@ type Client struct {
 	//自定义数据 user data
 	userMutex sync.Mutex
 	userData  interface{}
+
+	ready chan struct{} //session prepared
 }
 
 func (c *Client) UserData() interface{} {
@@ -161,7 +163,7 @@ func (client *Client) writeLoop() {
 						pid:    pub.PacketId,
 						packet: pub,
 					}
-					client.session.setInflight(inflightElem)
+					client.setInflight(inflightElem)
 				}
 			case *packets.Pubrel:
 				pub := packet.(*packets.Pubrel)
@@ -171,7 +173,7 @@ func (client *Client) writeLoop() {
 						pid:    pub.PacketId,
 						packet: pub,
 					}
-					client.session.setInflight(inflightElem)
+					client.setInflight(inflightElem)
 				}
 			}
 			if log != nil {
@@ -200,14 +202,6 @@ func (client *Client) readLoop() {
 		client.wg.Done()
 	}()
 	for {
-		/*		select {
-				case <-client.server.exitChan:
-					return
-				case <-client.close:
-					return
-				default:
-
-				}*/
 		var packet packets.Packet
 		if client.Status() == CONNECTED {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
@@ -261,14 +255,12 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	select {
 	case <-client.close:
 		return
-
 	case p = <-client.in: //first packet
 	case <-time.After(5 * time.Second):
 		err = ErrConnectTimeOut
 		return
 	}
 	conn, flag := p.(*packets.Connect)
-
 	if !flag {
 		err = ErrInvalStatus
 		return
@@ -287,11 +279,27 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 		client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 	}
-	err = client.sessionLogin(conn)
+	cc := &clientConnect{
+		client:  client,
+		connect: conn,
+	}
+
+	select {
+	case client.server.connect <- cc:
+	case <-client.close:
+		return
+	}
+	select {
+	case <-client.close:
+		return
+	case <-client.ready:
+	}
+	err =  cc.error
 	return
+
 }
 
-func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
+/*func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 	client.server.connectMu.Lock()
 	defer client.server.connectMu.Unlock()
 	var sessionReuse bool
@@ -307,6 +315,25 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		if sessionReuse {
 			//离线队列
 			go func() {
+
+				for e := client.session.inflight.Front(); e != nil; e = e.Next() {
+
+					if inflight, ok := e.Value.(*inflightElem); ok {
+						switch inflight.packet.(type) {
+						case *packets.Publish:
+							publish := inflight.packet.(*packets.Publish)
+							publish.Dup = true
+							client.out <- publish
+
+						case *packets.Pubrel:
+							pubrel := inflight.packet.(*packets.Pubrel)
+							pubrel.Dup = true
+							client.out <- pubrel
+						}
+					}
+				}
+				client.session.inflight.Init()
+
 				for {
 					if client.session.offlineQueue.Front() == nil {
 						break
@@ -322,7 +349,6 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 			if log != nil {
 				log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
 			}
-
 			close(client.session.ready)
 		}
 	}()
@@ -346,11 +372,11 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		if log != nil {
 			log.Printf("%-15s %v: logging with duplicate ClientId: %s", "", client.rwc.RemoteAddr(), client.ClientOption().ClientId)
 		}
-
 		if client.opts.CleanSession == true {
 			oldSession.needStore = false
 		}
 		<-oldSession.client.Close() //wait for old session to logout
+
 		if client.opts.CleanSession == false && oldSession.client.opts.CleanSession == false {
 			//reuse old session
 			client.session = oldSession
@@ -370,6 +396,24 @@ func (client *Client) sessionLogin(connect *packets.Connect) (err error) {
 		server.SetSession(client.session)
 		return
 	}
+}*/
+
+func (client *Client) reuseSession(oldSession *session) {
+	client.session = oldSession
+	oldSession.needStore = true
+}
+
+func (client *Client) newSession() {
+	s := &session{
+		subTopics:     make(map[string]packets.Topic),
+		unackpublish:  make(map[packets.PacketId]bool),
+		inflight:      list.New(),
+		inflightToken: make(chan struct{}),
+		pid:           make(map[packets.PacketId]bool),
+		offlineQueue:  list.New(),
+		needStore:     !client.opts.CleanSession,
+	}
+	client.session = s
 }
 
 //session logout,called after tcp conn  is closed
@@ -377,12 +421,10 @@ func (client *Client) sessionLogout() {
 	if client.session == nil {
 		return
 	}
-	<-client.session.ready
+	<-client.ready
 	s := client.session
-	s.Lock()
-	defer s.Unlock()
 	server := client.server
-	server.mu.Lock()
+	server.mu.Lock() //在这里阻塞了
 	defer server.mu.Unlock()
 	client.setDisConnected()
 clearIn:
@@ -409,52 +451,31 @@ clearIn:
 		}()
 	}
 
-	if client.session.needStore == false {
+	client.session.Lock()
+	needStore := client.session.needStore
+	client.session.Unlock()
+	if needStore == false {
 		if log != nil {
 			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
 		}
-
-		delete(server.sessions, client.opts.ClientId)
-	} else { //保持session
-		//填充离线队列，未确认的publish 和 pubrel
-		//write unacknowledged publish & pubrel to offline msg queue
+		delete(server.clients, client.opts.ClientId)
+	} else { //store session 保持session
 		if log != nil {
 			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
 		}
 
-
-		for e := s.inflight.Front(); e != nil; e = e.Next() {
-
-			if inflight, ok := e.Value.(*inflightElem); ok {
-				switch inflight.packet.(type) {
-				case *packets.Publish:
-					publish := inflight.packet.(*packets.Publish)
-					publish.Dup = true
-
-					s.offlineWrite(publish)
-
-				case *packets.Pubrel:
-					pubrel := inflight.packet.(*packets.Pubrel)
-					pubrel.Dup = true
-					s.offlineWrite(pubrel)
-				}
-			}
-		}
-
-		s.inflight.Init()
 		//clear  out
 	clearOut:
 		for {
 			select {
 			case p := <-client.out:
 				if p, ok := p.(*packets.Publish); ok {
-					s.offlineWrite(p)
+					client.write(p)
 				}
 			default:
 				break clearOut
 			}
 		}
-		s.ready = make(chan struct{})
 		s.offlineAt = time.Now()
 	}
 }
@@ -467,6 +488,23 @@ func (client *Client) internalClose() {
 		client.server.OnClose(client)
 	}
 	close(client.closeComplete)
+}
+
+func (client *Client) write(packet packets.Packet) {
+	if client.Status() == CONNECTED { //在线消息
+		<-client.ready
+		client.out <- packet
+	} else { //离线消息
+		if pub, ok := packet.(*packets.Publish); ok {
+			if pub.Qos == packets.QOS_0 && client.server.config.queueQos0Messages == false {
+				return
+			}
+		}
+		log.Printf("%-15s[%s] %s ", "queueing offline msg cid", client.ClientOption().ClientId, packet)
+		client.session.offlineQueueMu.Lock()
+		client.session.offlineQueue.PushBack(packet)
+		client.session.offlineQueueMu.Unlock()
+	}
 }
 
 //处理读到的包
@@ -487,7 +525,6 @@ func (client *Client) readHandle() {
 		case <-client.close:
 			return
 		case packet := <-client.in:
-
 			switch packet.(type) {
 			case *packets.Subscribe:
 				sub := packet.(*packets.Subscribe)
@@ -497,7 +534,7 @@ func (client *Client) readHandle() {
 					}
 				}
 				suback := sub.NewSubBack()
-				s.write(suback)
+				client.write(suback)
 				s.topicsMu.Lock()
 				var isNew bool
 				for k, v := range sub.Topics {
@@ -516,7 +553,7 @@ func (client *Client) readHandle() {
 				if isNew {
 					client.server.retainedMsgMu.Lock()
 					for _, msg := range client.server.retainedMsg {
-						s.deliver(msg, true) //retain msg
+						client.deliver(msg, true) //retain msg
 					}
 					client.server.retainedMsgMu.Unlock()
 				}
@@ -525,11 +562,11 @@ func (client *Client) readHandle() {
 				pub := packet.(*packets.Publish)
 				if pub.Qos == packets.QOS_1 {
 					puback := pub.NewPuback()
-					s.write(puback)
+					client.write(puback)
 				}
 				if pub.Qos == packets.QOS_2 {
 					pubrec := pub.NewPubrec()
-					s.write(pubrec)
+					client.write(pubrec)
 					if _, ok := s.unackpublish[pub.PacketId]; ok {
 						dup = true
 					} else {
@@ -565,36 +602,36 @@ func (client *Client) readHandle() {
 					pid:    pub.PacketId,
 					packet: pub,
 				}
-				client.session.unsetInflight(inflightElem)
+				client.unsetInflight(inflightElem)
 			case *packets.Pubrel:
 				pub := packet.(*packets.Pubrel)
 				delete(client.session.unackpublish, pub.PacketId)
 				pubcomp := pub.NewPubcomp()
-				s.write(pubcomp)
+				client.write(pubcomp)
 			case *packets.Pubrec:
 				pub := packet.(*packets.Pubrec)
 				inflightElem := &inflightElem{
 					pid:    pub.PacketId,
 					packet: pub,
 				}
-				client.session.unsetInflight(inflightElem)
+				client.unsetInflight(inflightElem)
 				pubrel := pub.NewPubrel()
-				s.write(pubrel)
+				client.write(pubrel)
 			case *packets.Pubcomp:
 				pub := packet.(*packets.Pubcomp)
 				inflightElem := &inflightElem{
 					pid:    pub.PacketId,
 					packet: pub,
 				}
-				client.session.unsetInflight(inflightElem)
+				client.unsetInflight(inflightElem)
 			case *packets.Pingreq:
 				ping := packet.(*packets.Pingreq)
 				resp := ping.NewPingresp()
-				s.write(resp)
+				client.write(resp)
 			case *packets.Unsubscribe:
 				unSub := packet.(*packets.Unsubscribe)
 				unSuback := unSub.NewUnSubBack()
-				s.write(unSuback)
+				client.write(unSuback)
 				//删除client的订阅列表
 				s.topicsMu.Lock()
 				for _, topicName := range unSub.Topics {
@@ -646,13 +683,13 @@ func (client *Client) redeliver() {
 							if log != nil {
 								log.Printf("%-15s %v: %s", "redelivering:", client.rwc.RemoteAddr(), publish)
 							}
-							s.write(pub)
+							client.write(pub)
 						case *packets.Pubrel:
 							pubrel := inflight.packet.(*packets.Pubrel)
 							if log != nil {
 								log.Printf("%-15s %v: %s", "redelivering:", client.rwc.RemoteAddr(), pubrel)
 							}
-							s.write(pubrel)
+							client.write(pubrel)
 						}
 					}
 				}

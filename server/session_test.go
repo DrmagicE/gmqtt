@@ -17,7 +17,10 @@ func mockClient() *Client {
 			maxInflightMessages:test_max_len,
 		},
 	}
-	return b.newClient(nil)
+	c := b.newClient(nil)
+	c.opts.CleanSession = true
+	c.newSession()
+	return c
 }
 
 //mock publish packet
@@ -36,8 +39,8 @@ func (p *mockPublishPacket) String() string {
 	return "mock"
 }
 
-func fullInflightSession() *session {
-	session := newSession(mockClient())
+func fullInflightSession() *Client {
+	c := mockClient()
 	pub := new(mockPublishPacket)
 	setWg := &sync.WaitGroup{}
 	for i := 1; i <= 20; i++ {
@@ -48,22 +51,23 @@ func fullInflightSession() *session {
 		setWg.Add(1)
 		go func() {
 			defer setWg.Done()
-			session.setInflight(inflightElem)
+			c.setInflight(inflightElem)
 		}()
 	}
 	setWg.Wait()
-	return session
+	return c
 }
 
 func TestUnsetInflight(t *testing.T) {
-	session := fullInflightSession()
+	client := fullInflightSession()
+	session := client.session
 	for i := 1; i <= test_max_len; i++ {
 		pub := new(mockPublishPacket)
 		inflightElem := &inflightElem{
 			pid:    packets.PacketId(i),
 			packet: pub,
 		}
-		session.unsetInflight(inflightElem)
+		client.unsetInflight(inflightElem)
 	}
 	if len := session.inflight.Len(); len != 0 {
 		t.Fatalf("len error, want %d, but %d", 0, len)
@@ -78,7 +82,7 @@ func TestUnsetInflight(t *testing.T) {
 		setWg.Add(1)
 		go func() {
 			defer setWg.Done()
-			session.setInflight(inflightElem)
+			client.setInflight(inflightElem)
 		}()
 	}
 	setWg.Wait()
@@ -93,11 +97,11 @@ func TestUnsetInflight(t *testing.T) {
 			pid:    packets.PacketId(i),
 			packet: pub,
 		}
-		session.unsetInflight(inflightElem)
+		client.unsetInflight(inflightElem)
 		if len := session.inflight.Len(); len != test_max_len - 1 {
 			t.Fatalf("len error , want %d, but %d", test_max_len - 1, len)
 		}
-		session.setInflight(inflightElem)
+		client.setInflight(inflightElem)
 		if len := session.inflight.Len(); len != test_max_len {
 			t.Fatalf("len error , want %d, but %d", test_max_len, len)
 		}
