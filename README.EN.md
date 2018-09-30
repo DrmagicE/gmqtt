@@ -7,6 +7,7 @@ Gmqtt provides:
 # Features
 * Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
 * Support tls/ssl and websocket
+* Support sessions/messages persistence
 
 
 # Installation
@@ -34,6 +35,10 @@ queue_qos0_messages: true
 profile: {cpu: "cpuprofile", mem: "memprofile"}
 # Set to true to enable logging. Defaults to false 
 logging: false
+# persistence sessions/messages persistence
+# persistence.path The directory of persistent files
+# persistence.max_offline_messages The maximum count of messages that can be saved in memory per session. If overflow,all offline messages of the client will be  written into a file
+persistence: {path: 'persistence', max_offline_messages: 0 }
 # listener
 # listener.$.protocol:Set the protocol to accept for this listener. Can be mqtt, the default, or websockets.
 # listener.$.addr:Bind address, it wil pass to net.Listen(network, address string) address parameter.
@@ -220,7 +225,6 @@ Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
 * Benchmark test
-* Message persistence
 * Vendoring
 * More test(Unit/Integration)
 * Website monitor
