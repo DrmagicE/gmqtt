@@ -9,6 +9,7 @@
 # 功能特性
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
 * 支持tls/ssl以及ws/wss
+* 提供session持久化功能
 
 # 安装
 ```$ go get github.com/DrmagicE/gmqtt/cmd/broker```
@@ -35,6 +36,10 @@ queue_qos0_messages: true
 profile: {cpu: "cpuprofile", mem: "memprofile"}
 # 是否打印日志，调试时使用，默认false不打印
 logging: false
+# persistence 持久化session
+# persistence.path 表示保存持久化文件的目录名称
+# persistence.max_offline_messages 表示每一个客户端允许在内存中存储多少条离线消息，一旦超出就会持久化到文件
+persistence: {path: 'persistence', max_offline_messages: 0 }
 # listener
 # listener.$.protocol 支持mqtt或者websocket
 # listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
@@ -220,7 +225,6 @@ $ go test
 
 # TODO 
 * 性能测试
-* 消息持久化
 * Vendoring
 * 更多的测试（单元测试/集成测试）
 * 网页监控
