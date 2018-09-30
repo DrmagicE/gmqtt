@@ -11,6 +11,8 @@ profile: {cpu: "cpuprofile", mem: "memprofile"}
 # 是否打印日志，调试时使用，默认false不打印
 logging: false
 # persistence 持久化session
+# persistence.path 表示保存持久化文件的目录名称
+# persistence.max_offline_messages 表示每一个客户端允许在内存中存储多少条离线消息，一旦超出就会持久化到文件
 persistence: {path: 'persistence', max_offline_messages: 0 }
 # listener
 # listener.$.protocol 支持mqtt或者websocket
