@@ -22,7 +22,7 @@ func TestReadDisconnect (t *testing.T) {
 func TestWriteDisconnect (t *testing.T) {
 	disconnect:= &Disconnect{}
 	buf := bytes.NewBuffer(make([]byte,0,2048))
-	err := NewWriter(buf).WritePacket(disconnect)
+	err := NewWriter(buf).WriteAndFlush(disconnect)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}

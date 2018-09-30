@@ -16,6 +16,7 @@ const (
 	DefaultQueueQos0Messages     = true
 	DefaultMaxInflightMessages   = 20
 	DefaultLogging               = false
+	DefaultMaxOfflineMessages    = 0
 )
 
 //监听地址,类型：tcp/ssl ws/wss
@@ -23,9 +24,15 @@ type Config struct {
 	DeliveryRetryInterval int64            `yaml:"delivery_retry_interval"`
 	QueueQos0Messages     bool             `yaml:"queue_qos0_messages"`
 	MaxInflightMessages   int              `yaml:"max_inflight_messages"`
+	PersistenceConfig     PersistenceConfig `yaml:"persistence"`
 	ProfileConfig         ProfileConfig    `yaml:"profile"`
 	Listener              []ListenerConfig `yaml:"listener,flow"`
 	Logging               bool             `yaml:"logging"`
+}
+
+type PersistenceConfig struct {
+	Path string `yaml:"path"`
+	MaxOfflineMessages int `yaml:"max_offline_messages"`
 }
 
 type ProfileConfig struct {

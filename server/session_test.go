@@ -6,6 +6,8 @@ import (
 	"sync"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"testing"
+	"encoding/gob"
+	"bytes"
 )
 
 const test_max_len = 20
@@ -44,14 +46,14 @@ func fullInflightSession() *Client {
 	pub := new(mockPublishPacket)
 	setWg := &sync.WaitGroup{}
 	for i := 1; i <= 20; i++ {
-		inflightElem := &inflightElem{
-			pid:    packets.PacketId(i),
-			packet: pub,
+		InflightElem := &InflightElem{
+			Pid:    packets.PacketId(i),
+			Packet: pub,
 		}
 		setWg.Add(1)
 		go func() {
 			defer setWg.Done()
-			c.setInflight(inflightElem)
+			c.setInflight(InflightElem)
 		}()
 	}
 	setWg.Wait()
@@ -63,11 +65,11 @@ func TestUnsetInflight(t *testing.T) {
 	session := client.session
 	for i := 1; i <= test_max_len; i++ {
 		pub := new(mockPublishPacket)
-		inflightElem := &inflightElem{
-			pid:    packets.PacketId(i),
-			packet: pub,
+		InflightElem := &InflightElem{
+			Pid:    packets.PacketId(i),
+			Packet: pub,
 		}
-		client.unsetInflight(inflightElem)
+		client.unsetInflight(InflightElem)
 	}
 	if len := session.inflight.Len(); len != 0 {
 		t.Fatalf("len error, want %d, but %d", 0, len)
@@ -75,14 +77,14 @@ func TestUnsetInflight(t *testing.T) {
 	setWg := &sync.WaitGroup{}
 	for i := 1; i <= test_max_len; i++ {
 		pub := new(mockPublishPacket)
-		inflightElem := &inflightElem{
-			pid:    packets.PacketId(i),
-			packet: pub,
+		InflightElem := &InflightElem{
+			Pid:    packets.PacketId(i),
+			Packet: pub,
 		}
 		setWg.Add(1)
 		go func() {
 			defer setWg.Done()
-			client.setInflight(inflightElem)
+			client.setInflight(InflightElem)
 		}()
 	}
 	setWg.Wait()
@@ -93,15 +95,15 @@ func TestUnsetInflight(t *testing.T) {
 
 	for i := 1; i <= test_max_len; i++ {
 		pub := new(mockPublishPacket)
-		inflightElem := &inflightElem{
-			pid:    packets.PacketId(i),
-			packet: pub,
+		InflightElem := &InflightElem{
+			Pid:    packets.PacketId(i),
+			Packet: pub,
 		}
-		client.unsetInflight(inflightElem)
+		client.unsetInflight(InflightElem)
 		if len := session.inflight.Len(); len != test_max_len - 1 {
 			t.Fatalf("len error , want %d, but %d", test_max_len - 1, len)
 		}
-		client.setInflight(inflightElem)
+		client.setInflight(InflightElem)
 		if len := session.inflight.Len(); len != test_max_len {
 			t.Fatalf("len error , want %d, but %d", test_max_len, len)
 		}
@@ -114,13 +116,13 @@ func TestUnsetInflight(t *testing.T) {
 func TestSetInflight(t *testing.T) {
 	session := fullInflightSession()
 	pub := new(mockPublishPacket)
-	inflightElem := &inflightElem{
-		pid:    test_max_len + 1,
-		packet: pub,
+	InflightElem := &InflightElem{
+		Pid:    test_max_len + 1,
+		Packet: pub,
 	}
 	token := make(chan struct{})
 	go func() {
-		session.setInflight(inflightElem)
+		session.setInflight(InflightElem)
 		token <- struct{}{}
 	}()
 	select {
@@ -129,4 +131,35 @@ func TestSetInflight(t *testing.T) {
 	case <-time.After(1 * time.Second):
 
 	}
+}
+
+
+func TestSession_NewPersistence(t *testing.T) {
+	c := mockClient()
+	c.opts.ClientId = "testId"
+	c.newSession()
+	c.session.subTopics["abc"] = packets.Topic{
+		Qos:2,
+		Name:"abc",
+	}
+	c.session.subTopics["def"] = packets.Topic{
+		Qos:1,
+		Name:"def",
+	}
+	for i := 0; i < test_max_len; i++ {
+		infligh := &InflightElem{
+			At:time.Now(),
+			Pid:c.session.getPacketId(),
+			Packet: &packets.Publish{},
+		}
+		c.setInflight(infligh)
+	}
+	sp := c.NewPersistence()
+	gob.Register(&packets.Publish{})
+	b := &bytes.Buffer{}
+	err := gob.NewEncoder(b).Encode(sp)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+
 }

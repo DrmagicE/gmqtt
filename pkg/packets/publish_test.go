@@ -36,7 +36,7 @@ func TestWritePublishPacket(t *testing.T) {
 			PacketId:v.pid,
 			Payload:v.payload,
 		}
-		err := NewWriter(buf).WritePacket(pub)
+		err := NewWriter(buf).WriteAndFlush(pub)
 		if err != nil {
 			t.Fatalf("unexpected error: %s,%v", err.Error(),string(v.topicName))
 		}

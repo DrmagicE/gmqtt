@@ -95,7 +95,7 @@ func TestWriteUnSubscribePacket(t *testing.T) {
 			PacketId: v.packetId,
 			Topics:   v.topics,
 		}
-		err := NewWriter(buf).WritePacket(uns)
+		err := NewWriter(buf).WriteAndFlush(uns)
 		if err != nil {
 			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.packetId))
 		}

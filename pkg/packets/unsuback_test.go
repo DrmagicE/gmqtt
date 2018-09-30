@@ -17,7 +17,7 @@ func TestWriteUnSuback(t *testing.T) {
 	p = packet.(*Unsubscribe)
 	unsuback := p.NewUnSubBack()
 	buf := bytes.NewBuffer(make([]byte,0,2048))
-	err = NewWriter(buf).WritePacket(unsuback)
+	err = NewWriter(buf).WriteAndFlush(unsuback)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
@@ -57,7 +57,7 @@ func TestWriteUnSubackFixheader(t *testing.T) {
 	for _, v := range tt {
 		unsuback := v.unsuback
 		buf := bytes.NewBuffer(make([]byte, 0, 2048))
-		err := NewWriter(buf).WritePacket(unsuback)
+		err := NewWriter(buf).WriteAndFlush(unsuback)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err.Error())
 		}

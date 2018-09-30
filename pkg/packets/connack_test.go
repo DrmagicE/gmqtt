@@ -20,7 +20,7 @@ func TestWriteConnack (t *testing.T) {
 	for _,v := range tt {
 		connack := v.connack
 		buf := bytes.NewBuffer(make([]byte,0,2048))
-		err := NewWriter(buf).WritePacket(connack)
+		err := NewWriter(buf).WriteAndFlush(connack)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err.Error())
 		}

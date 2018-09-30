@@ -168,7 +168,7 @@ func TestWriteSubscribePacket(t *testing.T) {
 			PacketId:v.pid,
 			Topics:v.topics,
 		}
-		err := NewWriter(buf).WritePacket(sub)
+		err := NewWriter(buf).WriteAndFlush(sub)
 		if err != nil {
 			t.Fatalf("unexpected error: %s, pid :%d", err.Error(),v.pid)
 		}

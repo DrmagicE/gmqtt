@@ -16,7 +16,7 @@ func TestWritePubrecPacket(t *testing.T) {
 	pubrec := &Pubrec{
 		PacketId:pid,
 	}
-	err := NewWriter(buf).WritePacket(pubrec)
+	err := NewWriter(buf).WriteAndFlush(pubrec)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}

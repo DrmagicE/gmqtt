@@ -16,7 +16,7 @@ func TestWritePubackPacket(t *testing.T) {
 	puback := &Puback{
 		PacketId:pid,
 	}
-	err := NewWriter(buf).WritePacket(puback)
+	err := NewWriter(buf).WriteAndFlush(puback)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}

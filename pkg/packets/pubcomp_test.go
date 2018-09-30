@@ -16,7 +16,7 @@ func TestWritePubcompPacket(t *testing.T) {
 	pubcomp := &Pubcomp{
 		PacketId:pid,
 	}
-	err := NewWriter(buf).WritePacket(pubcomp)
+	err := NewWriter(buf).WriteAndFlush(pubcomp)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}

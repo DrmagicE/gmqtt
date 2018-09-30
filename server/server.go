@@ -6,6 +6,7 @@ import (
 	"github.com/DrmagicE/gmqtt/logger"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
+	log2 "log"
 	"net"
 	"net/http"
 	"strconv"
@@ -34,18 +35,18 @@ type config struct {
 	deliveryRetryInterval time.Duration
 	queueQos0Messages     bool
 	maxInflightMessages   int
+	maxOfflineMsg         int
 }
 
 //for session login
 type clientConnect struct {
 	client  *Client
 	connect *packets.Connect
-	error error
+	error   error
 }
 
 type Server struct {
 	sync.WaitGroup
-	connectMu       sync.Mutex
 	mu              sync.RWMutex //gard clients map
 	clients         map[string]*Client
 	connect         chan *clientConnect //to build session
@@ -63,6 +64,9 @@ type Server struct {
 	OnPublish   OnPublish
 	OnClose     OnClose
 	OnStop      OnStop
+
+	//Persistence
+	Store Store
 }
 
 type WsServer struct {
@@ -112,6 +116,10 @@ func NewServer() *Server {
 
 func (srv *Server) SetDeliveryRetryInterval(duration time.Duration) {
 	srv.config.deliveryRetryInterval = duration
+}
+
+func (srv *Server) SetMaxOfflineMsg(nums int) {
+	srv.config.maxOfflineMsg = nums
 }
 
 func (srv *Server) SetQueueQos0Messages(b bool) {
@@ -304,7 +312,6 @@ func (srv *Server) startSession() {
 			client := cc.client
 			connect := cc.connect
 			var sessionReuse bool
-
 			if connect.AckCode != packets.CODE_ACCEPTED {
 				cc.error = errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
 				if cc.error != nil {
@@ -362,15 +369,14 @@ func (srv *Server) startSession() {
 					client.session.inflightMu.Lock()
 					//write unacknowledged publish & pubrel
 					for e := client.session.inflight.Front(); e != nil; e = e.Next() {
-						if inflight, ok := e.Value.(*inflightElem); ok {
-							switch inflight.packet.(type) {
+						if inflight, ok := e.Value.(*InflightElem); ok {
+							switch inflight.Packet.(type) {
 							case *packets.Publish:
-								publish := inflight.packet.(*packets.Publish)
+								publish := inflight.Packet.(*packets.Publish)
 								publish.Dup = true
 								client.out <- publish
-
 							case *packets.Pubrel:
-								pubrel := inflight.packet.(*packets.Pubrel)
+								pubrel := inflight.Packet.(*packets.Pubrel)
 								pubrel.Dup = true
 								client.out <- pubrel
 							}
@@ -380,6 +386,20 @@ func (srv *Server) startSession() {
 					client.session.inflightMu.Unlock()
 					//offline msg
 					client.session.offlineQueueMu.Lock()
+					if client.server.Store != nil {
+						//read from storag
+						pp, err := client.server.Store.GetOfflineMsg(client.opts.ClientId)
+						if log != nil {
+							log.Printf("%-15s %v: getting offline msg from storage...", "", client.rwc.RemoteAddr())
+						}
+						if err != nil {
+							log2.Printf("getting offline msg from storage error: %s", err)
+						} else {
+							for _, v := range pp {
+								client.out <- v
+							}
+						}
+					}
 					for {
 						if client.session.offlineQueue.Front() == nil {
 							break
@@ -402,7 +422,42 @@ func (srv *Server) startSession() {
 	}
 }
 
+func (srv *Server) recoverSession(sp []*SessionPersistence) {
+	for _, v := range sp {
+		client := srv.newClient(nil)
+		client.opts.ClientId = v.ClientId
+		client.newSession()
+		client.session.subTopics = v.SubTopics
+		client.session.pid = v.Pid
+		client.session.unackpublish = v.UnackPublish
+		for _, inflight := range v.Inflight {
+			client.session.inflight.PushBack(inflight)
+		}
+		srv.clients[v.ClientId] = client
+		close(client.ready)
+		close(client.closeComplete)
+		close(client.close)
+	}
+
+}
+
 func (srv *Server) Run() {
+	//读取文件，初始化所有的session
+	if srv.Store != nil {
+		err := srv.Store.Open()
+		if err != nil {
+			log2.Printf("getting session from storage error: %s", err)
+		} else {
+			sp, err := srv.Store.GetSessions()
+
+			if err != nil {
+				log2.Printf("getting session from storage error: %s", err)
+			}
+			srv.recoverSession(sp)
+			log2.Printf("got %d sessions from storage", len(sp))
+
+		}
+	}
 	go srv.routing()
 	go srv.startSession()
 	for _, ln := range srv.tcpListener {
@@ -431,8 +486,6 @@ func (srv *Server) Run() {
 }
 
 func (srv *Server) Stop(ctx context.Context) error {
-	srv.connectMu.Lock()
-	defer srv.connectMu.Unlock()
 	select {
 	case <-srv.exitChan:
 		return nil
@@ -448,7 +501,6 @@ func (srv *Server) Stop(ctx context.Context) error {
 	}
 	//关闭所有的client
 	//closing all client
-
 	srv.mu.Lock()
 	closeCompleteSet := make([]<-chan struct{}, len(srv.clients))
 	i := 0
@@ -467,6 +519,24 @@ func (srv *Server) Stop(ctx context.Context) error {
 		close(done)
 	}()
 	<-done
+	if srv.Store != nil {
+		sp := make([]*SessionPersistence, 0, len(srv.clients))
+		for _, v := range srv.clients {
+			if v.session.needStore == true {
+				sp = append(sp, v.NewPersistence())
+			}
+		}
+		err := srv.Store.PutSessions(sp)
+		if err != nil {
+			log2.Printf("storing session error:%s", err)
+		} else {
+			log2.Printf("stored %d sessions", len(sp))
+		}
+		err = srv.Store.Close()
+		if err != nil {
+			log2.Printf("storage Close() error:%s", err)
+		}
+	}
 	if srv.OnStop != nil {
 		srv.OnStop()
 	}

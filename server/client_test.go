@@ -8,12 +8,13 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 )
 
-const test_redelivery_internal = 5 * time.Second
+const test_redelivery_internal = 10 * time.Second
 
 type dummyAddr string
 
@@ -21,6 +22,8 @@ type testListener struct {
 	conn        list.List
 	acceptReady chan struct{}
 }
+
+var srv *Server
 
 func (l *testListener) Accept() (c net.Conn, err error) {
 	<-l.acceptReady
@@ -54,8 +57,8 @@ func (a dummyAddr) String() string {
 
 type noopConn struct{}
 
-func (noopConn) LocalAddr() net.Addr                { return dummyAddr("local-addr") }
-func (noopConn) RemoteAddr() net.Addr               { return dummyAddr("remote-addr") }
+func (noopConn) LocalAddr() net.Addr { return dummyAddr("local-addr") }
+
 func (noopConn) SetDeadline(t time.Time) error      { return nil }
 func (noopConn) SetReadDeadline(t time.Time) error  { return nil }
 func (noopConn) SetWriteDeadline(t time.Time) error { return nil }
@@ -68,6 +71,17 @@ type rwTestConn struct {
 	closec    chan struct{}
 	readChan  chan []byte
 	writeChan chan []byte
+	netAddr   string
+}
+
+func (c *rwTestConn) RemoteAddr() net.Addr {
+
+	if c.netAddr != "" {
+		return dummyAddr( c.netAddr)
+	} else {
+		return dummyAddr("remote-addr")
+	}
+
 }
 
 func (c *rwTestConn) Read(p []byte) (int, error) {
@@ -106,8 +120,13 @@ func (c *rwTestConn) Close() error {
 }
 
 func newTestServer() *Server {
-	s := NewServer()
-	s.SetDeliveryRetryInterval(test_redelivery_internal)
+	var s *Server
+	if srv != nil {
+		s = srv
+	} else {
+		s = NewServer()
+		s.SetDeliveryRetryInterval(test_redelivery_internal)
+	}
 	//SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))
 	ln := &testListener{acceptReady: make(chan struct{})}
 	s.AddTCPListenner(ln)
@@ -175,6 +194,7 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 	}
 
 	srv.Run()
+
 	ln.acceptReady <- struct{}{}
 	var conn1, conn2 *packets.Connect
 	if conn[0] == nil {
@@ -228,53 +248,53 @@ func TestConnect(t *testing.T) {
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), packet)
 	}
-/*	if se, ok := srv.sessions["MQTT"]; ok {
-		opts := se.client.opts
+	/*	if se, ok := srv.sessions["MQTT"]; ok {
+			opts := se.client.opts
 
-		usernameWant := string([]byte{116, 101, 115, 116, 117, 115, 101, 114})
-		if opts.Username != usernameWant {
-			t.Fatalf("Username error,want %s, got %s", usernameWant, opts.Username)
-		}
-		passwordWant := string([]byte{116, 101, 115, 116, 112, 97, 115, 115})
-		if opts.Password != passwordWant {
-			t.Fatalf("Password error,want %s, got %s", passwordWant, opts.Password)
-		}
+			usernameWant := string([]byte{116, 101, 115, 116, 117, 115, 101, 114})
+			if opts.Username != usernameWant {
+				t.Fatalf("Username error,want %s, got %s", usernameWant, opts.Username)
+			}
+			passwordWant := string([]byte{116, 101, 115, 116, 112, 97, 115, 115})
+			if opts.Password != passwordWant {
+				t.Fatalf("Password error,want %s, got %s", passwordWant, opts.Password)
+			}
 
-		if opts.CleanSession != true {
-			t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
-		}
+			if opts.CleanSession != true {
+				t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
+			}
 
-		if opts.ClientId != "MQTT" {
-			t.Fatalf("ClientId error,want MQTT, got %s", opts.ClientId)
-		}
+			if opts.ClientId != "MQTT" {
+				t.Fatalf("ClientId error,want MQTT, got %s", opts.ClientId)
+			}
 
-		if opts.KeepAlive != 30 {
-			t.Fatalf("KeepAlive error,want 30, got %d", opts.KeepAlive)
-		}
+			if opts.KeepAlive != 30 {
+				t.Fatalf("KeepAlive error,want 30, got %d", opts.KeepAlive)
+			}
 
-		if opts.WillRetain != false {
-			t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
-		}
+			if opts.WillRetain != false {
+				t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
+			}
 
-		willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}
-		if !bytes.Equal(opts.WillPayload, willPayloadWant) {
-			t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.WillPayload)
-		}
+			willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}
+			if !bytes.Equal(opts.WillPayload, willPayloadWant) {
+				t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.WillPayload)
+			}
 
-		willTopicWant := string([]byte{116, 101, 115, 116})
-		if opts.WillTopic != willTopicWant {
-			t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.WillTopic)
+			willTopicWant := string([]byte{116, 101, 115, 116})
+			if opts.WillTopic != willTopicWant {
+				t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.WillTopic)
+			}
+			if opts.WillQos != 1 {
+				t.Fatalf("WillQos error,want 1, got %d", opts.WillQos)
+			}
+			if opts.WillFlag != true {
+				t.Fatalf("WillFlag error,want true, got %t", opts.WillFlag)
+			}
+		} else {
+			t.Fatalf("session not found")
 		}
-		if opts.WillQos != 1 {
-			t.Fatalf("WillQos error,want 1, got %d", opts.WillQos)
-		}
-		if opts.WillFlag != true {
-			t.Fatalf("WillFlag error,want true, got %t", opts.WillFlag)
-		}
-	} else {
-		t.Fatalf("session not found")
-	}
-*/
+	*/
 	select {
 	case <-closec:
 		t.Fatalf("unexpected close")
@@ -441,7 +461,7 @@ func readPacketWithTimeOut(c *rwTestConn, timeout time.Duration) (packets.Packet
 
 func writePacket(c *rwTestConn, packet packets.Packet) error {
 	b := &bytes.Buffer{}
-	err := packets.NewWriter(b).WritePacket(packet)
+	err := packets.NewWriter(b).WriteAndFlush(packet)
 	if err != nil {
 		return err
 	}
@@ -562,7 +582,6 @@ func TestUnsubscribe(t *testing.T) {
 		t.Fatalf("subTopics error,the topic dose not delete from map")
 	}
 	se.topicsMu.Unlock()
-
 
 	pub := &packets.Publish{
 		Dup:       false,
@@ -793,7 +812,7 @@ func TestQos1Redelivery(t *testing.T) {
 			originalPid = pub.PacketId
 		}
 	}
-	p, err := readPacketWithTimeOut(c, (test_redelivery_internal + 1) * time.Second)
+	p, err := readPacketWithTimeOut(c, test_redelivery_internal+ 1 * time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -1006,6 +1025,14 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 }
 
 func TestOfflineMessageQueueing(t *testing.T) {
+	srv = NewServer()
+	srv.SetMaxOfflineMsg(3)
+	srv.Store = &FileStore{Path:"testdata/clientTest"}
+	defer func() {
+		srv = nil
+		os.RemoveAll("testdata/clientTest")
+	}()
+
 	conn1 := defaultConnectPacket()
 	conn1.CleanSession = false
 	conn1.ClientId = []byte("id1")
@@ -1018,7 +1045,6 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	var err error
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
-
 	sub := &packets.Subscribe{
 		PacketId: 10,
 		Topics: []packets.Topic{
@@ -1049,11 +1075,12 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 	}
-
+	time.Sleep(2 * time.Second)
 	reConn := &rwTestConn{
 		closec:    make(chan struct{}),
 		readChan:  make(chan []byte, 1024),
 		writeChan: make(chan []byte, 1024),
+		netAddr:"reciver",
 	}
 	srv.tcpListener[0].(*testListener).conn.PushBack(reConn)
 	srv.tcpListener[0].(*testListener).acceptReady <- struct{}{}
@@ -1070,13 +1097,13 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 		if pub, ok := p.(*packets.Publish); ok {
 			if !bytes.Equal([]byte{byte(i), byte(i)}, pub.Payload) {
-				t.Fatalf("[%x]Payload error, want %v, got %s", i, []byte{byte(i), byte(i)}, string(pub.Payload))
+				t.Fatalf("[%x]Payload error, want %v, got %v %s", i, []byte{byte(i), byte(i)}, pub.Payload,string(pub.Payload))
 			}
 			if !bytes.Equal([]byte{byte(i)}, pub.TopicName) {
 				t.Fatalf("[%x]TopicName error, want %v, got %v", i, []byte{byte(i)}, pub.TopicName)
 			}
 			if pub.Dup != false {
-				t.Fatalf("[%x]Dup error, want %t, got %t", i,false, true)
+				t.Fatalf("[%x]Dup error, want %t, got %t", i, false, true)
 			}
 			if pub.Qos != packets.QOS_1 {
 				t.Fatalf("[%x]Qos error, want %d, got %d", i, packets.QOS_1, pub.Qos)
@@ -1095,28 +1122,28 @@ func TestWillMsg(t *testing.T) {
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId:10,
-		Topics:[]packets.Topic{
-			{Name:"#",Qos:packets.QOS_1},
+		PacketId: 10,
+		Topics: []packets.Topic{
+			{Name: "#", Qos: packets.QOS_1},
 		},
 	}
-	err = writePacket(reciver,sub)
+	err = writePacket(reciver, sub)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	readPacket(reciver) //suback
-	sender.Close() //
-	p, err := readPacketWithTimeOut(reciver,1 * time.Second)
+	sender.Close()      //
+	p, err := readPacketWithTimeOut(reciver, 1*time.Second)
 	if err != nil {
 		t.Fatalf("missing Will Message, %s", err)
 	}
 	connect := defaultConnectPacket()
 	if pub, ok := p.(*packets.Publish); ok {
 		if !bytes.Equal(connect.WillMsg, pub.Payload) {
-			t.Fatalf("Payload error, want %v, got %v",connect.WillMsg, pub.Payload)
+			t.Fatalf("Payload error, want %v, got %v", connect.WillMsg, pub.Payload)
 		}
 		if !bytes.Equal(connect.WillTopic, pub.TopicName) {
-			t.Fatalf("TopicName error, want %v, got %v",connect.WillTopic, pub.TopicName)
+			t.Fatalf("TopicName error, want %v, got %v", connect.WillTopic, pub.TopicName)
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(p))
@@ -1130,19 +1157,19 @@ func TestRemoveWillMsg(t *testing.T) {
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId:10,
-		Topics:[]packets.Topic{
-			{Name:"topicname",Qos:packets.QOS_1},
+		PacketId: 10,
+		Topics: []packets.Topic{
+			{Name: "topicname", Qos: packets.QOS_1},
 		},
 	}
-	err = writePacket(reciver,sub)
+	err = writePacket(reciver, sub)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
-	readPacket(reciver) //suback
-	writePacket(sender,&packets.Disconnect{}) //remove will msg
-	sender.Close() //
-	_, err = readPacketWithTimeOut(reciver,1 * time.Second)
+	readPacket(reciver)                        //suback
+	writePacket(sender, &packets.Disconnect{}) //remove will msg
+	sender.Close()                             //
+	_, err = readPacketWithTimeOut(reciver, 1*time.Second)
 	if err == nil {
 		t.Fatalf("delivering removed will message")
 	}

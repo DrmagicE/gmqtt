@@ -21,7 +21,7 @@ func TestReadPingreq (t *testing.T) {
 func TestWritePingreq(t *testing.T) {
 	req := &Pingreq{}
 	buf := bytes.NewBuffer(make([]byte, 0, 2048))
-	err := NewWriter(buf).WritePacket(req)
+	err := NewWriter(buf).WriteAndFlush(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
@@ -47,7 +47,7 @@ func TestWritePingresp(t *testing.T) {
 
 	resp := &Pingresp{}
 	buf := bytes.NewBuffer(make([]byte,0,2048))
-	err := NewWriter(buf).WritePacket(resp)
+	err := NewWriter(buf).WriteAndFlush(resp)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}

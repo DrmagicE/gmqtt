@@ -87,6 +87,10 @@ type Writer struct {
 	bufw *bufio.Writer
 }
 
+func (w *Writer) Flush() error {
+	return w.bufw.Flush()
+}
+
 type ReadWriter struct {
 	*Reader
 	*Writer
@@ -94,7 +98,6 @@ type ReadWriter struct {
 
 //
 func NewReader(r io.Reader) *Reader {
-
 	if bufr, ok := r.(*bufio.Reader); ok {
 		return &Reader{bufr:bufr}
 	}
@@ -104,7 +107,6 @@ func NewWriter(w io.Writer) *Writer {
 	if bufw, ok := w.(*bufio.Writer); ok {
 		return &Writer{bufw:bufw}
 	}
-
 	return &Writer{bufw:bufio.NewWriterSize(w,2048)}
 }
 
@@ -131,8 +133,24 @@ func (w *Writer) WritePacket(packet Packet) error {
 	if err != nil {
 		return err
 	}
-	return w.bufw.Flush()
+	return nil
 }
+
+func (w *Writer) WriteAndFlush(packet Packet) error {
+	err := packet.Pack(w.bufw)
+	if err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
+
+/*func (w *Writer) WritePacketBufio(packet Packet) error {
+	err := packet.Pack(w.bufw)
+	if err != nil {
+		return err
+	}
+}*/
 
 
 func (fh *FixHeader) Pack(w io.Writer) error {

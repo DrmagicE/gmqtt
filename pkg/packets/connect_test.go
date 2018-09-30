@@ -199,7 +199,7 @@ func TestWriteConnect(t *testing.T) {
 			Username:      v.username,
 			Password:      v.password,
 		}
-		err := NewWriter(buf).WritePacket(con)
+		err := NewWriter(buf).WriteAndFlush(con)
 		if err != nil {
 			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.clientId))
 		}
