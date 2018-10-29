@@ -597,6 +597,7 @@ func (client *Client) redeliver() {
 	}()
 	retryInterval := client.server.config.deliveryRetryInterval
 	timer := time.NewTicker(retryInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-client.close: //关闭广播
