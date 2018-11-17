@@ -46,8 +46,8 @@ func main() {
 
 	//authentication
 	s.OnConnect = func(client *server.Client) (code uint8) {
-		username := client.ClientOption().Username
-		password := client.ClientOption().Password
+		username := client.ClientOptions().Username
+		password := client.ClientOptions().Password
 		if validateUser(username, password) {
 			return packets.CODE_ACCEPTED
 		} else {
@@ -57,29 +57,29 @@ func main() {
 
 	//acl
 	s.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
-		if client.ClientOption().Username == "root" {
+		if client.ClientOptions().Username == "root" {
 			return topic.Qos
 		}
-		if client.ClientOption().Username == "qos0" {
+		if client.ClientOptions().Username == "qos0" {
 			if topic.Qos <= packets.QOS_0 {
 				return topic.Qos
 			}
 			return packets.QOS_0
 		}
-		if client.ClientOption().Username == "qos1" {
+		if client.ClientOptions().Username == "qos1" {
 			if topic.Qos <= packets.QOS_1 {
 				return topic.Qos
 			}
 			return packets.QOS_1
 		}
-		if client.ClientOption().Username == "publishonly" {
+		if client.ClientOptions().Username == "publishonly" {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
 	}
 
 	s.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
-		if client.ClientOption().Username == "subscribeonly" {
+		if client.ClientOptions().Username == "subscribeonly" {
 			client.Close()
 			return false
 		}
@@ -91,7 +91,7 @@ func main() {
 	}
 
 	s.OnClose = func(client *server.Client) {
-		log.Println("client id:"+ client.ClientOption().ClientId + "is closed")
+		log.Println("client id:"+ client.ClientOptions().ClientId + "is closed")
 	}
 
 	s.OnStop = func() {

@@ -4,16 +4,19 @@ delivery_retry_interval: 20
 max_inflight_messages: 20
 # 是否为离线的保持会话客户端转发QoS0消息，默认转发
 queue_qos0_messages: true
+# 缓存队列最大容量
+max_msgqueue_messages: 20
 # pprof 监控文件，默认不开启pprof
 # pprof.cpu CPU监控文件
 # pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
 # 是否打印日志，调试时使用，默认false不打印
 logging: false
-# persistence 持久化session
-# persistence.path 表示保存持久化文件的目录名称
-# persistence.max_offline_messages 表示每一个客户端允许在内存中存储多少条离线消息，一旦超出就会持久化到文件
-persistence: {path: 'persistence', max_offline_messages: 0 }
+# http_server服务监听地址
+# http_server.addr http服务监听地址
+# http_server.user http basic auth的用户名密码,key是用户名，value是密码
+http_server: {addr: ":9090",user: { admin: "admin"}}
+
 # listener
 # listener.$.protocol 支持mqtt或者websocket
 # listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数

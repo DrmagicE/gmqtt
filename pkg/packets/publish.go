@@ -29,6 +29,7 @@ func (p *Publish) CopyPublish() *Publish{
 		Dup:p.Dup,
 		Qos:p.Qos,
 		Retain:p.Retain,
+		PacketId:p.PacketId,
 	}
 	pub.Payload = make([]byte,len(p.Payload))
 	pub.TopicName = make([]byte,len(p.TopicName))

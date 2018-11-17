@@ -6,6 +6,9 @@ import (
 	"net"
 	"net/http"
 	"time"
+/*	"github.com/DrmagicE/gmqtt/logger"
+	"os"
+	"log"*/
 	"github.com/DrmagicE/gmqtt/logger"
 	"os"
 	"log"
@@ -17,14 +20,8 @@ func NewServer(config *Config) (*server.Server, error) {
 	srv.SetDeliveryRetryInterval(time.Second * time.Duration(config.DeliveryRetryInterval))
 	srv.SetMaxInflightMessages(config.MaxInflightMessages)
 	srv.SetQueueQos0Messages(config.QueueQos0Messages)
+	srv.SetMaxQueueMessages(config.MaxMsgQueueMessages)
 
-	if config.PersistenceConfig.Path != "" {
-		srv.SetMaxOfflineMsg(config.PersistenceConfig.MaxOfflineMessages)
-		f := &server.FileStore{
-			Path:config.PersistenceConfig.Path,
-		}
-		srv.Store = f
-	}
 	var l net.Listener
 	var ws *server.WsServer
 	var err error

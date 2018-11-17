@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"github.com/gin-gonic/gin"
 )
 
 const ProtocolMQTT = "mqtt"
@@ -16,7 +17,8 @@ const (
 	DefaultQueueQos0Messages     = true
 	DefaultMaxInflightMessages   = 20
 	DefaultLogging               = false
-	DefaultMaxOfflineMessages    = 0
+	DefaultMaxMsgQueueMessages   = 2048
+	DefaultHttpAddr              = ":8080"
 )
 
 //监听地址,类型：tcp/ssl ws/wss
@@ -24,20 +26,21 @@ type Config struct {
 	DeliveryRetryInterval int64            `yaml:"delivery_retry_interval"`
 	QueueQos0Messages     bool             `yaml:"queue_qos0_messages"`
 	MaxInflightMessages   int              `yaml:"max_inflight_messages"`
-	PersistenceConfig     PersistenceConfig `yaml:"persistence"`
+	MaxMsgQueueMessages   int              `yaml:"max_msgqueue_messages"`
 	ProfileConfig         ProfileConfig    `yaml:"profile"`
 	Listener              []ListenerConfig `yaml:"listener,flow"`
 	Logging               bool             `yaml:"logging"`
-}
-
-type PersistenceConfig struct {
-	Path string `yaml:"path"`
-	MaxOfflineMessages int `yaml:"max_offline_messages"`
+	HttpServerConfig              HttpServerConfig           `yaml:"http_server"`
 }
 
 type ProfileConfig struct {
 	CPUProfile string `yaml:"cpu"`
 	MemProfile string `yaml:"mem"`
+}
+
+type HttpServerConfig struct {
+	Addr string  `yaml:"addr"`
+	User gin.Accounts `yaml:"user"`
 }
 
 type ListenerConfig struct {
@@ -70,6 +73,7 @@ func NewConfig() *Config {
 		DeliveryRetryInterval: DefaultDeliveryRetryInterval,
 		QueueQos0Messages:     DefaultQueueQos0Messages,
 		MaxInflightMessages:   DefaultMaxInflightMessages,
+		MaxMsgQueueMessages:   DefaultMaxMsgQueueMessages,
 		Logging:               DefaultLogging,
 	}
 }

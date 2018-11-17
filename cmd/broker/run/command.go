@@ -9,6 +9,7 @@ import (
 	"log"
 	"runtime/pprof"
 	"runtime"
+	"github.com/DrmagicE/gmqtt/cmd/broker/restapi"
 )
 
 type Command struct {
@@ -69,7 +70,18 @@ func (cmd *Command) Run(args ...string) error{
 	}
 	cmd.Server = s
 
+	if s.Monitor != nil && config.HttpServerConfig.Addr != ""{
+
+		api := &restapi.RestServer{
+			Addr:config.HttpServerConfig.Addr,
+			Srv:s,
+			User:config.HttpServerConfig.User,
+		}
+		go api.Run()
+	}
+
 	s.Run()
+
 	return nil
 }
 

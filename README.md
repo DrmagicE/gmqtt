@@ -1,7 +1,14 @@
 [English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md).
 # Gmqtt [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt)
 
-本库的内容有：
+# 更新日志2018.11.18
+* 暂时删除了session持久化功能，需要重新设计
+* 新增运行状态监控/管理功能，在`cmd/broker`中通过restapi呈现
+* 新增服务端触发的发布/订阅功能，在`cmd/broker`中通过restapi呈现
+* 为session增加了缓存队列
+* 重构部分代码，bug修复
+
+# 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
 * MQTT V3.1.1 版本的协议解析库
@@ -9,7 +16,9 @@
 # 功能特性
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
 * 支持tls/ssl以及ws/wss
-* 提供session持久化功能
+* ~~提供session持久化功能~~ (暂时去掉，需要重新设计)
+* 提供服务状态监控/管理api
+* 提供发布/订阅/取消订阅api
 
 # 安装
 ```$ go get github.com/DrmagicE/gmqtt/cmd/broker```
@@ -30,16 +39,19 @@ delivery_retry_interval: 20
 max_inflight_messages: 20
 # 是否为离线的保持会话客户端转发QoS0消息，默认转发
 queue_qos0_messages: true
+# 缓存队列最大容量，默认20条
+max_msgqueue_messages: 20
 # pprof 监控文件，默认不开启pprof
 # pprof.cpu CPU监控文件
 # pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
 # 是否打印日志，调试时使用，默认false不打印
 logging: false
-# persistence 持久化session
-# persistence.path 表示保存持久化文件的目录名称
-# persistence.max_offline_messages 表示每一个客户端允许在内存中存储多少条离线消息，一旦超出就会持久化到文件
-persistence: {path: 'persistence', max_offline_messages: 0 }
+# http_server服务监听地址
+# http_server.addr http服务监听地址
+# http_server.user http basic auth的用户名密码,key是用户名，value是密码
+http_server: {addr: ":8080",user: { admin: "admin"}}
+
 # listener
 # listener.$.protocol 支持mqtt或者websocket
 # listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
@@ -49,11 +61,248 @@ listener:
 - {protocol: mqtt, addr: ':1883', certfile: , keyfile:  }
 - {protocol: websocket, addr: ':8080', certfile: ,keyfile: }
 
+
+
 ```
 默认使用`cmd/broker/config.yaml`配置文件，使用下列命令可以设置配置文件路径
 ```
 $ go run main.go -config <config-file-path>
 ```
+
+### 内置服务器的REST服务
+通过HTTP Basic Auth进行鉴权，用户名密码配置见配置文件
+#### 获取所有在线客户端
+请求格式：
+```
+GET /clients?page=xxx&per-page=xxx
+page:请求页数，不传默认第一页
+per-page:每一页的条数，不传默认20条
+```
+响应格式：
+```
+{
+    "list": [
+        {
+            "client_id": "1",
+            "username": "publishonly",
+            "remote_addr": "127.0.0.1:56359",
+            "clean_session": true,
+            "keep_alive": 60,
+            "connected_at": "2018-11-18T02:10:36.6958382+08:00"
+        }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "current_count": 1,
+    "total_count": 1,
+    "total_page": 1
+}
+
+```
+
+#### 获取指定客户端id的客户端
+请求格式：
+```
+GET /client/:id
+```
+响应格式：
+```
+{
+    "client_id": "1",
+    "username": "publishonly",
+    "remote_addr": "127.0.0.1:56359",
+    "clean_session": true,
+    "keep_alive": 60,
+    "connected_at": "2018-11-18T02:10:36.6958382+08:00"
+}
+```
+
+
+#### 获取所有会话（session）
+
+请求格式：
+```
+GET /sessions?page=xxx&per-page=xxx
+page:请求页数，不传默认第一页
+per-page:每一页的条数，不传默认20条
+```
+响应格式：
+```
+{
+    "list": [
+        {
+            "client_id": "1",
+            "status": "online",
+            "remote_addr": "127.0.0.1:56359",
+            "clean_session": true,
+            "subscriptions": 0,
+            "max_inflight": 20,
+            "inflight_len": 0,
+            "max_msg_queue": 20,
+            "msg_queue_len": 0,
+            "msg_queue_dropped": 0,
+            "connected_at": "2018-11-18T02:10:36.6958382+08:00",
+            "offline_at": "0001-01-01T00:00:00Z"
+        }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "current_count": 1,
+    "total_count": 1,
+    "total_page": 1
+}
+```
+
+#### 获取指定客户端id的会话
+
+请求格式：
+```
+GET /session/:id
+```
+响应格式：
+```
+{
+    "client_id": "1",
+    "status": "online",
+    "remote_addr": "127.0.0.1:56359",
+    "clean_session": true,
+    "subscriptions": 0,
+    "max_inflight": 20,
+    "inflight_len": 0,
+    "max_msg_queue": 20,
+    "msg_queue_len": 0,
+    "msg_queue_dropped": 0,
+    "connected_at": "2018-11-18T02:10:36.6958382+08:00",
+    "offline_at": "0001-01-01T00:00:00Z"
+}
+```
+
+#### 获取所有订阅主题信息
+
+请求格式：
+```
+GET /subscriptions
+```
+响应格式：
+```
+{
+    "list": [
+        {
+            "client_id": "1",
+            "qos": 0,
+            "name": "test8",
+            "at": "2018-11-18T02:14:46.4582717+08:00"
+        },
+        {
+            "client_id": "2",
+            "qos": 2,
+            "name": "123",
+            "at": "2018-11-18T02:14:46.4582717+08:00"
+        }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "current_count": 2,
+    "total_count": 2,
+    "total_page": 1
+}
+```
+
+#### 获取指定会话的订阅主题信息
+
+请求格式：
+```
+GET /subscriptions/:id
+```
+响应格式：
+```
+{
+    "list": [
+        {
+            "client_id": "1",
+            "qos": 0,
+            "name": "test8",
+            "at": "2018-11-18T02:14:46.4582717+08:00"
+        },
+        {
+            "client_id": "1",
+            "qos": 2,
+            "name": "123",
+            "at": "2018-11-18T02:14:46.4582717+08:00"
+        }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "current_count": 2,
+    "total_count": 2,
+    "total_page": 1
+}
+```
+
+
+
+#### 发布主题
+
+请求格式：
+```
+POST /publish
+```
+POST请求参数：
+```
+qos : qos等级
+topic : 发布的主题名称
+payload : 主题payload
+```
+
+响应格式：
+```
+{
+    "code": 0,
+    "result": []
+}
+```
+
+#### 订阅主题
+
+请求格式：
+```
+POST /subscribe
+```
+POST请求参数：
+```
+qos : qos等级
+topic : 订阅的主题名称
+clientId : 订阅的客户端id
+```
+
+响应格式：
+```
+{
+    "code": 0,
+    "result": []
+}
+```
+
+#### 取消订阅
+
+请求格式：
+```
+POST /unsubscribe
+```
+POST请求参数：
+```
+topic : 需要取消订阅的主题名称
+clientId : 需要取消订阅的客户端id
+```
+
+响应格式：
+```
+{
+    "code": 0,
+    "result": []
+}
+```
+
 ## 使用MQTT服务器开发库
 当前内置的MQTT服务器功能比较弱，鉴权，ACL等功能均没有实现，建议采用MQTT服务器库进行二次开发：
 ```
@@ -130,8 +379,8 @@ type OnConnect func(client *Client) (code uint8)
 ```
 ...
 server.OnConnect = func(client *server.Client) (code uint8) {
-  username := client.ClientOption().Username
-  password := client.ClientOption().Password
+  username := client.ClientOptions().Username
+  password := client.ClientOptions().Password
   if validateUser(username, password) { //鉴权信息可以保存在数据库，文件，内存等地方
     return packets.CODE_ACCEPTED
   } else {
@@ -143,7 +392,6 @@ server.OnConnect = func(client *server.Client) (code uint8) {
 ### OnSubscribe()
 接收到SUBSCRIBE报文之后调用。
 该方法返回允许当前订阅主题的最大QoS等级。
-It returns the maximum QoS level that was granted to the subscription that was requested by the SUBSCRIBE packet.
 ```
 //允许的一些返回值:
 //0x00 - 成功 - 最大 QoS 0
@@ -156,7 +404,7 @@ type OnSubscribe func(client *Client, topic packets.Topic) uint8
 ```
 ...
 server.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
-  if client.ClientOption().Username == "root" { //root用户想订阅什么就订阅什么
+  if client.ClientOptions().Username == "root" { //root用户想订阅什么就订阅什么
     return topic.Qos
   } else {
     if topic.Qos <= packets.QOS_1 {
@@ -178,7 +426,7 @@ type OnPublish func(client *Client, publish *packets.Publish) bool
 ```
 ...
 server.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
-  if client.ClientOption().Username == "subscribeonly" {
+  if client.ClientOptions().Username == "subscribeonly" {
     client.Close()  //2.close the Network Connection
     return false
   }
@@ -204,6 +452,7 @@ type OnClose func(client *Client)
 type OnStop func()
 ```
 
+
 ## 服务停止流程
 调用 `server.Stop()` 将服务优雅关闭:
 1. 关闭所有的`net.Listener`
@@ -226,6 +475,4 @@ $ go test
 # TODO 
 * 性能测试
 * Vendoring
-* 更多的测试（单元测试/集成测试）
 * 网页监控
-* MQTT客户端

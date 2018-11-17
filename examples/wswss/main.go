@@ -30,9 +30,6 @@ func main() {
 		KeyFile:"../testcerts/server.key",
 	}
 	s.AddWebSocketServer(ws,wss)
-	s.OnClose = func(client *server.Client) {
-		fmt.Println(client.ClientOption().ClientId)
-	}
 	s.Run()
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)

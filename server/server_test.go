@@ -9,7 +9,12 @@ import (
 )
 
 func TestHooks(t *testing.T) {
-	srv := newTestServer()
+	srv := NewServer()
+	ln, err := net.Listen("tcp","127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s",err)
+	}
+	srv.AddTCPListenner(ln)
 	var hooks string
 	srv.OnAccept = func(conn net.Conn) bool {
 		hooks += "Accept"
@@ -36,30 +41,27 @@ func TestHooks(t *testing.T) {
 	srv.OnStop = func() {
 		hooks += "OnStop"
 	}
-	ln := srv.tcpListener[0].(*testListener)
-	closec := make(chan struct{})
-	conn := &rwTestConn{
-		closec:    closec,
-		readChan:  make(chan []byte, 1024),
-		writeChan: make(chan []byte, 1024),
-	}
-	ln.conn.PushBack(conn)
+
 	srv.Run()
-	ln.acceptReady <- struct{}{}
-	writePacket(conn, defaultConnectPacket())
-	readPacket(conn) //connack
+
+	c, err := net.Dial("tcp","127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s",err)
+	}
+
+	w := packets.NewWriter(c)
+	r := packets.NewReader(c)
+	w.WriteAndFlush(defaultConnectPacket())
+	r.ReadPacket()
+
 	sub := &packets.Subscribe{
 		PacketId:10,
 		Topics:[]packets.Topic{
 			{Name:"name",Qos:packets.QOS_1},
 		},
 	}
-	writePacket(conn,sub)
-
-
-	readPacket(conn) //suback
-
-
+	w.WriteAndFlush(sub)
+	r.ReadPacket()//suback
 
 	pub := &packets.Publish{
 		Dup:false,
@@ -70,11 +72,16 @@ func TestHooks(t *testing.T) {
 		Payload:[]byte("payload"),
 
 	}
-	writePacket(conn,pub)
-	readPacket(conn) //puback
+	w.WriteAndFlush(pub)
+	r.ReadPacket() //puback
 	srv.Stop(context.Background())
 	want := "AcceptOnConnectOnSubscribeOnPublishOnCloseOnStop"
 	if hooks != want {
 		t.Fatalf("hooks error, want %s, got %s",want, hooks)
 	}
 }
+
+
+
+
+

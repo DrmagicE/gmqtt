@@ -6,7 +6,6 @@ import (
 	"github.com/DrmagicE/gmqtt/logger"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
-	log2 "log"
 	"net"
 	"net/http"
 	"strconv"
@@ -23,6 +22,7 @@ const (
 	DefaultDeliveryRetryInterval = 20 * time.Second
 	DefaultQueueQos0Messages     = true
 	DefaultMaxInflightMessages   = 20
+	DefaultMaxQueueMessages      = 2048
 )
 
 var log = &logger.Logger{}
@@ -35,28 +35,257 @@ type config struct {
 	deliveryRetryInterval time.Duration
 	queueQos0Messages     bool
 	maxInflightMessages   int
-	maxOfflineMsg         int
+	maxQueueMessages      int
 }
 
-//for session login
-type clientConnect struct {
+//session register
+type register struct {
 	client  *Client
 	connect *packets.Connect
 	error   error
 }
 
+//session unregister
+type unregister struct {
+	client *Client
+	done   chan struct{}
+}
+
+type msgRouter struct {
+	forceBroadcast bool
+	clientIds      []string
+	pub            *packets.Publish
+}
+
+func (srv *Server) registerHandler(register *register) {
+	client := register.client
+	defer close(client.ready)
+	connect := register.connect
+	var sessionReuse bool
+	if connect.AckCode != packets.CODE_ACCEPTED {
+		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
+		ack := connect.NewConnackPacket(false)
+		client.out <- ack
+		client.setError(err)
+		register.error = err
+		return
+	}
+	if srv.OnConnect != nil {
+		code := srv.OnConnect(client)
+		connect.AckCode = code
+		if code != packets.CODE_ACCEPTED {
+			err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
+			ack := connect.NewConnackPacket(false)
+			client.out <- ack
+			client.setError(err)
+			register.error = err
+			return
+		}
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	var oldSession *session
+	oldClient, ok := srv.clients[client.opts.ClientId]
+	srv.clients[client.opts.ClientId] = client
+	if ok {
+		oldSession = oldClient.session
+		if oldClient.Status() == CONNECTED {
+			if log != nil {
+				log.Printf("%-15s %v: logging with duplicate ClientId: %s", "", client.rwc.RemoteAddr(), client.ClientOptions().ClientId)
+			}
+			oldClient.setSwitching()
+			<-oldClient.Close()
+			if oldClient.opts.WillFlag {
+				willMsg := &packets.Publish{
+					Dup:       false,
+					Qos:       oldClient.opts.WillQos,
+					Retain:    oldClient.opts.WillRetain,
+					TopicName: []byte(oldClient.opts.WillTopic),
+					Payload:   oldClient.opts.WillPayload,
+				}
+				go func() {
+					msgRouter := &msgRouter{forceBroadcast: false, pub: willMsg}
+					srv.msgRouter <- msgRouter
+				}()
+			}
+
+			if !client.opts.CleanSession && !oldClient.opts.CleanSession { //reuse old session
+				sessionReuse = true
+			clearOut:
+				for {
+					select {
+					case p := <-oldClient.out:
+						if p, ok := p.(*packets.Publish); ok {
+							oldClient.msgEnQueue(p)
+						}
+					default:
+						break clearOut
+					}
+				}
+			}
+		} else if oldClient.Status() == DISCONNECTED {
+			if !client.opts.CleanSession {
+				sessionReuse = true
+			}
+		}
+	}
+	ack := connect.NewConnackPacket(sessionReuse)
+	client.out <- ack
+	client.setConnected()
+	if sessionReuse { //发送还未确认的消息和离线消息队列 inflight & msgQueue
+		client.session.subTopics = oldSession.subTopics
+		client.session.maxInflightMessages = oldSession.maxInflightMessages
+		client.session.maxQueueMessages = oldSession.maxQueueMessages
+		client.session.unackpublish = oldSession.unackpublish
+		oldSession.inflightMu.Lock()
+		for e := oldSession.inflight.Front(); e != nil; e = e.Next() { //write unacknowledged publish & pubrel
+			if inflight, ok := e.Value.(*InflightElem); ok {
+				pub := inflight.Packet
+				pub.Dup = true
+				if inflight.Step == 0 {
+					client.publish(pub)
+				}
+				if inflight.Step == 1 { //pubrel
+					pubrel := pub.NewPubrec().NewPubrel()
+					client.session.inflight.PushBack(inflight)
+					client.session.setPacketId(pub.PacketId)
+					client.out <- pubrel
+				}
+			}
+		}
+		oldSession.inflightMu.Unlock()
+
+		oldSession.msgQueueMu.Lock()
+		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() { //write offline msg
+			if publish, ok := e.Value.(*packets.Publish); ok {
+				client.publish(publish)
+			}
+		}
+		oldSession.msgQueueMu.Unlock()
+		if log != nil {
+			log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
+		}
+
+	} else {
+		if log != nil {
+			log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
+		}
+	}
+	if srv.Monitor != nil {
+		srv.Monitor.Register(client, sessionReuse)
+	}
+}
+
+func (srv *Server) unregisterHandler(unregister *unregister) {
+	defer close(unregister.done)
+	client := unregister.client
+	client.setDisConnected()
+	if client.session == nil {
+		return
+	}
+
+clearIn:
+	for {
+		select {
+		case p := <-client.in:
+			if _, ok := p.(*packets.Disconnect); ok {
+				client.cleanWillFlag = true
+			}
+		default:
+			break clearIn
+		}
+	}
+
+	if !client.cleanWillFlag && client.opts.WillFlag {
+		willMsg := &packets.Publish{
+			Dup:       false,
+			Qos:       client.opts.WillQos,
+			Retain:    false,
+			TopicName: []byte(client.opts.WillTopic),
+			Payload:   client.opts.WillPayload,
+		}
+		go func() {
+			msgRouter := &msgRouter{forceBroadcast: false, pub: willMsg}
+			client.server.msgRouter <- msgRouter
+		}()
+	}
+	if client.opts.CleanSession {
+		if log != nil {
+			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
+		}
+		srv.mu.Lock()
+		delete(srv.clients, client.opts.ClientId)
+		srv.mu.Unlock()
+	} else { //store session 保持session
+		if log != nil {
+			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
+		}
+		//clear  out
+	clearOut:
+		for {
+			select {
+			case p := <-client.out:
+				if p, ok := p.(*packets.Publish); ok {
+					client.publish(p)
+				}
+			default:
+				break clearOut
+			}
+		}
+
+	}
+	if srv.Monitor != nil {
+		srv.Monitor.UnRegister(client.opts.ClientId, client.opts.CleanSession)
+	}
+}
+
+func (srv *Server) msgRouterHandler(msg *msgRouter) {
+	//begin := time.Now().Second()
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	lenght := len(msg.clientIds)
+	if lenght != 0 {
+		for _, v := range msg.clientIds {
+			if c, ok := srv.clients[v]; ok {
+				c.deliver(msg.pub, msg.forceBroadcast)
+			}
+		}
+	} else {
+		for _, c := range srv.clients {
+			c.deliver(msg.pub, msg.forceBroadcast)
+		}
+	}
+}
+
+//server event loop
+func (srv *Server) eventLoop() {
+	for {
+		select {
+		case register := <-srv.register:
+			srv.registerHandler(register)
+		case unregister := <-srv.unregister:
+			srv.unregisterHandler(unregister)
+		case msg := <-srv.msgRouter:
+
+			srv.msgRouterHandler(msg)
+		}
+	}
+}
+
 type Server struct {
-	sync.WaitGroup
 	mu              sync.RWMutex //gard clients map
 	clients         map[string]*Client
-	connect         chan *clientConnect //to build session
-	tcpListener     []net.Listener      //tcp listeners
-	websocketServer []*WsServer         //websocket server
+	tcpListener     []net.Listener //tcp listeners
+	websocketServer []*WsServer    //websocket server
 	exitChan        chan struct{}
 	retainedMsgMu   sync.Mutex
 	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
-	incoming        chan *packets.Publish       //packet to be distributed
-	config          *config
+
+	msgRouter  chan *msgRouter  //
+	register   chan *register   //register session
+	unregister chan *unregister //unregister session
+
+	config *config
 	//hooks
 	OnAccept    OnAccept
 	OnConnect   OnConnect
@@ -64,9 +293,8 @@ type Server struct {
 	OnPublish   OnPublish
 	OnClose     OnClose
 	OnStop      OnStop
-
-	//Persistence
-	Store Store
+	//Monitor
+	Monitor *Monitor
 }
 
 type WsServer struct {
@@ -103,14 +331,62 @@ func NewServer() *Server {
 	return &Server{
 		exitChan:    make(chan struct{}),
 		clients:     make(map[string]*Client),
-		incoming:    make(chan *packets.Publish, 8192),
+		msgRouter:   make(chan *msgRouter, 4096),
+		register:    make(chan *register, 1024),
+		unregister:  make(chan *unregister, 1024),
 		retainedMsg: make(map[string]*packets.Publish),
-		connect:     make(chan *clientConnect),
 		config: &config{
 			deliveryRetryInterval: DefaultDeliveryRetryInterval,
 			queueQos0Messages:     DefaultQueueQos0Messages,
 			maxInflightMessages:   DefaultMaxInflightMessages,
+			maxQueueMessages:      DefaultMaxQueueMessages,
 		},
+		Monitor: &Monitor{
+			Repository: &MonitorStore{
+				clients : make(map[string]ClientInfo),
+				sessions : make(map[string]SessionInfo),
+				subscriptions : make(map[string]map[string]SubscriptionsInfo),
+			},
+		},
+	}
+}
+
+func (srv *Server) Publish(publish *packets.Publish, clientIds ...string) {
+	srv.msgRouter <- &msgRouter{false, clientIds, publish}
+}
+
+func (srv *Server) Subscribe(clientId string, topics []packets.Topic)  {
+	client := srv.Client(clientId)
+	if client == nil {
+		return
+	}
+	client.session.topicsMu.Lock()
+	defer client.session.topicsMu.Unlock()
+	for _, v := range topics {
+		client.session.subTopics[string(v.Name)] = v
+		if srv.Monitor != nil {
+			srv.Monitor.Subscribe(SubscriptionsInfo{
+				ClientId: clientId,
+				Qos:      v.Qos,
+				Name:     string(v.Name),
+				At:       time.Now(),
+			})
+		}
+	}
+}
+
+func (srv *Server) UnSubscribe(clientId string, topics []string)  {
+	client := srv.Client(clientId)
+	if client == nil {
+		return
+	}
+	client.session.topicsMu.Lock()
+	defer client.session.topicsMu.Unlock()
+	for _, v := range topics {
+		delete(client.session.subTopics, v)
+		if srv.Monitor != nil {
+			srv.Monitor.UnSubscribe(clientId, v)
+		}
 	}
 }
 
@@ -118,8 +394,8 @@ func (srv *Server) SetDeliveryRetryInterval(duration time.Duration) {
 	srv.config.deliveryRetryInterval = duration
 }
 
-func (srv *Server) SetMaxOfflineMsg(nums int) {
-	srv.config.maxOfflineMsg = nums
+func (srv *Server) SetMaxQueueMessages(nums int) {
+	srv.config.maxQueueMessages = nums
 }
 
 func (srv *Server) SetQueueQos0Messages(b bool) {
@@ -142,52 +418,40 @@ func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
 	}
 }
 
-func (srv *Server) routing() {
-	for {
-		select {
-		case <-srv.exitChan:
-			return
-		case packet := <-srv.incoming:
-			srv.mu.RLock() //阻塞在这里
-			for _, c := range srv.clients {
-				c.deliver(packet, false)
-			}
-			srv.mu.RUnlock()
-		}
-	}
-}
-
 //分发publish报文
-func (client *Client) deliver(incoming *packets.Publish, isRetain bool) {
+func (client *Client) deliver(pub *packets.Publish, forceDeliver bool) {
 	s := client.session
 	var matchTopic packets.Topic
 	var isMatch bool
-	once := sync.Once{}
-	s.topicsMu.Lock()
-	for _, topic := range s.subTopics {
-		if packets.TopicMatch(incoming.TopicName, []byte(topic.Name)) {
-			once.Do(func() {
-				matchTopic = topic
-				isMatch = true
-			})
-			if topic.Qos > matchTopic.Qos { //[MQTT-3.3.5-1]
-				matchTopic = topic
+	if forceDeliver {
+		publish := pub.CopyPublish()
+		publish.Dup = false
+		client.publish(publish)
+	} else {
+		once := sync.Once{}
+		s.topicsMu.RLock()
+		for _, topic := range s.subTopics {
+			if packets.TopicMatch(pub.TopicName, []byte(topic.Name)) {
+				once.Do(func() {
+					matchTopic = topic
+					isMatch = true
+				})
+				if topic.Qos > matchTopic.Qos { //[MQTT-3.3.5-1]
+					matchTopic = topic
+				}
 			}
 		}
-	}
-	s.topicsMu.Unlock()
-	if isMatch { //匹配
-		publish := incoming.CopyPublish()
-		if publish.Qos > matchTopic.Qos {
-			publish.Qos = matchTopic.Qos
+		s.topicsMu.RUnlock()
+		if isMatch { //匹配
+			publish := pub.CopyPublish()
+			if publish.Qos > matchTopic.Qos {
+				publish.Qos = matchTopic.Qos
+			}
+			publish.Dup = false
+			client.publish(publish)
 		}
-		if publish.Qos > 0 {
-			publish.PacketId = s.getPacketId()
-		}
-		publish.Dup = false
-		publish.Retain = isRetain
-		client.write(publish)
 	}
+
 }
 
 func (srv *Server) serveTcp(l net.Listener) {
@@ -214,6 +478,7 @@ func (srv *Server) serveTcp(l net.Listener) {
 		}
 		if srv.OnAccept != nil {
 			if !srv.OnAccept(rw) {
+				rw.Close()
 				continue
 			}
 		}
@@ -222,13 +487,13 @@ func (srv *Server) serveTcp(l net.Listener) {
 	}
 }
 
-func (srv *Server) Clients(clientId string) *Client {
+func (srv *Server) Client(clientId string) *Client {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	return srv.clients[clientId]
 }
 
-func (srv *Server) AddClients(client *Client) {
+func (srv *Server) AddClient(client *Client) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	srv.clients[client.opts.ClientId] = client
@@ -291,7 +556,7 @@ func (srv *Server) newClient(c net.Conn) *Client {
 		closeComplete: make(chan struct{}),
 		error:         make(chan error, 1),
 		in:            make(chan packets.Packet, READ_BUFFER_SIZE),
-		out:           make(chan packets.Packet, READ_BUFFER_SIZE),
+		out:           make(chan packets.Packet, WRITE_BUFFER_SIZE),
 		status:        CONNECTING,
 		opts:          &ClientOptions{},
 		cleanWillFlag: false,
@@ -300,126 +565,8 @@ func (srv *Server) newClient(c net.Conn) *Client {
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
 	client.setConnecting()
+	client.newSession()
 	return client
-}
-
-func (srv *Server) startSession() {
-	for {
-		select {
-		case <-srv.exitChan:
-			return
-		case cc := <-srv.connect:
-			client := cc.client
-			connect := cc.connect
-			var sessionReuse bool
-			if connect.AckCode != packets.CODE_ACCEPTED {
-				cc.error = errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
-				if cc.error != nil {
-					ack := connect.NewConnackPacket(false)
-					client.out <- ack
-					continue
-				}
-			}
-			server := client.server
-			if server.OnConnect != nil {
-				code := server.OnConnect(client)
-				connect.AckCode = code
-				if code != packets.CODE_ACCEPTED {
-					cc.error = errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
-					if cc.error != nil {
-						ack := connect.NewConnackPacket(false)
-						client.out <- ack
-						continue
-					}
-				}
-			}
-			clientId := client.opts.ClientId
-			oldClient := server.Clients(clientId)
-			var oldSession *session
-			if oldClient != nil {
-				oldSession = oldClient.session
-				if oldClient.Status() == CONNECTED {
-					if log != nil {
-						log.Printf("%-15s %v: logging with duplicate ClientId: %s", "", client.rwc.RemoteAddr(), client.ClientOption().ClientId)
-					}
-					if client.opts.CleanSession == true {
-						oldSession.Lock()
-						oldSession.needStore = false
-						oldSession.Unlock()
-					}
-					<-oldClient.Close()
-				}
-				if client.opts.CleanSession == false && oldClient.opts.CleanSession == false {
-					//reuse session
-					sessionReuse = true
-				}
-			}
-			if sessionReuse {
-				client.reuseSession(oldSession)
-			} else {
-				client.newSession()
-			}
-			server.AddClients(client)
-			ack := connect.NewConnackPacket(sessionReuse)
-			client.out <- ack
-			client.setConnected()
-			if sessionReuse {
-				//发送还未确认的消息和离线消息队列
-				go func() {
-					client.session.inflightMu.Lock()
-					//write unacknowledged publish & pubrel
-					for e := client.session.inflight.Front(); e != nil; e = e.Next() {
-						if inflight, ok := e.Value.(*InflightElem); ok {
-							switch inflight.Packet.(type) {
-							case *packets.Publish:
-								publish := inflight.Packet.(*packets.Publish)
-								publish.Dup = true
-								client.out <- publish
-							case *packets.Pubrel:
-								pubrel := inflight.Packet.(*packets.Pubrel)
-								pubrel.Dup = true
-								client.out <- pubrel
-							}
-						}
-					}
-					client.session.inflight.Init()
-					client.session.inflightMu.Unlock()
-					//offline msg
-					client.session.offlineQueueMu.Lock()
-					if client.server.Store != nil {
-						//read from storag
-						pp, err := client.server.Store.GetOfflineMsg(client.opts.ClientId)
-						if log != nil {
-							log.Printf("%-15s %v: getting offline msg from storage...", "", client.rwc.RemoteAddr())
-						}
-						if err != nil {
-							log2.Printf("getting offline msg from storage error: %s", err)
-						} else {
-							for _, v := range pp {
-								client.out <- v
-							}
-						}
-					}
-					for {
-						if client.session.offlineQueue.Front() == nil {
-							break
-						}
-						client.out <- client.session.offlineQueue.Remove(client.session.offlineQueue.Front()).(packets.Packet)
-					}
-					client.session.offlineQueueMu.Unlock()
-					if log != nil {
-						log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
-					}
-				}()
-			} else {
-				if log != nil {
-					log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
-				}
-			}
-			close(client.ready)
-		}
-
-	}
 }
 
 func (srv *Server) recoverSession(sp []*SessionPersistence) {
@@ -428,11 +575,11 @@ func (srv *Server) recoverSession(sp []*SessionPersistence) {
 		client.opts.ClientId = v.ClientId
 		client.newSession()
 		client.session.subTopics = v.SubTopics
-		client.session.pid = v.Pid
 		client.session.unackpublish = v.UnackPublish
 		for _, inflight := range v.Inflight {
 			client.session.inflight.PushBack(inflight)
 		}
+		client.setDisConnected()
 		srv.clients[v.ClientId] = client
 		close(client.ready)
 		close(client.closeComplete)
@@ -442,24 +589,11 @@ func (srv *Server) recoverSession(sp []*SessionPersistence) {
 }
 
 func (srv *Server) Run() {
-	//读取文件，初始化所有的session
-	if srv.Store != nil {
-		err := srv.Store.Open()
-		if err != nil {
-			log2.Printf("getting session from storage error: %s", err)
-		} else {
-			sp, err := srv.Store.GetSessions()
-
-			if err != nil {
-				log2.Printf("getting session from storage error: %s", err)
-			}
-			srv.recoverSession(sp)
-			log2.Printf("got %d sessions from storage", len(sp))
-
-		}
+	if srv.Monitor != nil {
+		srv.Monitor.Repository.Open()
 	}
-	go srv.routing()
-	go srv.startSession()
+	go srv.eventLoop()
+
 	for _, ln := range srv.tcpListener {
 		go srv.serveTcp(ln)
 	}
@@ -495,7 +629,6 @@ func (srv *Server) Stop(ctx context.Context) error {
 	for _, l := range srv.tcpListener {
 		l.Close()
 	}
-
 	for _, ws := range srv.websocketServer {
 		ws.Server.Shutdown(ctx)
 	}
@@ -513,37 +646,22 @@ func (srv *Server) Stop(ctx context.Context) error {
 	go func() {
 		for _, v := range closeCompleteSet {
 			//等所有的session退出完毕
-			//wait for all sessions to logout
+			//wait for all sessions to unregister
 			<-v
 		}
 		close(done)
 	}()
-	<-done
-	if srv.Store != nil {
-		sp := make([]*SessionPersistence, 0, len(srv.clients))
-		for _, v := range srv.clients {
-			if v.session.needStore == true {
-				sp = append(sp, v.NewPersistence())
-			}
-		}
-		err := srv.Store.PutSessions(sp)
-		if err != nil {
-			log2.Printf("storing session error:%s", err)
-		} else {
-			log2.Printf("stored %d sessions", len(sp))
-		}
-		err = srv.Store.Close()
-		if err != nil {
-			log2.Printf("storage Close() error:%s", err)
-		}
-	}
-	if srv.OnStop != nil {
-		srv.OnStop()
-	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
+
+		if srv.Monitor != nil {
+			srv.Monitor.Repository.Close()
+		}
+		if srv.OnStop != nil {
+			srv.OnStop()
+		}
 		return nil
 	}
 
