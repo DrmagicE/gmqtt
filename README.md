@@ -50,7 +50,7 @@ logging: false
 # http_server服务监听地址
 # http_server.addr http服务监听地址
 # http_server.user http basic auth的用户名密码,key是用户名，value是密码
-http_server: {addr: ":8080",user: { admin: "admin"}}
+http_server: {addr: ":9090",user: { admin: "admin"}}
 
 # listener
 # listener.$.protocol 支持mqtt或者websocket
