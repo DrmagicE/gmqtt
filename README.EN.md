@@ -54,7 +54,7 @@ logging: false
 # http_server REST http server
 # http_server.addr Addr of http server
 # http_server.user User info of http basic auth, username => password
-http_server: {addr: ":8080",user: { admin: "admin"}}
+http_server: {addr: ":9090",user: { admin: "admin"}}
 # listener
 # listener.$.protocol:Set the protocol to accept for this listener. Can be mqtt, the default, or websockets.
 # listener.$.addr:Bind address, it wil pass to net.Listen(network, address string) address parameter.
