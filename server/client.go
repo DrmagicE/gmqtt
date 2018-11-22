@@ -334,7 +334,6 @@ func (client *Client) publish(publish *packets.Publish) {
 		case <-client.close:
 			return
 		case client.out <- publish:
-
 		}
 	} else { //离线消息
 		client.msgEnQueue(publish)

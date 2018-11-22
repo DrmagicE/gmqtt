@@ -181,10 +181,9 @@ func TestMsgQueue(t *testing.T) {
 //2.丢弃报文QOS=0的当前需要入队的报文
 //3.丢弃最先进入缓存队列的报文
 func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
+	//case 1: removing qos0 message in msgQueue
 	c := fullInflightSessionQos1()
-
 	c.session.maxQueueMessages = 3
-
 	pub1 := &packets.Publish{PacketId:packets.PacketId(1), Qos:packets.QOS_1}
 	c.msgEnQueue(pub1)
 	pub2 := &packets.Publish{PacketId:packets.PacketId(2), Qos:packets.QOS_2}
@@ -195,7 +194,6 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	pub4 := &packets.Publish{PacketId:packets.PacketId(4), Qos:packets.QOS_1}
 	c.msgEnQueue(pub4)
 	i := 1
-
 	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
 		if elem, ok := e.Value.(*packets.Publish); ok {
 			if i == 1 && elem.PacketId != 1 {
@@ -212,11 +210,13 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 			t.Fatalf("unexpected error")
 		}
 	}
+	if c.session.msgQueue.Len() != 3 {
+		t.Fatalf("msgQueue.Len() error, want 3,but got %d",c.session.msgQueue.Len())
+	}
 
+	//case 2: dropping current qos0 message
 	c2 := fullInflightSessionQos1()
-
 	c2.session.maxQueueMessages = 3
-
 	pub21 := &packets.Publish{PacketId:packets.PacketId(1), Qos:packets.QOS_1}
 	c2.msgEnQueue(pub21)
 	pub22 := &packets.Publish{PacketId:packets.PacketId(2), Qos:packets.QOS_2}
@@ -224,12 +224,10 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	pub23 := &packets.Publish{PacketId:packets.PacketId(3), Qos:packets.QOS_1}
 	c2.msgEnQueue(pub23)
 	//msgQueue: pid:1;qos:1 | pid:2;qos:2 | pid:3;qos:1 |
-
 	pub24 := &packets.Publish{PacketId:packets.PacketId(4), Qos:packets.QOS_0}
 	c2.msgEnQueue(pub24)
 	i = 1
-	//当缓存队列满
-	for e := c2.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
+	for e := c2.session.msgQueue.Front(); e != nil; e = e.Next() {
 		if elem, ok := e.Value.(*packets.Publish); ok {
 			if i == 1 && elem.PacketId != 1 {
 				t.Fatalf("msgQueue dropping priority  error, want %d ,got %d", i,elem.PacketId)
@@ -245,13 +243,13 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 			t.Fatalf("unexpected error")
 		}
 	}
+	if c2.session.msgQueue.Len() != 3 {
+		t.Fatalf("msgQueue.Len() error, want 3,but got %d",c2.session.msgQueue.Len())
+	}
 
-
-
+	//case 3:removing the front message of msgQueue
 	c3 := fullInflightSessionQos1()
-
 	c3.session.maxQueueMessages = 3
-
 	pub31 := &packets.Publish{PacketId:packets.PacketId(1), Qos:packets.QOS_1}
 	c3.msgEnQueue(pub31)
 	pub32 := &packets.Publish{PacketId:packets.PacketId(2), Qos:packets.QOS_2}
@@ -279,6 +277,9 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 		} else {
 			t.Fatalf("unexpected error")
 		}
+	}
+	if c3.session.msgQueue.Len() != 3 {
+		t.Fatalf("msgQueue.Len() error, want 3,but got %d",c3.session.msgQueue.Len())
 	}
 
 }

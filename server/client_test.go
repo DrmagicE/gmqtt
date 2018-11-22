@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-	"sync"
 )
 
 const test_redelivery_internal = 10 * time.Second
@@ -1037,12 +1036,6 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	srv = NewServer()
 	srv.SetMaxQueueMessages(5)
 
-	/*srv.Store = &FileStore{Path:"testdata/clientTest"}
-	defer func() {
-		srv = nil
-		os.RemoveAll("testdata/clientTest")
-	}()
-*/
 	conn1 := defaultConnectPacket()
 	conn1.CleanSession = false
 	conn1.ClientId = []byte("id1")
@@ -1071,7 +1064,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 
 	readPacket(reciver) //close()
 
-	for i := 0x31; i <= 0x35; i++ { //assic 1 to 5
+	for i := 0x31; i <= 0x36; i++ { //assic 1 to 6,packet 1 will be dropped
 		pub := &packets.Publish{
 			Dup:       false,
 			Qos:       packets.QOS_1,
@@ -1094,13 +1087,24 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	}
 	srv.tcpListener[0].(*testListener).conn.PushBack(reConn)
 	srv.tcpListener[0].(*testListener).acceptReady <- struct{}{}
+
+	sinfo, ok := srv.Monitor.GetSession(string(conn2.ClientId))
+	if !ok {
+		t.Fatalf("GetSession() error,want true,but false")
+	}
+	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 5 {
+		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d",sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
+	}
+
+
+
 	err = writePacket(reConn, conn2)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	readPacket(reConn) //connack
 
-	for i := 0x31; i <= 0x35; i++ { //assic 1 to 5
+	for i := 0x32; i <= 0x36; i++ { //assic 2 to 6
 		p, err := readPacket(reConn)
 		if err != nil {
 			t.Fatalf("unexpected error:%s", err)
@@ -1123,146 +1127,17 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 	}
 
-}
-type storageMock struct{
-	sync.Mutex
-	callStack[] string
-}
-
-func (s *storageMock) Open() error {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "Open")
-	return nil
-}
-
-func (s *storageMock) Close() error {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "Close")
-	return nil
-}
-
-
-func (s *storageMock) PutOfflineMsg(clientId string, packet []packets.Packet) error {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "PutOfflineMsg")
-	return nil
-}
-
-func (s *storageMock) GetOfflineMsg(clientId string) ([]packets.Packet,error) {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "GetOfflineMsg")
-	return nil, nil
-}
-
-
-func (s *storageMock) PutSessions(sp []*SessionPersistence) error {
-	s.callStack = append(s.callStack, "PutSessions")
-	return nil
-}
-
-func (s *storageMock) GetSessions() ([]*SessionPersistence,error) {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "GetSessions")
-	return nil,nil
-}
-
-func (s *storageMock) CleanSession(clientId string) error {
-	s.Lock()
-	defer s.Unlock()
-	s.callStack = append(s.callStack, "CleanSession")
-	return nil
-}
-
-
-
-/*func TestStorage(t *testing.T) {
-	srv = NewServer()
-	srv.SetMaxOfflineMsg(0)
-	storageMock := &storageMock{callStack:make([]string,0)}
-	srv.Store = storageMock
-	conn1 := defaultConnectPacket()
-	conn1.CleanSession = false
-
-	conn1.WillFlag = false
-	conn1.WillTopic = make([]byte,0)
-	conn1.WillMsg = make([]byte,0)
-	conn1.WillQos = 0
-
-	conn1.ClientId = []byte("id1")
-
-	conn2 := defaultConnectPacket()
-	conn2.CleanSession = false
-
-	conn2.WillFlag = false
-	conn2.WillTopic = make([]byte,0)
-	conn2.WillMsg = make([]byte,0)
-	conn2.WillQos = 0
-
-	conn2.ClientId = []byte("id2")
-	srv, s, r := connectedServerWith2Client(conn1, conn2)
-	var err error
-	sender := s.(*rwTestConn)
-	reciver := r.(*rwTestConn)
-	sub := &packets.Subscribe{
-		PacketId: 10,
-		Topics: []packets.Topic{
-			{Name: string("#"), Qos: packets.QOS_1},
-		},
+	sinfo, ok = srv.Monitor.GetSession(string(conn2.ClientId))
+	if !ok {
+		t.Fatalf("GetSession() error,want true,but false")
 	}
-	err = writePacket(reciver, sub)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
+	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 0 {
+		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d",sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
 	}
-	readPacket(reciver) //suback
-	disconnect := &packets.Disconnect{}
-	writePacket(reciver, disconnect)
-	readPacket(reciver) //close()
 
-	for i := 0x31; i <= 0x33; i++ { //assic 1 to 3
-		pub := &packets.Publish{
-			Dup:       false,
-			Qos:       packets.QOS_1,
-			Retain:    false,
-			TopicName: []byte{byte(i)},
-			PacketId:  uint16(i),
-			Payload:   []byte{byte(i), byte(i)},
-		}
-		err = writePacket(sender, pub)
-		if err != nil {
-			t.Fatalf("unexpected error:%s", err)
-		}
-	}
-	time.Sleep(2 * time.Second)
-	reConn := &rwTestConn{
-		closec:    make(chan struct{}),
-		readChan:  make(chan []byte, 1024),
-		writeChan: make(chan []byte, 1024),
-		netAddr:"reciver",
-	}
-	srv.tcpListener[0].(*testListener).conn.PushBack(reConn)
-	srv.tcpListener[0].(*testListener).acceptReady <- struct{}{}
-	err = writePacket(reConn, conn2)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	readPacket(reConn) //connack
-	srv.Stop(context.Background())
-	var call string
-	storageMock.Lock()
-	for _, v := range storageMock.callStack {
-		call += v
-	}
-	storageMock.Unlock()
-	//Open => GetSessions => PutOfflineMsg * 3 => GetOfflineMsg => PutSessions => Close
-	if call != "OpenGetSessionsPutOfflineMsgPutOfflineMsgPutOfflineMsgGetOfflineMsgPutSessionsClose" {
-		t.Fatalf("unexpected call stack:%s", call)
-	}
-}*/
+
+
+}
 
 
 func TestWillMsg(t *testing.T) {

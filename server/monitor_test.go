@@ -361,3 +361,32 @@ func TestMonitor_Subscribe_UnSubscribe(t *testing.T) {
 
 
 }
+
+
+//1.缓存队列中QOS0的报文
+//2.如果准备入队的报文qos=0,丢弃
+//3.丢弃最先进入缓存队列的报文
+func TestMonitor_MsgQueueDropped(t *testing.T) {
+	m := testMemMonitor()
+	defer m.Repository.Close()
+	opts := &ClientOptions{
+		ClientId:"clientId",
+		Username:"username",
+		KeepAlive:60,
+		CleanSession:false,
+	}
+	client := testMonitorClient(opts)
+	m.Register(client,false)
+	for i := 0; i < test_max_msgQueue_len + 1; i++ {
+		m.MsgEnQueue(opts.ClientId)
+	}
+	s, _ := m.GetSession(opts.ClientId)
+	if s.MsgQueueLen != 20 {
+		t.Fatalf("MsgQueueLen error, want 1, got %d",s.MsgQueueLen)
+	}
+	m.MsgDeQueue(opts.ClientId)
+	s, _ = m.GetSession(opts.ClientId)
+	if s.MsgQueueLen != 0 {
+		t.Fatalf("MsgQueueLen error, want 0, got %d",s.MsgQueueLen)
+	}
+}

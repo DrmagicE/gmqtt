@@ -10,17 +10,17 @@ import (
 type session struct {
 	topicsMu   sync.RWMutex
 	subTopics  map[string]packets.Topic //all subscribed topics 所有订阅的主题
-	inflightMu sync.Mutex               //gard inflight & inflightQueue
+	inflightMu sync.Mutex               //gard inflight
 	inflight   *list.List               //传输中等待确认的报文
 	msgQueueMu sync.Mutex               //gard msgQueue
-	msgQueue   *list.List               //缓存数据 publish or pubrel
+	msgQueue   *list.List               //缓存数据 publish
 	//QOS=2 的情况下，判断报文是否是客户端重发报文，如果重发，则不分发.
 	// 确保[MQTT-4.3.3-2]中：在收发送PUBREC报文确认任何到对应的PUBREL报文之前，接收者必须后续的具有相同标识符的PUBLISH报文。
 	// 在这种情况下，它不能重复分发消息给任何后续的接收者
 	unackpublish map[packets.PacketId]bool //[MQTT-4.3.3-2]
-	pidMu        sync.RWMutex                //gard LockedPid & nextFreeId
+	pidMu        sync.RWMutex                //gard lockedPid & freeId
 	lockedPid          map[packets.PacketId]bool //Pid inuse
-	freePid	packets.PacketId  //下一个可以使用的FreeId
+	freePid	packets.PacketId  //下一个可以使用的freeId
 
 	//config
 	maxInflightMessages int
@@ -63,6 +63,11 @@ type InflightElem struct {
 //1.缓存队列中QOS0的报文
 //2.如果准备入队的报文qos=0,丢弃
 //3.丢弃最先进入缓存队列的报文
+
+//When the len of msgQueueu is reaching the maximum setting, message will be dropped according to the following priorities：
+//1. qos0 message in the msgQueue
+//2. qos0 message that is going to enqueue
+//3. the front message of msgQueue
 func (client *Client) msgEnQueue(publish *packets.Publish) {
 	s := client.session
 	s.msgQueueMu.Lock()
@@ -83,12 +88,14 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 				}
 			}
 		}
-		if removeMsg != nil {
+		if removeMsg != nil {  //case1: removing qos0 message in the msgQueue
 			s.msgQueue.Remove(removeMsg)
 			if log != nil {
 				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.ClientOptions().ClientId, removeMsg.Value.(packets.Packet))
 			}
-		} else if publish.Qos != packets.QOS_0 {
+		} else if publish.Qos == packets.QOS_0 {   //case2: removing qos0 message that is going to enqueue
+			return
+		} else { //case3: removing the front message of msgQueue
 			e := s.msgQueue.Front()
 			s.msgQueue.Remove(e)
 			if log != nil {
@@ -96,12 +103,10 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 				log.Printf("%-15s[%s],packet: %s ", "first msg removed", client.ClientOptions().ClientId, p)
 			}
 		}
-
-	}
-	s.msgQueue.PushBack(publish)
-	if client.server.Monitor != nil {
+	} else if client.server.Monitor != nil {
 		client.server.Monitor.MsgEnQueue(client.opts.ClientId)
 	}
+	s.msgQueue.PushBack(publish)
 
 }
 
@@ -149,7 +154,6 @@ func (client *Client) setInflight(publish *packets.Publish) (enqueue bool) {
 		enqueue = false
 		return
 	}
-
 	s.inflight.PushBack(elem)
 	enqueue = true
 	return
@@ -220,6 +224,7 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 	}
 
 }
+
 
 func (s *session) freePacketId(id packets.PacketId) {
 	s.pidMu.Lock()

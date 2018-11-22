@@ -154,7 +154,6 @@ func (srv *Server) registerHandler(register *register) {
 			}
 		}
 		oldSession.inflightMu.Unlock()
-
 		oldSession.msgQueueMu.Lock()
 		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() { //write offline msg
 			if publish, ok := e.Value.(*packets.Publish); ok {
