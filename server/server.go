@@ -342,9 +342,9 @@ func NewServer() *Server {
 		},
 		Monitor: &Monitor{
 			Repository: &MonitorStore{
-				clients : make(map[string]ClientInfo),
-				sessions : make(map[string]SessionInfo),
-				subscriptions : make(map[string]map[string]SubscriptionsInfo),
+				clients:       make(map[string]ClientInfo),
+				sessions:      make(map[string]SessionInfo),
+				subscriptions: make(map[string]map[string]SubscriptionsInfo),
 			},
 		},
 	}
@@ -354,7 +354,7 @@ func (srv *Server) Publish(publish *packets.Publish, clientIds ...string) {
 	srv.msgRouter <- &msgRouter{false, clientIds, publish}
 }
 
-func (srv *Server) Subscribe(clientId string, topics []packets.Topic)  {
+func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
 	client := srv.Client(clientId)
 	if client == nil {
 		return
@@ -374,7 +374,7 @@ func (srv *Server) Subscribe(clientId string, topics []packets.Topic)  {
 	}
 }
 
-func (srv *Server) UnSubscribe(clientId string, topics []string)  {
+func (srv *Server) UnSubscribe(clientId string, topics []string) {
 	client := srv.Client(clientId)
 	if client == nil {
 		return
@@ -501,6 +501,10 @@ func (srv *Server) AddClient(client *Client) {
 var defaultUpgrader = &websocket.Upgrader{
 	ReadBufferSize:  READ_BUFFER_SIZE,
 	WriteBufferSize: WRITE_BUFFER_SIZE,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+	Subprotocols: []string{"mqtt"},
 }
 
 //实现io.ReadWriter接口
@@ -598,10 +602,6 @@ func (srv *Server) Run() {
 	}
 	if len(srv.websocketServer) != 0 {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			defaultUpgrader.CheckOrigin = func(r *http.Request) bool {
-				return true
-			}
-			defaultUpgrader.Subprotocols = []string{"mqtt"}
 			c, err := defaultUpgrader.Upgrade(w, r, nil)
 			if err != nil {
 				log.Println("upgrade:", err)
