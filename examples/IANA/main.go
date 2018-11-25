@@ -23,10 +23,7 @@ func main() {
 	}()
 	s := server.NewServer()
 	s.SetMaxInflightMessages(20)
-	s.SetMaxQueueMessages(30)
-
-
-
+	s.SetMaxQueueMessages(99999)
 
 
 	ln, err := net.Listen("tcp",":1883")
@@ -57,9 +54,7 @@ func main() {
 		}
 		return topic.Qos
 	}
-	s.OnClose = func(client *server.Client) {
-		fmt.Println("close")
-	}
+
 	//server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	s.Run()
 	fmt.Println("started...")

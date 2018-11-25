@@ -34,7 +34,7 @@ func TestHooks(t *testing.T) {
 		return true
 	}
 
-	srv.OnClose = func(client *Client) {
+	srv.OnClose = func(client *Client,err error) {
 		hooks += "OnClose"
 
 	}

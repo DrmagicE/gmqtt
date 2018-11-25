@@ -1,7 +1,15 @@
-[English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md).
+[English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md)
 # Gmqtt [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt)
 
-# 更新日志2018.11.18
+
+
+# 更新日志
+## 2018.11.25
+* 增加压力测试工具
+* 优化部分代码结构
+* 改变订阅主题的存储方式，优化转发性能
+* 修改OnClose钩子方法，增加连接关闭原因
+##2018.11.18
 * 暂时删除了session持久化功能，需要重新设计
 * 新增运行状态监控/管理功能，在`cmd/broker`中通过restapi呈现
 * 新增服务端触发的发布/订阅功能，在`cmd/broker`中通过restapi呈现
@@ -12,6 +20,7 @@
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
 * MQTT V3.1.1 版本的协议解析库
+* MQTT压力测试工具 [README.md](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
 
 # 功能特性
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
@@ -443,7 +452,7 @@ server.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
 当网络连接关闭之后调用
 ```
 //This is called after Network Connection close
-type OnClose func(client *Client)
+type OnClose func(client *Client, err error)
 ```
 
 ### OnStop()
@@ -473,6 +482,7 @@ $ go test
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO 
-* 性能测试
+* 完善文档
+* 性能对比[EMQ/Mosquito]
 * Vendoring
 * 网页监控

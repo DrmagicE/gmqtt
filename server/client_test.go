@@ -574,14 +574,12 @@ func TestUnsubscribe(t *testing.T) {
 	}
 
 	srv.mu.RLock()
-	client := srv.clients["MQTT"]
-	se := client.session
 	srv.mu.RUnlock()
-	se.topicsMu.Lock()
-	if _, ok := se.subTopics["/a/b/+"]; ok {
+	srv.topicsMu.RLock()
+	if _, ok := srv.topics["MQTT"]["/a/b/+"]; ok {
 		t.Fatalf("subTopics error,the topic dose not delete from map")
 	}
-	se.topicsMu.Unlock()
+	srv.topicsMu.RUnlock()
 
 	pub := &packets.Publish{
 		Dup:       false,
@@ -634,12 +632,12 @@ func TestOnSubscribe(t *testing.T) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
 		}
 		srv.mu.RLock()
-		srv.clients["MQTT"].session.topicsMu.Lock()
-		if len(srv.clients["MQTT"].session.subTopics) != 1 {
-			t.Fatalf("len(subTopics) error, want 1, got %d", len(srv.clients["MQTT"].session.subTopics))
+		srv.topicsMu.Lock()
+		if len(srv.topics["MQTT"]) != 1 {
+			t.Fatalf("len(srv.topics) error, want 1, got %d", len(srv.topics["MQTT"]))
 		}
-		srv.clients["MQTT"].session.topicsMu.Unlock()
 		srv.mu.RUnlock()
+		srv.topicsMu.Unlock()
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Suback{}), reflect.TypeOf(packet))
 	}

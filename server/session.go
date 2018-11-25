@@ -8,8 +8,6 @@ import (
 )
 
 type session struct {
-	topicsMu   sync.RWMutex
-	subTopics  map[string]packets.Topic //all subscribed topics 所有订阅的主题
 	inflightMu sync.Mutex               //gard inflight
 	inflight   *list.List               //传输中等待确认的报文
 	msgQueueMu sync.Mutex               //gard msgQueue
@@ -27,29 +25,7 @@ type session struct {
 	maxQueueMessages    int
 }
 
-type SessionPersistence struct {
-	ClientId     string
-	SubTopics    map[string]packets.Topic
-	Inflight     []*InflightElem
-	UnackPublish map[packets.PacketId]bool
-}
 
-func (client *Client) NewPersistence() *SessionPersistence {
-	s := client.session
-	inflight := make([]*InflightElem, 0, s.inflight.Len())
-	for {
-		if s.inflight.Front() == nil {
-			break
-		}
-		inflight = append(inflight, s.inflight.Remove(s.inflight.Front()).(*InflightElem))
-	}
-	return &SessionPersistence{
-		ClientId:     client.opts.ClientId,
-		SubTopics:    s.subTopics,
-		Inflight:     inflight,
-		UnackPublish: s.unackpublish,
-	}
-}
 
 type InflightElem struct {
 	At     time.Time //进入时间

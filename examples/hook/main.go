@@ -90,8 +90,8 @@ func main() {
 		return true
 	}
 
-	s.OnClose = func(client *server.Client) {
-		log.Println("client id:"+ client.ClientOptions().ClientId + "is closed")
+	s.OnClose = func(client *server.Client, err error) {
+		log.Println("client id:"+ client.ClientOptions().ClientId + "is closed",err)
 	}
 
 	s.OnStop = func() {

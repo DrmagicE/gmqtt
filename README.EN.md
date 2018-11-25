@@ -4,7 +4,13 @@ Gmqtt provides:
 *  Golang MQTT broker package for secondary development.
 *  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
 
-# Change Log 2018.11.18
+# Change Log 
+## 2018.11.25
+* Added benchmark tool
+* Refacotoring & performance optimization
+* Performance optimization on message distributing
+* Edited `OnClose`, added error information 
+## 2018.11.18
 * Removed sessions/messages persistence which need a redesign
 * Added monitor/management API, added `cmd/broker/restapi` as an example
 * Added publish/subscribe/unsubscribe API, added `cmd/broker/restapi` as an example
@@ -446,7 +452,7 @@ server.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
 This method is called after Network Connection close.
 ```
 //This is called after Network Connection close
-type OnClose func(client *Client)
+type OnClose func(client *Client, err error)
 ```
 
 ### OnStop()
@@ -475,7 +481,8 @@ $ go test
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 # TODO
-* Benchmark test
+* Improve documentation
+* Performance comparison [EMQ/Mosquito]
 * Vendoring
 * Website monitor
 

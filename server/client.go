@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
 )
 
 var (
@@ -79,7 +80,8 @@ type Client struct {
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
 	session       *session
-	error         chan error     //错误
+	error         chan error //错误
+	err           error
 	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
 	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
 	//自定义数据 user data
@@ -218,7 +220,8 @@ func (client *Client) errorWatch() {
 	select {
 	case <-client.close:
 		return
-	case <-client.error: //有错误关闭
+	case err := <-client.error: //有错误关闭
+		client.err = err
 		client.rwc.Close()
 		close(client.close) //退出chanel
 		return
@@ -291,7 +294,6 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 
 func (client *Client) newSession() {
 	s := &session{
-		subTopics:           make(map[string]packets.Topic),
 		unackpublish:        make(map[packets.PacketId]bool),
 		inflight:            list.New(),
 		msgQueue:            list.New(),
@@ -313,7 +315,7 @@ func (client *Client) internalClose() {
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
 	if client.server.OnClose != nil {
-		client.server.OnClose(client)
+		client.server.OnClose(client, client.err)
 	}
 }
 
@@ -349,11 +351,131 @@ func (client *Client) write(packets packets.Packet) {
 
 }
 
+//subscribe handler
+func (client *Client) subscribeHandler(sub *packets.Subscribe) {
+	srv := client.server
+	if srv.OnSubscribe != nil {
+		for k, v := range sub.Topics {
+			sub.Topics[k].Qos = client.server.OnSubscribe(client, v)
+		}
+	}
+	suback := sub.NewSubBack()
+	client.write(suback)
+	srv.topicsMu.Lock()
+	defer srv.topicsMu.Unlock()
+	var isNew bool
+	for k, v := range sub.Topics {
+		if v.Qos != packets.SUBSCRIBE_FAILURE {
+			topic := packets.Topic{
+				Name: v.Name,
+				Qos:  suback.Payload[k],
+			}
+			if _, ok := srv.topics[client.opts.ClientId][string(v.Name)]; !ok {
+				isNew = true
+			}
+			srv.topics[client.opts.ClientId][string(v.Name)] = topic
+			if client.server.Monitor != nil {
+				client.server.Monitor.Subscribe(SubscriptionsInfo{
+					ClientId: client.opts.ClientId,
+					Qos:      suback.Payload[k],
+					Name:     v.Name,
+					At:       time.Now(),
+				})
+			}
+		}
+	}
+	if isNew {
+		srv.retainedMsgMu.Lock()
+		for _, msg := range srv.retainedMsg {
+			msg.Retain = true
+			msgRouter := &msgRouter{forceBroadcast: false, pub: msg}
+			srv.msgRouter <- msgRouter
+		}
+		srv.retainedMsgMu.Unlock()
+	}
+}
+//publish handler
+func (client *Client) publishHandler(pub *packets.Publish) {
+	s := client.session
+	srv := client.server
+	var dup bool
+	if pub.Qos == packets.QOS_1 {
+		puback := pub.NewPuback()
+		client.write(puback)
+	}
+	if pub.Qos == packets.QOS_2 {
+		pubrec := pub.NewPubrec()
+		client.write(pubrec)
+		if _, ok := s.unackpublish[pub.PacketId]; ok {
+			dup = true
+		} else {
+			s.unackpublish[pub.PacketId] = true
+		}
+	}
+	if pub.Retain {
+		//保留消息，处理保留
+		srv.retainedMsgMu.Lock()
+		srv.retainedMsg[string(pub.TopicName)] = pub
+		if len(pub.Payload) == 0 {
+			delete(srv.retainedMsg, string(pub.TopicName))
+		}
+		srv.retainedMsgMu.Unlock()
+	}
+	if !dup {
+		var valid bool
+		valid = true
+		if srv.OnPublish != nil {
+			valid = client.server.OnPublish(client, pub)
+		}
+		if valid {
+			pub.Retain = false
+			msgRouter := &msgRouter{forceBroadcast: false, pub: pub}
+			select {
+			case <-client.close:
+				return
+			case client.server.msgRouter <- msgRouter:
+			}
+		}
+	}
+}
+func (client *Client) pubackHandler(puback *packets.Puback) {
+	client.unsetInflight(puback)
+}
+func (client *Client) pubrelHandler(pubrel *packets.Pubrel) {
+	delete(client.session.unackpublish, pubrel.PacketId)
+	pubcomp := pubrel.NewPubcomp()
+	client.write(pubcomp)
+}
+func (client *Client) pubrecHandler(pubrec *packets.Pubrec) {
+	client.unsetInflight(pubrec)
+	pubrel := pubrec.NewPubrel()
+	client.write(pubrel)
+}
+func (client *Client) pubcompHandler(pubcomp *packets.Pubcomp) {
+	client.unsetInflight(pubcomp)
+}
+func (client *Client) pingreqHandler(pingreq *packets.Pingreq) {
+	resp := pingreq.NewPingresp()
+	client.write(resp)
+}
+func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
+	srv := client.server
+	unSuback := unSub.NewUnSubBack()
+	client.write(unSuback)
+	srv.topicsMu.Lock()
+	defer srv.topicsMu.Unlock()
+	for _, topicName := range unSub.Topics {
+		delete(srv.topics[client.opts.ClientId], topicName)
+		if client.server.Monitor != nil {
+			client.server.Monitor.UnSubscribe(client.opts.ClientId, topicName)
+		}
+	}
+}
+
 //处理读到的包
 //goroutine 退出条件，1.session逻辑错误,2链接关闭
 func (client *Client) readHandle() {
 	var err error
-	s := client.session
 	defer func() {
 		if re := recover(); re != nil {
 			err = errors.New(fmt.Sprint(re))
@@ -368,119 +490,21 @@ func (client *Client) readHandle() {
 		case packet := <-client.in:
 			switch packet.(type) {
 			case *packets.Subscribe:
-				sub := packet.(*packets.Subscribe)
-				if client.server.OnSubscribe != nil {
-					for k, v := range sub.Topics {
-						sub.Topics[k].Qos = client.server.OnSubscribe(client, v)
-					}
-				}
-				suback := sub.NewSubBack()
-				client.write(suback)
-				s.topicsMu.Lock()
-				var isNew bool
-				for k, v := range sub.Topics {
-					if v.Qos != packets.SUBSCRIBE_FAILURE {
-						topic := packets.Topic{
-							Name: v.Name,
-							Qos:  suback.Payload[k],
-						}
-						if _, ok := s.subTopics[string(v.Name)]; !ok {
-							isNew = true
-						}
-						s.subTopics[string(v.Name)] = topic
-
-						if client.server.Monitor != nil {
-							client.server.Monitor.Subscribe(SubscriptionsInfo{
-								ClientId: client.opts.ClientId,
-								Qos:      suback.Payload[k],
-								Name:     v.Name,
-								At:       time.Now(),
-							})
-						}
-					}
-				}
-				s.topicsMu.Unlock()
-				if isNew {
-					client.server.retainedMsgMu.Lock()
-					for _, msg := range client.server.retainedMsg {
-						msg.Retain = true
-						msgRouter := &msgRouter{forceBroadcast: false, pub: msg}
-						client.server.msgRouter <- msgRouter
-					}
-					client.server.retainedMsgMu.Unlock()
-				}
-
+				client.subscribeHandler(packet.(*packets.Subscribe))
 			case *packets.Publish:
-				var dup bool
-				pub := packet.(*packets.Publish)
-				if pub.Qos == packets.QOS_1 {
-					puback := pub.NewPuback()
-					client.write(puback)
-				}
-				if pub.Qos == packets.QOS_2 {
-					pubrec := pub.NewPubrec()
-					client.write(pubrec)
-					if _, ok := s.unackpublish[pub.PacketId]; ok {
-						dup = true
-					} else {
-						s.unackpublish[pub.PacketId] = true
-					}
-				}
-				if pub.Retain {
-					//保留消息，处理保留
-					client.server.retainedMsgMu.Lock()
-					client.server.retainedMsg[string(pub.TopicName)] = pub
-					if len(pub.Payload) == 0 {
-						delete(client.server.retainedMsg, string(pub.TopicName))
-					}
-					client.server.retainedMsgMu.Unlock()
-				}
-				if !dup {
-					var valid bool
-					valid = true
-					if client.server.OnPublish != nil {
-						valid = client.server.OnPublish(client, pub)
-					}
-					if valid {
-						pub.Retain = false
-						msgRouter := &msgRouter{forceBroadcast: false, pub: pub}
-						client.server.msgRouter <- msgRouter
-					}
-				}
+				client.publishHandler(packet.(*packets.Publish))
 			case *packets.Puback:
-				pub := packet.(*packets.Puback)
-				client.unsetInflight(pub)
+				client.pubackHandler(packet.(*packets.Puback))
 			case *packets.Pubrel:
-				pub := packet.(*packets.Pubrel)
-				delete(client.session.unackpublish, pub.PacketId)
-				pubcomp := pub.NewPubcomp()
-				client.write(pubcomp)
+				client.pubrelHandler(packet.(*packets.Pubrel))
 			case *packets.Pubrec:
-				pub := packet.(*packets.Pubrec)
-				client.unsetInflight(pub)
-				pubrel := pub.NewPubrel()
-				client.write(pubrel)
+				client.pubrecHandler(packet.(*packets.Pubrec))
 			case *packets.Pubcomp:
-				pub := packet.(*packets.Pubcomp)
-				client.unsetInflight(pub)
+				client.pubcompHandler(packet.(*packets.Pubcomp))
 			case *packets.Pingreq:
-				ping := packet.(*packets.Pingreq)
-				resp := ping.NewPingresp()
-				client.write(resp)
+				client.pingreqHandler(packet.(*packets.Pingreq))
 			case *packets.Unsubscribe:
-				unSub := packet.(*packets.Unsubscribe)
-				unSuback := unSub.NewUnSubBack()
-				client.write(unSuback)
-
-				//删除client的订阅列表
-				s.topicsMu.Lock()
-				for _, topicName := range unSub.Topics {
-					delete(client.session.subTopics, topicName)
-					if client.server.Monitor != nil {
-						client.server.Monitor.UnSubscribe(client.opts.ClientId, topicName)
-					}
-				}
-				s.topicsMu.Unlock()
+				client.unsubscribeHandler(packet.(*packets.Unsubscribe))
 			case *packets.Disconnect:
 				//正常关闭
 				client.cleanWillFlag = true
@@ -489,7 +513,6 @@ func (client *Client) readHandle() {
 				err = errors.New("invalid packet")
 				return
 			}
-
 		}
 	}
 }
@@ -527,7 +550,6 @@ func (client *Client) redeliver() {
 							pubrel := pub.NewPubrec().NewPubrel()
 							client.write(pubrel)
 						}
-
 					}
 				}
 			}
