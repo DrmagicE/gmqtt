@@ -6,7 +6,7 @@ go:
   #- master
 
 before_install:
-  - go get -t -v github.com/DrmagicE/gmqtt/cmd/broker
+  - go get -t -v -d github.com/DrmagicE/gmqtt/cmd/broker
 
 script:
   -  go test -race ./pkg/packets
