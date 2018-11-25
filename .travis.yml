@@ -5,6 +5,9 @@ go:
   - "1.10.x"
   #- master
 
+install:
+  - go get -t -v -d ./...
+
 before_install:
   - go get -t -v -d github.com/DrmagicE/gmqtt/cmd/broker
 
