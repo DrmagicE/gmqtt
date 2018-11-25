@@ -9,7 +9,7 @@
 * 优化部分代码结构
 * 改变订阅主题的存储方式，优化转发性能
 * 修改OnClose钩子方法，增加连接关闭原因
-##2018.11.18
+## 2018.11.18
 * 暂时删除了session持久化功能，需要重新设计
 * 新增运行状态监控/管理功能，在`cmd/broker`中通过restapi呈现
 * 新增服务端触发的发布/订阅功能，在`cmd/broker`中通过restapi呈现
@@ -480,6 +480,9 @@ $ go test
 ```
 ## 集成测试
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+
+## 压力测试
+[文档与测试结果](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
 
 # TODO 
 * 完善文档
