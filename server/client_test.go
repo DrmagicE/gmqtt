@@ -126,8 +126,7 @@ func newTestServer() *Server {
 		s = NewServer()
 		s.SetDeliveryRetryInterval(test_redelivery_internal)
 	}
-
-	//SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))
+	/*SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))*/
 	ln := &testListener{acceptReady: make(chan struct{})}
 	s.AddTCPListenner(ln)
 	return s
@@ -217,6 +216,15 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 	writePacket(cc[1].(*rwTestConn), conn2)
 	readPacket(cc[1].(*rwTestConn))
 	return srv, cc[0], cc[1]
+}
+
+func TestClient_UserData(t *testing.T) {
+	c := mockClient()
+	data := "userdata"
+	c.SetUserData("userdata")
+	if c.UserData().(string) != data {
+		t.Fatalf("UserData() error, want %s, but %s", data, c.UserData())
+	}
 }
 
 func TestConnect(t *testing.T) {
@@ -877,9 +885,7 @@ func TestQos2Redelivery(t *testing.T) {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	if pubrec, ok := p.(*packets.Pubrec); ok {
-
 		p, err := readPacket(reciver)
-
 		if err != nil {
 			t.Fatalf("unexpected error:%s", err)
 		}
@@ -1057,7 +1063,6 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	readPacket(reciver) //suback
 	disconnect := &packets.Disconnect{}
 	writePacket(reciver, disconnect)
-
 	readPacket(reciver) //close()
 
 	for i := 0x31; i <= 0x36; i++ { //assic 1 to 6,packet 1 will be dropped
@@ -1074,7 +1079,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 	}
-	time.Sleep(3 * time.Second)
+
 	reConn := &rwTestConn{
 		closec:    make(chan struct{}),
 		readChan:  make(chan []byte, 1024),
@@ -1083,6 +1088,8 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	}
 	srv.tcpListener[0].(*testListener).conn.PushBack(reConn)
 	srv.tcpListener[0].(*testListener).acceptReady <- struct{}{}
+
+	time.Sleep(2 * time.Second)
 
 	sinfo, ok := srv.Monitor.GetSession(string(conn2.ClientId))
 	if !ok {
@@ -1105,10 +1112,10 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 		if pub, ok := p.(*packets.Publish); ok {
 			if !bytes.Equal([]byte{byte(i), byte(i)}, pub.Payload) {
-				t.Fatalf("[%x]Payload error, want %v, got %v %s", i, []byte{byte(i), byte(i)}, pub.Payload, string(pub.Payload))
+				t.Fatalf("[%x]Payload error, want % x, got % x % x", i, []byte{byte(i), byte(i)}, pub.Payload, string(pub.Payload))
 			}
 			if !bytes.Equal([]byte{byte(i)}, pub.TopicName) {
-				t.Fatalf("[%x]TopicName error, want %v, got %v", i, []byte{byte(i)}, pub.TopicName)
+				t.Fatalf("[%x]TopicName error, want % x, got % x", i, []byte{byte(i)}, pub.TopicName)
 			}
 			if pub.Dup != false {
 				t.Fatalf("[%x]Dup error, want %t, got %t", i, false, true)

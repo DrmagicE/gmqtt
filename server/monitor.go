@@ -347,7 +347,7 @@ func (m *MonitorStore) Subscriptions() SubscriptionList {
 		return nil
 	}
 	list := make(SubscriptionList, 0, mlen)
-	for k, _ := range m.subscriptions {
+	for k := range m.subscriptions {
 		for _, vv := range m.subscriptions[k] {
 			list = append(list, vv)
 		}

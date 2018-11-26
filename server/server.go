@@ -513,11 +513,12 @@ func (srv *Server) Client(clientId string) *Client {
 	return srv.clients[clientId]
 }
 
+/*
 func (srv *Server) AddClient(client *Client) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	srv.clients[client.opts.ClientId] = client
-}
+}*/
 
 var defaultUpgrader = &websocket.Upgrader{
 	ReadBufferSize:  READ_BUFFER_SIZE,
