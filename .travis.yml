@@ -5,9 +5,15 @@ go:
   - "1.10.x"
   #- master
 
+install:
+  - go get -t -v -d ./...
+
 before_install:
-  - go get -t -v github.com/DrmagicE/gmqtt/cmd/broker
+  - go get -t -v -d github.com/DrmagicE/gmqtt/cmd/broker
 
 script:
   -  go test -race ./pkg/packets
-  -  go test -race ./server
+  -  go test -race ./server   -coverprofile=coverage.txt -covermode=atomic
+  
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
