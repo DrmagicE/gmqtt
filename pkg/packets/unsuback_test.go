@@ -2,8 +2,8 @@ package packets
 
 import (
 	"bytes"
-	"testing"
 	"reflect"
+	"testing"
 )
 
 func TestWriteUnSuback(t *testing.T) {
@@ -16,14 +16,14 @@ func TestWriteUnSuback(t *testing.T) {
 	var p *Unsubscribe
 	p = packet.(*Unsubscribe)
 	unsuback := p.NewUnSubBack()
-	buf := bytes.NewBuffer(make([]byte,0,2048))
+	buf := bytes.NewBuffer(make([]byte, 0, 2048))
 	err = NewWriter(buf).WriteAndFlush(unsuback)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	want := []byte{0xb0, 2, 0, 10}
-	if !bytes.Equal(buf.Bytes(),want) {
-		t.Fatalf("write error,want %v, got %v",want,buf.Bytes())
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("write error,want %v, got %v", want, buf.Bytes())
 	}
 }
 

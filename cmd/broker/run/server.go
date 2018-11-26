@@ -6,16 +6,16 @@ import (
 	"net"
 	"net/http"
 	"time"
-/*	"github.com/DrmagicE/gmqtt/logger"
-	"os"
-	"log"*/
+	/*	"github.com/DrmagicE/gmqtt/logger"
+		"os"
+		"log"*/
 	"github.com/DrmagicE/gmqtt/logger"
-	"os"
 	"log"
+	"os"
 )
 
 func NewServer(config *Config) (*server.Server, error) {
-	startProfile(config.ProfileConfig.CPUProfile,config.ProfileConfig.MemProfile)
+	startProfile(config.ProfileConfig.CPUProfile, config.ProfileConfig.MemProfile)
 	srv := server.NewServer()
 	srv.SetDeliveryRetryInterval(time.Second * time.Duration(config.DeliveryRetryInterval))
 	srv.SetMaxInflightMessages(config.MaxInflightMessages)
@@ -57,7 +57,7 @@ func NewServer(config *Config) (*server.Server, error) {
 			srv.AddWebSocketServer(ws)
 		}
 	}
-	if config.Logging  {
+	if config.Logging {
 		server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	}
 

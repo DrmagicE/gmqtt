@@ -1,8 +1,8 @@
 package publish
 
 import (
-	"flag"
 	"context"
+	"flag"
 	"time"
 )
 
@@ -22,10 +22,10 @@ type Options struct {
 	Number             int //number of messages  to publish per client
 	Count              int //number of clients
 	Size               int //payload bytes, default to 256
-	SubCount int //number of clients which subscribe topic # , default to 0
-	SubQos int //qos level of subscriptions, default to 0
-	CleanSession bool
-	Time int //timeout
+	SubCount           int //number of clients which subscribe topic # , default to 0
+	SubQos             int //qos level of subscriptions, default to 0
+	CleanSession       bool
+	Time               int //timeout
 }
 
 func (cmd *Command) ParseFlags(args ...string) (Options, error) {
@@ -38,7 +38,7 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	fs.IntVar(&options.Qos, "qos", 1, "qos")
 	fs.StringVar(&options.Topic, "topic", "topic_name", "topic name")
 	fs.IntVar(&options.ConnectionInterval, "ci", 100, "connection interval (ms)")
-	fs.IntVar(&options.PublishInterval, "i", 100, "publish interval (ms)")
+	fs.IntVar(&options.PublishInterval, "i", 100, "publishing interval (ms)")
 	fs.IntVar(&options.Count, "c", 1000, "number of clients")
 	fs.IntVar(&options.Size, "s", 256, "payload size (bytes)")
 	fs.IntVar(&options.SubCount, "sub", 0, "number of clients which subscribe topic #")
@@ -52,22 +52,19 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	return options, nil
 }
 
-
-
-
 func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)
 	if err != nil {
 		return err
 	}
 	srv := &Server{
-		Options:options,
+		Options: options,
 	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if options.Time > 0 {
 		//time.After(options.Time * time.Second)
-		ctx,cancel = context.WithDeadline(context.Background(), time.Now().Add(time.Duration(options.Time) * time.Second))
+		ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(time.Duration(options.Time)*time.Second))
 		defer cancel()
 	} else {
 		ctx = context.Background()

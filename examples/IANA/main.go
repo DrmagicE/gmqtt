@@ -1,21 +1,19 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
+	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
-	"crypto/tls"
-	"fmt"
-	"context"
-	"log"
-	_"net/http/pprof"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"net/http"
 )
-
-
 
 func main() {
 	go func() {
@@ -25,8 +23,7 @@ func main() {
 	s.SetMaxInflightMessages(20)
 	s.SetMaxQueueMessages(99999)
 
-
-	ln, err := net.Listen("tcp",":1883")
+	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
@@ -38,7 +35,7 @@ func main() {
 	}
 	tlsConfig := &tls.Config{}
 	tlsConfig.Certificates = []tls.Certificate{crt}
-	tlsln, err := tls.Listen("tcp",":8883",tlsConfig)
+	tlsln, err := tls.Listen("tcp", ":8883", tlsConfig)
 
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -46,7 +43,6 @@ func main() {
 	}
 	s.AddTCPListenner(ln)
 	s.AddTCPListenner(tlsln)
-
 
 	s.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
 		if topic.Name == "test/nosubscribe" {
@@ -64,6 +60,3 @@ func main() {
 	s.Stop(context.Background())
 	fmt.Println("stopped")
 }
-
-
-

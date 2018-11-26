@@ -1,22 +1,20 @@
 package packets
 
 import (
-	"io"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 //响应
 type Unsuback struct {
 	FixHeader *FixHeader
-	PacketId PacketId
+	PacketId  PacketId
 }
 
 func (c *Unsuback) String() string {
-	return fmt.Sprintf("Unsuback, Pid: %v",c.PacketId)
+	return fmt.Sprintf("Unsuback, Pid: %v", c.PacketId)
 }
-
-
 
 func (p *Unsuback) Pack(w io.Writer) error {
 	if p.FixHeader == nil {
@@ -26,9 +24,9 @@ func (p *Unsuback) Pack(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	pid := make([]byte,2)
-	binary.BigEndian.PutUint16(pid,p.PacketId)
-	_,err = w.Write(pid)
+	pid := make([]byte, 2)
+	binary.BigEndian.PutUint16(pid, p.PacketId)
+	_, err = w.Write(pid)
 	return err
 }
 
@@ -36,9 +34,9 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 2 {
 		return ErrInvalRemainLength
 	}
-	restBuffer := make([]byte,p.FixHeader.RemainLength)
-	_,err := io.ReadFull(r,restBuffer)
-	if err!=nil {
+	restBuffer := make([]byte, p.FixHeader.RemainLength)
+	_, err := io.ReadFull(r, restBuffer)
+	if err != nil {
 		return err
 	}
 	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])

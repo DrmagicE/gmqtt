@@ -1,20 +1,20 @@
 package packets
 
 import (
-	"testing"
 	"bytes"
 	"reflect"
+	"testing"
 )
 
-func TestReadPingreq (t *testing.T) {
-	b := []byte{0xc0,0}
+func TestReadPingreq(t *testing.T) {
+	b := []byte{0xc0, 0}
 	buf := bytes.NewBuffer(b)
-	packet, err :=NewReader(buf).ReadPacket()
+	packet, err := NewReader(buf).ReadPacket()
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	if _,ok := packet.(*Pingreq);!ok {
-		t.Fatalf("Packet Type error,want %v,got %v",reflect.TypeOf(&Pingreq{}),reflect.TypeOf(packet))
+	if _, ok := packet.(*Pingreq); !ok {
+		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Pingreq{}), reflect.TypeOf(packet))
 	}
 }
 
@@ -46,13 +46,13 @@ func TestReadPingresp(t *testing.T) {
 func TestWritePingresp(t *testing.T) {
 
 	resp := &Pingresp{}
-	buf := bytes.NewBuffer(make([]byte,0,2048))
+	buf := bytes.NewBuffer(make([]byte, 0, 2048))
 	err := NewWriter(buf).WriteAndFlush(resp)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	want := []byte{0xd0, 0}
-	if !bytes.Equal(buf.Bytes(),want) {
-		t.Fatalf("write error,want %v, got %v",want,buf.Bytes())
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("write error,want %v, got %v", want, buf.Bytes())
 	}
 }

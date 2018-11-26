@@ -1,28 +1,26 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
+	"log"
 	"net"
 	"os"
 	"os/signal"
-	"syscall"
-	"fmt"
-	"context"
-	"log"
 	"sync"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"syscall"
 )
-
 
 var validUserMu sync.Mutex
 var validUser = map[string]string{
-	"root":"rootpwd",
-	"qos0":"0pwd",
-	"qos1":"1pwd",
-	"publishonly":"ppwd",
-	"subscribeonly":"spwd",
+	"root":          "rootpwd",
+	"qos0":          "0pwd",
+	"qos1":          "1pwd",
+	"publishonly":   "ppwd",
+	"subscribeonly": "spwd",
 }
-
 
 func validateUser(username string, password string) bool {
 	validUserMu.Lock()
@@ -38,7 +36,7 @@ func validateUser(username string, password string) bool {
 
 func main() {
 	s := server.NewServer()
-	ln, err := net.Listen("tcp",":1883")
+	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
@@ -78,7 +76,7 @@ func main() {
 		return topic.Qos
 	}
 
-	s.OnPublish = func(client *server.Client, publish *packets.Publish)  bool {
+	s.OnPublish = func(client *server.Client, publish *packets.Publish) bool {
 		if client.ClientOptions().Username == "subscribeonly" {
 			client.Close()
 			return false
@@ -91,7 +89,7 @@ func main() {
 	}
 
 	s.OnClose = func(client *server.Client, err error) {
-		log.Println("client id:"+ client.ClientOptions().ClientId + "is closed",err)
+		log.Println("client id:"+client.ClientOptions().ClientId+"is closed", err)
 	}
 
 	s.OnStop = func() {
@@ -107,6 +105,3 @@ func main() {
 	s.Stop(context.Background())
 	fmt.Println("stopped")
 }
-
-
-

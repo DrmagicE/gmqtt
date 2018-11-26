@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/DrmagicE/gmqtt/cmd/broker/run"
-	"os"
 	"fmt"
+	"github.com/DrmagicE/gmqtt/cmd/broker/run"
+	"log"
+	"os"
 	"os/signal"
 	"syscall"
-	"log"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	<-signalCh
 	err := cmd.Close()
 	if err != nil {
-		log.Println("stop error:",err)
+		log.Println("stop error:", err)
 	} else {
 		log.Println("stopped")
 	}

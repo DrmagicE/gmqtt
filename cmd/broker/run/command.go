@@ -1,15 +1,15 @@
 package run
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/server"
-	"context"
-	"os"
-	"log"
-	"runtime/pprof"
-	"runtime"
 	"github.com/DrmagicE/gmqtt/cmd/broker/restapi"
+	"github.com/DrmagicE/gmqtt/server"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
 )
 
 type Command struct {
@@ -21,7 +21,7 @@ type Options struct {
 	//todo: more options
 }
 
-func NewCommand() *Command{
+func NewCommand() *Command {
 	return &Command{}
 }
 
@@ -50,7 +50,7 @@ func (cmd *Command) ParseConfig(path string) (*Config, error) {
 	return config, nil
 }
 
-func (cmd *Command) Run(args ...string) error{
+func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)
 	if err != nil {
 		return err
@@ -70,12 +70,12 @@ func (cmd *Command) Run(args ...string) error{
 	}
 	cmd.Server = s
 
-	if s.Monitor != nil && config.HttpServerConfig.Addr != ""{
+	if s.Monitor != nil && config.HttpServerConfig.Addr != "" {
 
 		api := &restapi.RestServer{
-			Addr:config.HttpServerConfig.Addr,
-			Srv:s,
-			User:config.HttpServerConfig.User,
+			Addr: config.HttpServerConfig.Addr,
+			Srv:  s,
+			User: config.HttpServerConfig.User,
 		}
 		go api.Run()
 	}
@@ -99,7 +99,6 @@ var prof struct {
 	cpu *os.File
 	mem *os.File
 }
-
 
 // StartProfile initializes the cpu and memory profile, if specified.
 func startProfile(cpuprofile, memprofile string) {

@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"github.com/DrmagicE/gmqtt/cmd/benchmark/subscribe"
+	"os"
 )
-
-
-
 
 func main() {
 	cmd := &subscribe.Command{}

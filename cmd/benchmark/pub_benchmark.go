@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"github.com/DrmagicE/gmqtt/cmd/benchmark/publish"
+	"os"
 )
-
-
-
 
 func main() {
 	cmd := &publish.Command{}

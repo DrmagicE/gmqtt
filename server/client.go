@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
 )
 
 var (
@@ -394,6 +393,7 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 		srv.retainedMsgMu.Unlock()
 	}
 }
+
 //publish handler
 func (client *Client) publishHandler(pub *packets.Publish) {
 	s := client.session

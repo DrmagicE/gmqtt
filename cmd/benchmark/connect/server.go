@@ -28,7 +28,7 @@ func (srv *Server) connect(clientId string) (mqtt.Client, error) {
 	opts.SetProtocolVersion(4)
 	opts.SetAutoReconnect(false)
 	opts.OnConnectionLost = func(client mqtt.Client, e error) {
-		log.Println("connection lost:",e)
+		log.Println("connection lost:", e)
 	}
 	opts.AddBroker("tcp://" + srv.Options.Host + srv.Options.Port)
 	c := mqtt.NewClient(opts)
@@ -40,7 +40,6 @@ func (srv *Server) connect(clientId string) (mqtt.Client, error) {
 	return c, t.Error()
 }
 
-
 func (srv *Server) printProgress() {
 	c := atomic.LoadInt64(&srv.connected)
 	log.Printf("%d clients connected,", c)
@@ -49,8 +48,8 @@ func (srv *Server) printProgress() {
 func (srv *Server) printFinished() {
 	c := atomic.LoadInt64(&srv.connected)
 	runningTime := (srv.FinishedAt.Unix() - srv.StartAt.Unix())
-	qps :=  c / runningTime
-	log.Printf("benchmark testing finished in %d seconds",runningTime)
+	qps := c / runningTime
+	log.Printf("benchmark testing finished in %d seconds", runningTime)
 	log.Printf("%d clients connected, QPS: %d", c, qps)
 }
 
@@ -61,7 +60,7 @@ func (srv *Server) displayProgress(ctx context.Context) {
 		select {
 		case <-t.C:
 			srv.printProgress()
-		case <- ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -70,7 +69,7 @@ func (srv *Server) displayProgress(ctx context.Context) {
 func (srv *Server) Run(ctx context.Context) {
 	srv.StartAt = time.Now()
 	go srv.displayProgress(ctx)
-	loop:
+loop:
 	for i := 0; i < srv.Options.Count; i++ {
 		select {
 		case <-ctx.Done():
@@ -82,7 +81,7 @@ func (srv *Server) Run(ctx context.Context) {
 				defer srv.wg.Done()
 				_, err := srv.connect(strconv.Itoa(i))
 				if err != nil {
-					log.Println("connect error:",err)
+					log.Println("connect error:", err)
 					return
 				}
 			}(i)

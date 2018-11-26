@@ -1,21 +1,19 @@
-[English](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.EN.md)
-# 压力测试工具
+# Benchmark Tool
 
-## 功能特性
-提供如下测试工具：
-* connect压力测试工具
-* publish压力测试工具
-* subscribe压力测试工具
-## 安装
+## Features
+* Connection benchmark 
+* Publishing benchmark
+* Subscribing benchmark 
+## Installation
 `$ go get -d github.com/DrmagicE/gmqtt/cmd/benchmark`
 
-## 开始
-开启要进行压力测试的MQTT broker
+## Get Started
+Start the broker for testing
 ```
 $ cd example/benchmark
 $ go run main.go
 ```
-### Connect 压力测试
+### Connection Benchmark
 ```
 $ cd cmd/benchmark
 $ go run pub_benchmark.go -help
@@ -37,13 +35,13 @@ Usage:
         username
 
 ```
-例如:
+example:
 ```
 $ cd cmd/benchmark
 $ go run connect_benchmark -c 10000 
 ```
 
-### Publish 压力测试
+### Publishing Benchmark
 ```
 $ go run pub_benchmark.go -help
 Usage:
@@ -77,12 +75,12 @@ Usage:
   -u string
         username
 ```
-例如:
+example:
 ```
 $ cd cmd/benchmark
 $ go run pub_benchmark -c 10000 
 ```
-### Subscribe 压力测试
+### Subscribing Benchmark
 ```
 $ go run sub_benchmark.go -help
 Usage:
@@ -94,9 +92,9 @@ Usage:
   -h string
         host (default "localhost")
   -i int
-        subscribing  interval (ms) (default 100)
+        subscribing interval (ms) (default 100)
   -n int
-        number of subscriptios per client (default 200)
+        number of subscriptios to make per client (default 200)
   -p string
         port (default ":1883")
   -pwd string
@@ -110,19 +108,19 @@ Usage:
   -u string
         username
 ```
-例如:
+example:
 ```
 $ cd cmd/benchmark
 $ go run sub_benchmark -c 10000 
 ```
 
-## Gmqtt 的测试结果
-以下结果是针对`example/benchmark/main.go`情况的测试数据
-### 测试环境
-System:Win10, RAM:16GB,CPU:3.20GHz, 12核
+## Gmqtt Benchmark Results
+This is the benchmark results  for`example/benchmark/main.go`
+### Environments
+System:Win10, RAM:16GB,CPU:3.20GHz, 12 core
 
-### Connect 测试
-测试连接10K客户端，每隔100ms连接一个客户端
+### Connection 
+Connect 10K  clients with 100/ms interval
 ```
 $ go run connect_benchmark -c 10000
 2018/11/25 23:13:24 starting benchmark testing:
@@ -136,10 +134,10 @@ $ go run connect_benchmark -c 10000
 
 ```
 
-### Publish 测试
+### Publishing
 
 #### QOS1
-测试连接10K客户端，每个客户端发布200个QOS1报文，每隔100ms连接一个客户端，每隔100ms发布一个报文
+Connect 10K clients with 100/ms interval and each client publish 200 qos1 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 1
 2018/11/25 23:20:11 starting benchmark testing:
@@ -166,7 +164,7 @@ $ go run pub_benchmark.go -c 10000 -qos 1
 ```
 
 #### QOS2
-测试连接10K客户端，每个客户端发布200个QOS2报文，每隔100ms连接一个客户端，每隔100ms发布一个报文
+Connect 10K clients with 100/ms interval and each client publish 200 qos2 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 2
 2018/11/25 23:22:10 starting benchmark testing:
@@ -197,9 +195,9 @@ $ go run pub_benchmark.go -c 10000 -qos 2
 
 ```
 
-### QOS1 + 1个订阅客户端
-测试连接10K个消息发布客户端外加1个消息订阅客户端（10K个生产者,1个消费者），每个消息发布客户端发布200个QOS1报文，每隔100ms连接一个客户端，每隔100ms发布一个报文。
-消息订阅客户端订阅QOS1的`#`主题
+### QOS1 & 1 Subscription Client
+
+Connect 10K + 1 (10K publisher &  1 subscriber) clients with 100/ms interval and each publisher publish 200 qos1 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 1 -sub 1 -subqos 1
 2018/11/25 23:30:07 starting benchmark testing:
@@ -223,8 +221,8 @@ $ go run pub_benchmark.go -c 10000 -qos 1 -sub 1 -subqos 1
 
 ```
 
-### Subscribe 测试
-测试连接10K个客户端，每个客户端订阅200个主题报文，每隔100ms连接一个客户端，每隔100ms订阅一个主题。
+### Subscribing 
+Connect 10K clients with 100/ms interval and each client make 200 subscriptions with 100ms interval
 ```
 $ go run sub_benchmark.go -c 10000
 2018/11/25 23:36:32 starting benchmark testing:

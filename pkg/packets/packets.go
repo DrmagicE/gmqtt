@@ -2,12 +2,10 @@ package packets
 
 import (
 	"bufio"
-	"io"
-	"errors"
-	"unicode/utf8"
 	"encoding/binary"
-
-
+	"errors"
+	"io"
+	"unicode/utf8"
 )
 
 var (
@@ -55,14 +53,14 @@ const QOS_1 = 0x01
 const QOS_2 = 0x02
 
 const SUBSCRIBE_FAILURE = 0x80
+
 //PacketIdentifier
 type PacketId = uint16
 
 const MAX_PACKET_ID PacketId = 65535
 const MIN_PACKET_ID PacketId = 1
 
-
-type Packet interface{
+type Packet interface {
 	Pack(w io.Writer) error
 	Unpack(r io.Reader) error
 	String() string //for logging
@@ -78,7 +76,6 @@ type Topic struct {
 	Qos  uint8
 	Name string
 }
-
 
 type Reader struct {
 	bufr *bufio.Reader
@@ -99,19 +96,18 @@ type ReadWriter struct {
 //
 func NewReader(r io.Reader) *Reader {
 	if bufr, ok := r.(*bufio.Reader); ok {
-		return &Reader{bufr:bufr}
+		return &Reader{bufr: bufr}
 	}
-	return &Reader{bufr: bufio.NewReaderSize(r,2048)}
+	return &Reader{bufr: bufio.NewReaderSize(r, 2048)}
 }
 func NewWriter(w io.Writer) *Writer {
 	if bufw, ok := w.(*bufio.Writer); ok {
-		return &Writer{bufw:bufw}
+		return &Writer{bufw: bufw}
 	}
-	return &Writer{bufw:bufio.NewWriterSize(w,2048)}
+	return &Writer{bufw: bufio.NewWriterSize(w, 2048)}
 }
 
-
-func (r *Reader) ReadPacket() (Packet,error) {
+func (r *Reader) ReadPacket() (Packet, error) {
 	first, err := r.bufr.ReadByte()
 
 	if err != nil {
@@ -126,7 +122,6 @@ func (r *Reader) ReadPacket() (Packet,error) {
 	packet, err := NewPacket(fh, r.bufr)
 	return packet, err
 }
-
 
 func (w *Writer) WritePacket(packet Packet) error {
 	err := packet.Pack(w.bufw)
@@ -144,14 +139,12 @@ func (w *Writer) WriteAndFlush(packet Packet) error {
 	return w.Flush()
 }
 
-
 /*func (w *Writer) WritePacketBufio(packet Packet) error {
 	err := packet.Pack(w.bufw)
 	if err != nil {
 		return err
 	}
 }*/
-
 
 func (fh *FixHeader) Pack(w io.Writer) error {
 	var err error
@@ -198,7 +191,6 @@ func DecodeRemainLength(length int) ([]byte, error) {
 	return result, nil
 }
 
-
 //读remainLength,如果格式错误返回 error
 func EncodeRemainLength(r *bufio.Reader) (int, error) {
 	var i int
@@ -225,37 +217,26 @@ func EncodeRemainLength(r *bufio.Reader) (int, error) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-func EncodeUTF8String(buf []byte) (b []byte,size int,err error){
+func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	buflen := len(buf)
 	if buflen > 65535 {
 		return nil, 0, ErrInvalUTF8String
 	}
 	//length := int(binary.BigEndian.Uint16(buf[0:2]))
-	bufw := make([]byte, 2 ,2 + buflen)
-	binary.BigEndian.PutUint16(bufw,uint16(buflen))
+	bufw := make([]byte, 2, 2+buflen)
+	binary.BigEndian.PutUint16(bufw, uint16(buflen))
 	bufw = append(bufw, buf...)
 	return bufw, 2 + buflen, nil
 }
 
-func DecodeUTF8String(buf []byte) (b []byte,size int,err error){
+func DecodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	buflen := len(buf)
 	if buflen < 2 {
-		return nil,0,ErrInvalUTF8String
+		return nil, 0, ErrInvalUTF8String
 	}
 	length := int(binary.BigEndian.Uint16(buf[0:2]))
-	if buflen < length + 2 {
-		return nil,0,ErrInvalUTF8String
+	if buflen < length+2 {
+		return nil, 0, ErrInvalUTF8String
 	}
 	payload := buf[2 : length+2]
 	if !ValidUTF8(payload) {
@@ -265,16 +246,12 @@ func DecodeUTF8String(buf []byte) (b []byte,size int,err error){
 	return payload, length + 2, nil
 }
 
-
-
-
-
 //完整的一个包
 func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
 	switch fh.PacketType {
 	case CONNECT:
 		return NewConnectPacket(fh, r)
-  	case CONNACK:
+	case CONNACK:
 		return NewConnackPacket(fh, r)
 	case PUBLISH:
 
@@ -290,7 +267,7 @@ func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
 	case SUBSCRIBE:
 		return NewSubscribePacket(fh, r)
 	case SUBACK:
-		return NewSubackPacket(fh,r)
+		return NewSubackPacket(fh, r)
 	case UNSUBSCRIBE:
 		return NewUnsubscribePacket(fh, r)
 	case PINGREQ:
@@ -306,7 +283,6 @@ func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
 
 	}
 }
-
 
 //验证是否utf8
 func ValidUTF8(p []byte) bool {

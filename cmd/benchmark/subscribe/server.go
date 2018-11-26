@@ -17,7 +17,7 @@ type Server struct {
 	FinishedAt time.Time
 	close      chan struct{}
 	connected  int64 //connected client
-	subscribed  int64 //subscribed  msg
+	subscribed int64 //subscribed  msg
 }
 
 func (srv *Server) connect(clientId string) (mqtt.Client, error) {
@@ -29,7 +29,7 @@ func (srv *Server) connect(clientId string) (mqtt.Client, error) {
 	opts.SetProtocolVersion(4)
 	opts.SetAutoReconnect(false)
 	opts.OnConnectionLost = func(client mqtt.Client, e error) {
-		log.Println("connection lost:",e)
+		log.Println("connection lost:", e)
 	}
 	opts.AddBroker("tcp://" + srv.Options.Host + srv.Options.Port)
 	c := mqtt.NewClient(opts)
@@ -41,17 +41,17 @@ func (srv *Server) connect(clientId string) (mqtt.Client, error) {
 	return c, t.Error()
 }
 
-func (srv *Server) subscribe(ctx context.Context,client mqtt.Client) {
+func (srv *Server) subscribe(ctx context.Context, client mqtt.Client) {
 	for n := 0; n < srv.Options.Number; n++ {
 		select {
-			case <- ctx.Done():
-				return
+		case <-ctx.Done():
+			return
 		default:
 			time.Sleep(time.Duration(srv.Options.SubscribeInterval) * time.Microsecond)
-			t := client.Subscribe(srv.Options.Topic + strconv.Itoa(int(time.Now().UnixNano())), byte(srv.Options.Qos),nil)
+			t := client.Subscribe(srv.Options.Topic+strconv.Itoa(int(time.Now().UnixNano())), byte(srv.Options.Qos), nil)
 			t.Wait()
 			if t.Error() != nil {
-				log.Println("subscribe error:",t.Error())
+				log.Println("subscribe error:", t.Error())
 				return
 			}
 			atomic.AddInt64(&srv.subscribed, 1)
@@ -69,9 +69,9 @@ func (srv *Server) printFinished() {
 	c := atomic.LoadInt64(&srv.connected)
 	pc := atomic.LoadInt64(&srv.subscribed)
 	runningTime := (srv.FinishedAt.Unix() - srv.StartAt.Unix())
-	qps :=  (pc + c) / runningTime
-	log.Printf("benchmark testing finished in %d seconds",runningTime)
-	log.Printf("%d clients connected,%d topics subscribed,QPS: %d", c, pc,qps)
+	qps := (pc + c) / runningTime
+	log.Printf("benchmark testing finished in %d seconds", runningTime)
+	log.Printf("%d clients connected,%d topics subscribed,QPS: %d", c, pc, qps)
 }
 
 func (srv *Server) displayProgress(ctx context.Context) {
@@ -81,7 +81,7 @@ func (srv *Server) displayProgress(ctx context.Context) {
 		select {
 		case <-t.C:
 			srv.printProgress()
-		case <- ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -90,7 +90,7 @@ func (srv *Server) displayProgress(ctx context.Context) {
 func (srv *Server) Run(ctx context.Context) {
 	srv.StartAt = time.Now()
 	go srv.displayProgress(ctx)
-	loop:
+loop:
 	for i := 0; i < srv.Options.Count; i++ {
 		select {
 		case <-ctx.Done():
@@ -102,7 +102,7 @@ func (srv *Server) Run(ctx context.Context) {
 				defer srv.wg.Done()
 				c, err := srv.connect(strconv.Itoa(i))
 				if err != nil {
-					log.Println("connect error:",err)
+					log.Println("connect error:", err)
 					return
 				}
 				srv.subscribe(ctx, c)

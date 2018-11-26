@@ -1,10 +1,10 @@
 package packets
 
-
 import (
-	"io"
 	"fmt"
+	"io"
 )
+
 type Disconnect struct {
 	FixHeader *FixHeader
 }
@@ -28,15 +28,16 @@ func (d *Disconnect) Unpack(r io.Reader) error {
 	}
 	return nil
 }
+
 //构建一个connect包
-func NewDisConnectPackets(fh *FixHeader,r io.Reader)(*Disconnect,error) {
+func NewDisConnectPackets(fh *FixHeader, r io.Reader) (*Disconnect, error) {
 	if fh.Flags != 0 {
-		return nil,ErrInvalFlags
+		return nil, ErrInvalFlags
 	}
-	p := &Disconnect{FixHeader:fh}
+	p := &Disconnect{FixHeader: fh}
 	err := p.Unpack(r)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
-	return p,nil
+	return p, nil
 }

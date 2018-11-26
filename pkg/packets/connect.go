@@ -3,8 +3,8 @@ package packets
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
 	"fmt"
+	"io"
 )
 
 type Connect struct {
@@ -30,7 +30,7 @@ type Connect struct {
 }
 
 func (c *Connect) String() string {
-	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanSession: %v, KeepAlive: %v, ClientId: %s, Username: %s, Password: %s" +
+	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanSession: %v, KeepAlive: %v, ClientId: %s, Username: %s, Password: %s"+
 		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
 		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanSession, c.KeepAlive, c.ClientId, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }

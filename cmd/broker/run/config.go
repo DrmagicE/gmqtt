@@ -2,9 +2,9 @@ package run
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
-	"github.com/gin-gonic/gin"
 )
 
 const ProtocolMQTT = "mqtt"
@@ -30,7 +30,7 @@ type Config struct {
 	ProfileConfig         ProfileConfig    `yaml:"profile"`
 	Listener              []ListenerConfig `yaml:"listener,flow"`
 	Logging               bool             `yaml:"logging"`
-	HttpServerConfig              HttpServerConfig           `yaml:"http_server"`
+	HttpServerConfig      HttpServerConfig `yaml:"http_server"`
 }
 
 type ProfileConfig struct {
@@ -39,7 +39,7 @@ type ProfileConfig struct {
 }
 
 type HttpServerConfig struct {
-	Addr string  `yaml:"addr"`
+	Addr string       `yaml:"addr"`
 	User gin.Accounts `yaml:"user"`
 }
 

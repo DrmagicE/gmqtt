@@ -1,17 +1,16 @@
 package main
 
 import (
-	"net"
-	"log"
+	"context"
 	"fmt"
+	"github.com/DrmagicE/gmqtt/server"
+	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"github.com/DrmagicE/gmqtt/server"
-	"context"
-	"net/http"
 )
-
 
 func main() {
 	go func() {
@@ -22,7 +21,7 @@ func main() {
 	s.SetRegisterLen(10000)
 	s.SetUnregisterLen(10000)
 	s.SetMaxQueueMessages(0) //unlimited
-	ln, err := net.Listen("tcp",":1883")
+	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return

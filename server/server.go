@@ -23,10 +23,9 @@ const (
 	DefaultQueueQos0Messages     = true
 	DefaultMaxInflightMessages   = 20
 	DefaultMaxQueueMessages      = 2048
-	DefaultMsgRouterLen = 4096
-	DefaultRegisterLen = 2048
-	DefaultUnRegisterLen = 2048
-
+	DefaultMsgRouterLen          = 4096
+	DefaultRegisterLen           = 2048
+	DefaultUnRegisterLen         = 2048
 )
 
 var log = &logger.Logger{}
@@ -285,14 +284,14 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 	defer srv.topicsMu.RUnlock()
 	pub := msg.pub
 	if len(msg.clientIds) != 0 {
-		for _, v := range msg.clientIds  {
+		for _, v := range msg.clientIds {
 			if c, ok := srv.clients[v]; ok {
-				srv.deliver(c,pub,msg.forceBroadcast)
+				srv.deliver(c, pub, msg.forceBroadcast)
 			}
 		}
 	} else {
 		for _, c := range srv.clients {
-			srv.deliver(c,pub,msg.forceBroadcast)
+			srv.deliver(c, pub, msg.forceBroadcast)
 		}
 	}
 }
@@ -321,7 +320,7 @@ type Server struct {
 	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
 
 	topicsMu sync.RWMutex
-	topics map[string]map[string]packets.Topic //[clientId][topicName]Topic
+	topics   map[string]map[string]packets.Topic //[clientId][topicName]Topic
 
 	msgRouter  chan *msgRouter  //
 	register   chan *register   //register session
@@ -377,7 +376,7 @@ func NewServer() *Server {
 		register:    make(chan *register, DefaultRegisterLen),
 		unregister:  make(chan *unregister, DefaultUnRegisterLen),
 		retainedMsg: make(map[string]*packets.Publish),
-		topics:make(map[string]map[string]packets.Topic),
+		topics:      make(map[string]map[string]packets.Topic),
 		config: &config{
 			deliveryRetryInterval: DefaultDeliveryRetryInterval,
 			queueQos0Messages:     DefaultQueueQos0Messages,
@@ -404,13 +403,12 @@ func (srv *Server) SetUnregisterLen(i int) {
 	srv.unregister = make(chan *unregister, i)
 }
 
-
 func (srv *Server) Publish(publish *packets.Publish, clientIds ...string) {
 	srv.msgRouter <- &msgRouter{false, clientIds, publish}
 }
 
 func (srv *Server) Broadcast(publish *packets.Publish, clientIds ...string) {
-	srv.msgRouter <- &msgRouter{true,clientIds,publish}
+	srv.msgRouter <- &msgRouter{true, clientIds, publish}
 }
 
 func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
@@ -439,9 +437,9 @@ func (srv *Server) UnSubscribe(clientId string, topics []string) {
 		return
 	}
 	srv.topicsMu.Lock()
-	defer  srv.topicsMu.Unlock()
+	defer srv.topicsMu.Unlock()
 	for _, v := range topics {
-		delete(srv.topics[clientId],v)
+		delete(srv.topics[clientId], v)
 		if srv.Monitor != nil {
 			srv.Monitor.UnSubscribe(clientId, v)
 		}
@@ -475,7 +473,6 @@ func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
 		srv.websocketServer = append(srv.websocketServer, v)
 	}
 }
-
 
 func (srv *Server) serveTcp(l net.Listener) {
 	defer func() {
@@ -595,7 +592,6 @@ func (srv *Server) newClient(c net.Conn) *Client {
 	client.newSession()
 	return client
 }
-
 
 func (srv *Server) Run() {
 	if srv.Monitor != nil {

@@ -1,8 +1,8 @@
 package connect
 
 import (
-	"flag"
 	"context"
+	"flag"
 	"time"
 )
 
@@ -17,8 +17,8 @@ type Options struct {
 	Password           string
 	ConnectionInterval int
 	Count              int //number of clients
-	CleanSession bool
-	Time int //timeout
+	CleanSession       bool
+	Time               int //timeout
 }
 
 func (cmd *Command) ParseFlags(args ...string) (Options, error) {
@@ -38,20 +38,18 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	return options, nil
 }
 
-
-
 func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)
 	if err != nil {
 		return err
 	}
 	srv := &Server{
-		Options:options,
+		Options: options,
 	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if options.Time > 0 {
-		ctx,cancel = context.WithDeadline(context.Background(), time.Now().Add(time.Duration(options.Time) * time.Second))
+		ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(time.Duration(options.Time)*time.Second))
 		defer cancel()
 	} else {
 		ctx = context.Background()

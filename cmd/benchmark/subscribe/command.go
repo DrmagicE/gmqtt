@@ -35,17 +35,16 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	fs.IntVar(&options.Qos, "qos", 1, "qos")
 	fs.StringVar(&options.Topic, "topic", "topic_name", "topic name prefix")
 	fs.IntVar(&options.ConnectionInterval, "ci", 100, "connection interval (ms)")
-	fs.IntVar(&options.SubscribeInterval, "i", 100, "subscription interval (ms)")
+	fs.IntVar(&options.SubscribeInterval, "i", 100, "subscribing interval (ms)")
 	fs.IntVar(&options.Count, "c", 1000, "number of clients")
 	fs.BoolVar(&options.CleanSession, "C", true, "clean session")
-	fs.IntVar(&options.Number, "n", 200, "number of subscriptios per client")
+	fs.IntVar(&options.Number, "n", 200, "number of subscriptios to make per client")
 	fs.IntVar(&options.Time, "t", 0, "timeout (second)")
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
 	}
 	return options, nil
 }
-
 
 func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)

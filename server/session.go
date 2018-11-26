@@ -8,24 +8,22 @@ import (
 )
 
 type session struct {
-	inflightMu sync.Mutex               //gard inflight
-	inflight   *list.List               //传输中等待确认的报文
-	msgQueueMu sync.Mutex               //gard msgQueue
-	msgQueue   *list.List               //缓存数据 publish
+	inflightMu sync.Mutex //gard inflight
+	inflight   *list.List //传输中等待确认的报文
+	msgQueueMu sync.Mutex //gard msgQueue
+	msgQueue   *list.List //缓存数据，缓存publish报文
 	//QOS=2 的情况下，判断报文是否是客户端重发报文，如果重发，则不分发.
 	// 确保[MQTT-4.3.3-2]中：在收发送PUBREC报文确认任何到对应的PUBREL报文之前，接收者必须后续的具有相同标识符的PUBLISH报文。
 	// 在这种情况下，它不能重复分发消息给任何后续的接收者
 	unackpublish map[packets.PacketId]bool //[MQTT-4.3.3-2]
-	pidMu        sync.RWMutex                //gard lockedPid & freeId
-	lockedPid          map[packets.PacketId]bool //Pid inuse
-	freePid	packets.PacketId  //下一个可以使用的freeId
+	pidMu        sync.RWMutex              //gard lockedPid & freeId
+	lockedPid    map[packets.PacketId]bool //Pid inuse
+	freePid      packets.PacketId          //下一个可以使用的freeId
 
 	//config
 	maxInflightMessages int
 	maxQueueMessages    int
 }
-
-
 
 type InflightElem struct {
 	At     time.Time //进入时间
@@ -64,12 +62,12 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 				}
 			}
 		}
-		if removeMsg != nil {  //case1: removing qos0 message in the msgQueue
+		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
 			s.msgQueue.Remove(removeMsg)
 			if log != nil {
 				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.ClientOptions().ClientId, removeMsg.Value.(packets.Packet))
 			}
-		} else if publish.Qos == packets.QOS_0 {   //case2: removing qos0 message that is going to enqueue
+		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
 			return
 		} else { //case3: removing the front message of msgQueue
 			e := s.msgQueue.Front()
@@ -201,7 +199,6 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 
 }
 
-
 func (s *session) freePacketId(id packets.PacketId) {
 	s.pidMu.Lock()
 	defer s.pidMu.Unlock()
@@ -213,7 +210,6 @@ func (s *session) setPacketId(id packets.PacketId) {
 	defer s.pidMu.Unlock()
 	s.lockedPid[id] = true
 }
-
 
 func (s *session) getPacketId() packets.PacketId {
 	s.pidMu.RLock()

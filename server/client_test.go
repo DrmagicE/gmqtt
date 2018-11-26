@@ -76,7 +76,7 @@ type rwTestConn struct {
 func (c *rwTestConn) RemoteAddr() net.Addr {
 
 	if c.netAddr != "" {
-		return dummyAddr( c.netAddr)
+		return dummyAddr(c.netAddr)
 	} else {
 		return dummyAddr("remote-addr")
 	}
@@ -810,7 +810,7 @@ func TestQos1Redelivery(t *testing.T) {
 			originalPid = pub.PacketId
 		}
 	}
-	p, err := readPacketWithTimeOut(c, test_redelivery_internal+ 1 * time.Second)
+	p, err := readPacketWithTimeOut(c, test_redelivery_internal+1*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -935,12 +935,10 @@ func TestQos2Redelivery(t *testing.T) {
 
 	p, err = readPacket(reciver) //pubrel
 
-
 	if _, ok := p.(*packets.Pubrel); !ok {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubrel{}), reflect.TypeOf(p))
 	}
 	pubrel1 := p.(*packets.Pubrel)
-
 
 	p, err = readPacketWithTimeOut(reciver, (REDELIVER_TIME+1)*time.Second) //redelivery pubrel
 	if err != nil {
@@ -1076,12 +1074,12 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 	reConn := &rwTestConn{
 		closec:    make(chan struct{}),
 		readChan:  make(chan []byte, 1024),
 		writeChan: make(chan []byte, 1024),
-		netAddr:"reciver",
+		netAddr:   "reciver",
 	}
 	srv.tcpListener[0].(*testListener).conn.PushBack(reConn)
 	srv.tcpListener[0].(*testListener).acceptReady <- struct{}{}
@@ -1091,10 +1089,8 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		t.Fatalf("GetSession() error,want true,but false")
 	}
 	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 5 {
-		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d",sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
+		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d", sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
 	}
-
-
 
 	err = writePacket(reConn, conn2)
 	if err != nil {
@@ -1109,7 +1105,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 		if pub, ok := p.(*packets.Publish); ok {
 			if !bytes.Equal([]byte{byte(i), byte(i)}, pub.Payload) {
-				t.Fatalf("[%x]Payload error, want %v, got %v %s", i, []byte{byte(i), byte(i)}, pub.Payload,string(pub.Payload))
+				t.Fatalf("[%x]Payload error, want %v, got %v %s", i, []byte{byte(i), byte(i)}, pub.Payload, string(pub.Payload))
 			}
 			if !bytes.Equal([]byte{byte(i)}, pub.TopicName) {
 				t.Fatalf("[%x]TopicName error, want %v, got %v", i, []byte{byte(i)}, pub.TopicName)
@@ -1130,13 +1126,10 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		t.Fatalf("GetSession() error,want true,but false")
 	}
 	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 0 {
-		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d",sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
+		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d", sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
 	}
 
-
-
 }
-
 
 func TestWillMsg(t *testing.T) {
 	srv, s, r := connectedServerWith2Client()

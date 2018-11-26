@@ -2,39 +2,37 @@ package packets
 
 import (
 	"encoding/binary"
-	"io"
 	"fmt"
+	"io"
 )
 
 type Unsubscribe struct {
 	FixHeader *FixHeader
-	PacketId PacketId
+	PacketId  PacketId
 
 	Topics []string
 }
 
-
 func (c *Unsubscribe) String() string {
-	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v",c.PacketId, c.Topics)
+	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v", c.PacketId, c.Topics)
 }
 
-
 //suback
-func (p *Unsubscribe) NewUnSubBack() *Unsuback{
-	fh := &FixHeader{PacketType:UNSUBACK,Flags:0,RemainLength:2}
-	unSuback := &Unsuback{FixHeader:fh,PacketId:p.PacketId}
+func (p *Unsubscribe) NewUnSubBack() *Unsuback {
+	fh := &FixHeader{PacketType: UNSUBACK, Flags: 0, RemainLength: 2}
+	unSuback := &Unsuback{FixHeader: fh, PacketId: p.PacketId}
 	return unSuback
 }
 
 //构建一个subscribe包
-func NewUnsubscribePacket(fh *FixHeader,r io.Reader) (*Unsubscribe,error) {
+func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	p := &Unsubscribe{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.10.1-1]
 	if fh.Flags != FLAG_UNSUBSCRIBE {
-		return nil ,ErrInvalFlags
+		return nil, ErrInvalFlags
 	}
 	err := p.Unpack(r)
-	return p,err
+	return p, err
 }
 
 func (c *Unsubscribe) Pack(w io.Writer) error {
@@ -60,9 +58,9 @@ func (c *Unsubscribe) Pack(w io.Writer) error {
 }
 
 func (p *Unsubscribe) Unpack(r io.Reader) error {
-	restBuffer := make([]byte,p.FixHeader.RemainLength)
-	_,err := io.ReadFull(r,restBuffer)
-	if err!=nil {
+	restBuffer := make([]byte, p.FixHeader.RemainLength)
+	_, err := io.ReadFull(r, restBuffer)
+	if err != nil {
 		return err
 	}
 	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
@@ -77,9 +75,9 @@ func (p *Unsubscribe) Unpack(r io.Reader) error {
 			return ErrInvalTopicFilter
 		}
 		restBuffer = restBuffer[size:]
-		p.Topics = append(p.Topics,string(topicName))
+		p.Topics = append(p.Topics, string(topicName))
 		if len(restBuffer) == 0 {
-			break;
+			break
 		}
 	}
 

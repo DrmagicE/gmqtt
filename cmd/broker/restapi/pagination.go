@@ -7,19 +7,18 @@ import (
 )
 
 type PageAbleObj struct {
-	Models interface{}`json:"list"`
-	Page int `json:"page"`
-	PageSize int `json:"page_size"`
-	CurrentCount int `json:"current_count"`
-	TotalCount int `json:"total_count"`
-	TotalPage int `json:"total_page"`
+	Models       interface{} `json:"list"`
+	Page         int         `json:"page"`
+	PageSize     int         `json:"page_size"`
+	CurrentCount int         `json:"current_count"`
+	TotalCount   int         `json:"total_count"`
+	TotalPage    int         `json:"total_page"`
 }
-
 
 func NewHttpPager(req *http.Request) *Pagination {
 	queryForm, err := url.ParseQuery(req.URL.RawQuery)
 	pagination := &Pagination{
-		PageSize:20,
+		PageSize: 20,
 	}
 	if err == nil {
 		if page := queryForm.Get("page"); page != "" {

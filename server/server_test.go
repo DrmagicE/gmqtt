@@ -1,18 +1,17 @@
 package server
 
 import (
+	"context"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"net"
 	"testing"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"context"
-
 )
 
 func TestHooks(t *testing.T) {
 	srv := NewServer()
-	ln, err := net.Listen("tcp","127.0.0.1:1883")
+	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
-		t.Fatalf("unexpected error: %s",err)
+		t.Fatalf("unexpected error: %s", err)
 	}
 	srv.AddTCPListenner(ln)
 	var hooks string
@@ -34,7 +33,7 @@ func TestHooks(t *testing.T) {
 		return true
 	}
 
-	srv.OnClose = func(client *Client,err error) {
+	srv.OnClose = func(client *Client, err error) {
 		hooks += "OnClose"
 
 	}
@@ -44,9 +43,9 @@ func TestHooks(t *testing.T) {
 
 	srv.Run()
 
-	c, err := net.Dial("tcp","127.0.0.1:1883")
+	c, err := net.Dial("tcp", "127.0.0.1:1883")
 	if err != nil {
-		t.Fatalf("unexpected error: %s",err)
+		t.Fatalf("unexpected error: %s", err)
 	}
 
 	w := packets.NewWriter(c)
@@ -55,33 +54,27 @@ func TestHooks(t *testing.T) {
 	r.ReadPacket()
 
 	sub := &packets.Subscribe{
-		PacketId:10,
-		Topics:[]packets.Topic{
-			{Name:"name",Qos:packets.QOS_1},
+		PacketId: 10,
+		Topics: []packets.Topic{
+			{Name: "name", Qos: packets.QOS_1},
 		},
 	}
 	w.WriteAndFlush(sub)
-	r.ReadPacket()//suback
+	r.ReadPacket() //suback
 
 	pub := &packets.Publish{
-		Dup:false,
-		Qos:packets.QOS_1,
-		Retain:false,
-		TopicName:[]byte("ok"),
-		PacketId:10,
-		Payload:[]byte("payload"),
-
+		Dup:       false,
+		Qos:       packets.QOS_1,
+		Retain:    false,
+		TopicName: []byte("ok"),
+		PacketId:  10,
+		Payload:   []byte("payload"),
 	}
 	w.WriteAndFlush(pub)
 	r.ReadPacket() //puback
 	srv.Stop(context.Background())
 	want := "AcceptOnConnectOnSubscribeOnPublishOnCloseOnStop"
 	if hooks != want {
-		t.Fatalf("hooks error, want %s, got %s",want, hooks)
+		t.Fatalf("hooks error, want %s, got %s", want, hooks)
 	}
 }
-
-
-
-
-

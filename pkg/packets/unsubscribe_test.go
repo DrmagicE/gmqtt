@@ -2,14 +2,14 @@ package packets
 
 import (
 	"bytes"
+	"io"
 	"reflect"
 	"testing"
-	"io"
 )
 
 func unsubscribe3TopicsBuffer() *bytes.Buffer {
-	return bytes.NewBuffer([]byte{0xa2,26,//FIxHeader
-		0, 10,//pid 10
+	return bytes.NewBuffer([]byte{0xa2, 26, //FIxHeader
+		0, 10, //pid 10
 		0, 5, 97, 47, 98, 47, 99, //Topic Filter :"a/b/c"
 		0, 6, 97, 47, 98, 47, 99, 99, //Topic Filter："a/b/cc"
 		0, 7, 97, 47, 98, 47, 99, 99, 99, //Topic Filter："a/b/ccc"
@@ -17,8 +17,8 @@ func unsubscribe3TopicsBuffer() *bytes.Buffer {
 }
 
 func unsubscribeOneTopicBuffer() *bytes.Buffer {
-	return bytes.NewBuffer([]byte{0xa2,9,//FIxHeader
-		0, 10,//pid 10
+	return bytes.NewBuffer([]byte{0xa2, 9, //FIxHeader
+		0, 10, //pid 10
 		0, 5, 97, 47, 98, 47, 99, //Topic Filter :"a/b/c"
 	})
 }
@@ -30,19 +30,19 @@ func TestReadUnSubscribePacketWithOneTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	if p,ok := packet.(*Unsubscribe);ok {
+	if p, ok := packet.(*Unsubscribe); ok {
 		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d",10,p.PacketId)
+			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
 		}
 		if len(p.Topics) != 1 {
-			t.Fatalf("len error,want %d, got %d",1,len(p.Topics))
+			t.Fatalf("len error,want %d, got %d", 1, len(p.Topics))
 		}
-		if p.Topics[0]!= "a/b/c" {
-			t.Fatalf("p.Topics[0] error,want %s, got %s","a/b/c",p.Topics[0])
+		if p.Topics[0] != "a/b/c" {
+			t.Fatalf("p.Topics[0] error,want %s, got %s", "a/b/c", p.Topics[0])
 		}
 
 	} else {
-		t.Fatalf("Packet Type error,want %v,got %v",reflect.TypeOf(&Unsubscribe{}),reflect.TypeOf(packet))
+		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Unsubscribe{}), reflect.TypeOf(packet))
 	}
 }
 
@@ -52,26 +52,25 @@ func TestReadUnSubscribePacketWith3Topics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	if p,ok := packet.(*Unsubscribe);ok {
+	if p, ok := packet.(*Unsubscribe); ok {
 		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d",10,p.PacketId)
+			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
 		}
 		if len(p.Topics) != 3 {
-			t.Fatalf("len error,want %d, got %d",3,len(p.Topics))
+			t.Fatalf("len error,want %d, got %d", 3, len(p.Topics))
 		}
 		if p.Topics[0] != "a/b/c" {
-			t.Fatalf("p.Topics[0] error,want %s, got %s","a/b/c",p.Topics[0])
+			t.Fatalf("p.Topics[0] error,want %s, got %s", "a/b/c", p.Topics[0])
 		}
 		if p.Topics[1] != "a/b/cc" {
-			t.Fatalf("p.Topics[1] error,want %s, got %s","a/b/cc",p.Topics[1])
+			t.Fatalf("p.Topics[1] error,want %s, got %s", "a/b/cc", p.Topics[1])
 		}
 		if p.Topics[2] != "a/b/ccc" {
-			t.Fatalf("p.Topics[2] error,want %s, got %s","a/b/ccc",p.Topics[2])
+			t.Fatalf("p.Topics[2] error,want %s, got %s", "a/b/ccc", p.Topics[2])
 		}
 
-
 	} else {
-		t.Fatalf("Packet Type error,want %v,got %v",reflect.TypeOf(&Subscribe{}),reflect.TypeOf(packet))
+		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
 	}
 }
 
@@ -127,7 +126,6 @@ func TestWriteUnSubscribePacket(t *testing.T) {
 	}
 }
 
-
 func TestUnsubscribe_NewUnSubBack(t *testing.T) {
 	unsubscribeBytes := unsubscribeOneTopicBuffer()
 	packet, err := NewReader(unsubscribeBytes).ReadPacket()
@@ -139,17 +137,16 @@ func TestUnsubscribe_NewUnSubBack(t *testing.T) {
 	unsuback := p.NewUnSubBack()
 
 	if unsuback.FixHeader.PacketType != UNSUBACK {
-		t.Fatalf("FixHeader.PacketType error,want %d, got %d",UNSUBACK,unsuback.FixHeader.PacketType)
+		t.Fatalf("FixHeader.PacketType error,want %d, got %d", UNSUBACK, unsuback.FixHeader.PacketType)
 	}
 
 	if unsuback.FixHeader.RemainLength != 2 {
-		t.Fatalf("FixHeader.RemainLength error,want %d, got %d",2,unsuback.FixHeader.RemainLength)
+		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 2, unsuback.FixHeader.RemainLength)
 	}
 	if unsuback.PacketId != p.PacketId {
-		t.Fatalf("PacketId error,want %d, got %d",p.PacketId,unsuback.PacketId)
+		t.Fatalf("PacketId error,want %d, got %d", p.PacketId, unsuback.PacketId)
 	}
 }
-
 
 /*
 func TestSubscribe_NewSubBackWith3Topics(t *testing.T) {
