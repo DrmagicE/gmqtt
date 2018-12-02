@@ -21,7 +21,7 @@ func NewServer(config *Config) (*server.Server, error) {
 	srv.SetMaxInflightMessages(config.MaxInflightMessages)
 	srv.SetQueueQos0Messages(config.QueueQos0Messages)
 	srv.SetMaxQueueMessages(config.MaxMsgQueueMessages)
-
+	srv.SetMaxQueueMessages(0) //unlimited
 	var l net.Listener
 	var ws *server.WsServer
 	var err error

@@ -48,7 +48,7 @@ func (srv *Server) subscribe(ctx context.Context, client mqtt.Client) {
 			return
 		default:
 			time.Sleep(time.Duration(srv.Options.SubscribeInterval) * time.Microsecond)
-			t := client.Subscribe(srv.Options.Topic+strconv.Itoa(int(time.Now().UnixNano())), byte(srv.Options.Qos), nil)
+			t := client.Subscribe(srv.Options.Topic+strconv.Itoa(n), byte(srv.Options.Qos), nil)
 			t.Wait()
 			if t.Error() != nil {
 				log.Println("subscribe error:", t.Error())

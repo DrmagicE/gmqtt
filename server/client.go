@@ -360,8 +360,8 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 	}
 	suback := sub.NewSubBack()
 	client.write(suback)
-	srv.topicsMu.Lock()
-	defer srv.topicsMu.Unlock()
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
 	var isNew bool
 	for k, v := range sub.Topics {
 		if v.Qos != packets.SUBSCRIBE_FAILURE {
@@ -369,10 +369,9 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 				Name: v.Name,
 				Qos:  suback.Payload[k],
 			}
-			if _, ok := srv.topics[client.opts.ClientId][string(v.Name)]; !ok {
+			if srv.subscribe(client.opts.ClientId, topic) {
 				isNew = true
 			}
-			srv.topics[client.opts.ClientId][string(v.Name)] = topic
 			if client.server.Monitor != nil {
 				client.server.Monitor.Subscribe(SubscriptionsInfo{
 					ClientId: client.opts.ClientId,
@@ -392,6 +391,7 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 		}
 		srv.retainedMsgMu.Unlock()
 	}
+
 }
 
 //publish handler
@@ -462,10 +462,11 @@ func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
-	srv.topicsMu.Lock()
-	defer srv.topicsMu.Unlock()
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
+
 	for _, topicName := range unSub.Topics {
-		delete(srv.topics[client.opts.ClientId], topicName)
+		srv.unsubscribe(client.opts.ClientId, topicName)
 		if client.server.Monitor != nil {
 			client.server.Monitor.UnSubscribe(client.opts.ClientId, topicName)
 		}

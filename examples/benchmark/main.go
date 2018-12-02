@@ -6,18 +6,18 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 	"log"
 	"net"
-	"net/http"
+	//_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 func main() {
-	go func() {
+/*	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
-	}()
+	}()*/
 	s := server.NewServer()
-	s.SetMsgRouterLen(5000000)
+	s.SetMaxInflightMessages(65535)
 	s.SetRegisterLen(10000)
 	s.SetUnregisterLen(10000)
 	s.SetMaxQueueMessages(0) //unlimited
@@ -26,7 +26,6 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-
 	s.AddTCPListenner(ln)
 	s.Run()
 	fmt.Println("started...")

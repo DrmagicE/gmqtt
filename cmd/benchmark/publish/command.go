@@ -43,7 +43,7 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	fs.IntVar(&options.Size, "s", 256, "payload size (bytes)")
 	fs.IntVar(&options.SubCount, "sub", 0, "number of clients which subscribe topic #")
 	fs.IntVar(&options.SubQos, "subqos", 0, "qos of subscriptions")
-	fs.BoolVar(&options.CleanSession, "C", false, "clean session")
+	fs.BoolVar(&options.CleanSession, "C", true, "clean session")
 	fs.IntVar(&options.Number, "n", 200, "number of messages to publish per client")
 	fs.IntVar(&options.Time, "t", 0, "timeout (second)")
 	if err := fs.Parse(args); err != nil {

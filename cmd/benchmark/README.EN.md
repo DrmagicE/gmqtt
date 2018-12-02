@@ -122,15 +122,15 @@ System:Win10, RAM:16GB,CPU:3.20GHz, 12 core
 ### Connection 
 Connect 10K  clients with 100/ms interval
 ```
-$ go run connect_benchmark -c 10000
-2018/11/25 23:13:24 starting benchmark testing:
-2018/11/25 23:13:26 1726 clients connected,
-2018/11/25 23:13:28 3428 clients connected,
-2018/11/25 23:13:30 5125 clients connected,
-2018/11/25 23:13:32 6822 clients connected,
-2018/11/25 23:13:34 8618 clients connected,
-2018/11/25 23:13:35 benchmark testing finished in 11 seconds
-2018/11/25 23:13:35 10000 clients connected, QPS: 909
+$ go run connect_benchmark.go -c 10000
+2018/12/02 18:25:25 starting benchmark testing:
+2018/12/02 18:25:27 1905 clients connected,
+2018/12/02 18:25:29 3763 clients connected,
+2018/12/02 18:25:31 5694 clients connected,
+2018/12/02 18:25:33 7458 clients connected,
+2018/12/02 18:25:35 9363 clients connected,
+2018/12/02 18:25:36 benchmark testing finished in 11 seconds
+2018/12/02 18:25:36 10000 clients connected, QPS: 909
 
 ```
 
@@ -140,26 +140,23 @@ $ go run connect_benchmark -c 10000
 Connect 10K clients with 100/ms interval and each client publish 200 qos1 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 1
-2018/11/25 23:20:11 starting benchmark testing:
-2018/11/25 23:20:13 527 clients connected,99325 messages published,0 messages distributed
-2018/11/25 23:20:15 1058 clients connected,206922 messages published,0 messages distributed
-2018/11/25 23:20:17 1549 clients connected,304566 messages published,0 messages distributed
-2018/11/25 23:20:19 2037 clients connected,402535 messages published,0 messages distributed
-2018/11/25 23:20:21 2526 clients connected,498198 messages published,0 messages distributed
-2018/11/25 23:20:23 3082 clients connected,612538 messages published,0 messages distributed
-2018/11/25 23:20:25 3713 clients connected,735173 messages published,0 messages distributed
-2018/11/25 23:20:27 4335 clients connected,859045 messages published,0 messages distributed
-2018/11/25 23:20:29 4994 clients connected,991270 messages published,0 messages distributed
-2018/11/25 23:20:31 5610 clients connected,1115178 messages published,0 messages distributed
-2018/11/25 23:20:33 6200 clients connected,1234436 messages published,0 messages distributed
-2018/11/25 23:20:35 6752 clients connected,1347392 messages published,0 messages distributed
-2018/11/25 23:20:37 7349 clients connected,1464449 messages published,0 messages distributed
-2018/11/25 23:20:39 7941 clients connected,1581735 messages published,0 messages distributed
-2018/11/25 23:20:41 8537 clients connected,1701229 messages published,0 messages distributed
-2018/11/25 23:20:43 9084 clients connected,1808976 messages published,0 messages distributed
-2018/11/25 23:20:45 9637 clients connected,1921901 messages published,0 messages distributed
-2018/11/25 23:20:47 benchmark testing finished in 36 seconds
-2018/11/25 23:20:47 10000 clients connected,2000000 messages published,0 messages distributed,QPS: 55833
+2018/12/02 18:30:38 starting benchmark testing:
+2018/12/02 18:30:40 1843 clients connected,133088 messages published,0 messages distributed
+2018/12/02 18:30:42 3673 clients connected,264462 messages published,0 messages distributed
+2018/12/02 18:30:44 5438 clients connected,393482 messages published,0 messages distributed
+2018/12/02 18:30:46 7298 clients connected,523553 messages published,0 messages distributed
+2018/12/02 18:30:48 9146 clients connected,653704 messages published,0 messages distributed
+2018/12/02 18:30:50 10000 clients connected,789155 messages published,0 messages distributed
+2018/12/02 18:30:52 10000 clients connected,933973 messages published,0 messages distributed
+2018/12/02 18:30:54 10000 clients connected,1078592 messages published,0 messages distributed
+2018/12/02 18:30:56 10000 clients connected,1225945 messages published,0 messages distributed
+2018/12/02 18:30:58 10000 clients connected,1368634 messages published,0 messages distributed
+2018/12/02 18:31:00 10000 clients connected,1516132 messages published,0 messages distributed
+2018/12/02 18:31:02 10000 clients connected,1661843 messages published,0 messages distributed
+2018/12/02 18:31:04 10000 clients connected,1810678 messages published,0 messages distributed
+2018/12/02 18:31:06 10000 clients connected,1957730 messages published,0 messages distributed
+2018/12/02 18:31:06 benchmark testing finished in 28 seconds
+2018/12/02 18:31:06 10000 clients connected,2000000 messages published,0 messages distributed,QPS: 71785
 
 ```
 
@@ -167,31 +164,35 @@ $ go run pub_benchmark.go -c 10000 -qos 1
 Connect 10K clients with 100/ms interval and each client publish 200 qos2 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 2
-2018/11/25 23:22:10 starting benchmark testing:
-2018/11/25 23:22:12 398 clients connected,74826 messages published,0 messages distributed
-2018/11/25 23:22:14 767 clients connected,150447 messages published,0 messages distributed
-2018/11/25 23:22:16 1146 clients connected,219581 messages published,0 messages distributed
-2018/11/25 23:22:18 1553 clients connected,301553 messages published,0 messages distributed
-2018/11/25 23:22:20 1928 clients connected,381894 messages published,0 messages distributed
-2018/11/25 23:22:22 2383 clients connected,469265 messages published,0 messages distributed
-2018/11/25 23:22:24 2822 clients connected,557121 messages published,0 messages distributed
-2018/11/25 23:22:26 3307 clients connected,651712 messages published,0 messages distributed
-2018/11/25 23:22:28 3768 clients connected,745827 messages published,0 messages distributed
-2018/11/25 23:22:30 4223 clients connected,840623 messages published,0 messages distributed
-2018/11/25 23:22:32 4716 clients connected,933273 messages published,0 messages distributed
-2018/11/25 23:22:34 5214 clients connected,1032921 messages published,0 messages distributed
-2018/11/25 23:22:36 5642 clients connected,1124033 messages published,0 messages distributed
-2018/11/25 23:22:38 6103 clients connected,1213450 messages published,0 messages distributed
-2018/11/25 23:22:40 6557 clients connected,1307392 messages published,0 messages distributed
-2018/11/25 23:22:42 7059 clients connected,1401106 messages published,0 messages distributed
-2018/11/25 23:22:44 7499 clients connected,1492729 messages published,0 messages distributed
-2018/11/25 23:22:46 7985 clients connected,1584577 messages published,0 messages distributed
-2018/11/25 23:22:48 8415 clients connected,1669812 messages published,0 messages distributed
-2018/11/25 23:22:50 8832 clients connected,1761055 messages published,0 messages distributed
-2018/11/25 23:22:52 9263 clients connected,1846837 messages published,0 messages distributed
-2018/11/25 23:22:54 9745 clients connected,1943825 messages published,0 messages distributed
-2018/11/25 23:22:56 benchmark testing finished in 46 seconds
-2018/11/25 23:22:56 10000 clients connected,2000000 messages published,0 messages distributed,QPS: 43695
+2018/12/02 18:32:49 starting benchmark testing:
+2018/12/02 18:32:51 1862 clients connected,66760 messages published,0 messages distributed
+2018/12/02 18:32:53 3703 clients connected,132009 messages published,0 messages distributed
+2018/12/02 18:32:55 5511 clients connected,197031 messages published,0 messages distributed
+2018/12/02 18:32:57 7361 clients connected,262194 messages published,0 messages distributed
+2018/12/02 18:32:59 9142 clients connected,328997 messages published,0 messages distributed
+2018/12/02 18:33:01 10000 clients connected,402515 messages published,0 messages distributed
+2018/12/02 18:33:03 10000 clients connected,478835 messages published,0 messages distributed
+2018/12/02 18:33:05 10000 clients connected,554997 messages published,0 messages distributed
+2018/12/02 18:33:07 10000 clients connected,632324 messages published,0 messages distributed
+2018/12/02 18:33:09 10000 clients connected,709051 messages published,0 messages distributed
+2018/12/02 18:33:11 10000 clients connected,784347 messages published,0 messages distributed
+2018/12/02 18:33:13 10000 clients connected,859663 messages published,0 messages distributed
+2018/12/02 18:33:15 10000 clients connected,936790 messages published,0 messages distributed
+2018/12/02 18:33:17 10000 clients connected,1012546 messages published,0 messages distributed
+2018/12/02 18:33:19 10000 clients connected,1089786 messages published,0 messages distributed
+2018/12/02 18:33:21 10000 clients connected,1167063 messages published,0 messages distributed
+2018/12/02 18:33:23 10000 clients connected,1244063 messages published,0 messages distributed
+2018/12/02 18:33:25 10000 clients connected,1317821 messages published,0 messages distributed
+2018/12/02 18:33:27 10000 clients connected,1394318 messages published,0 messages distributed
+2018/12/02 18:33:29 10000 clients connected,1470159 messages published,0 messages distributed
+2018/12/02 18:33:31 10000 clients connected,1546872 messages published,0 messages distributed
+2018/12/02 18:33:33 10000 clients connected,1623610 messages published,0 messages distributed
+2018/12/02 18:33:35 10000 clients connected,1700876 messages published,0 messages distributed
+2018/12/02 18:33:37 10000 clients connected,1777730 messages published,0 messages distributed
+2018/12/02 18:33:39 10000 clients connected,1856084 messages published,0 messages distributed
+2018/12/02 18:33:41 10000 clients connected,1933742 messages published,0 messages distributed
+2018/12/02 18:33:43 benchmark testing finished in 54 seconds
+2018/12/02 18:33:43 10000 clients connected,2000000 messages published,0 messages distributed,QPS: 37222
 
 ```
 
@@ -200,24 +201,30 @@ $ go run pub_benchmark.go -c 10000 -qos 2
 Connect 10K + 1 (10K publisher &  1 subscriber) clients with 100/ms interval and each publisher publish 200 qos1 messages with 100ms interval
 ```
 $ go run pub_benchmark.go -c 10000 -qos 1 -sub 1 -subqos 1
-2018/11/25 23:30:07 starting benchmark testing:
-2018/11/25 23:30:09 1815 clients connected,113018 messages published,7453 messages distributed
-2018/11/25 23:30:11 3566 clients connected,225708 messages published,8411 messages distributed
-2018/11/25 23:30:13 4832 clients connected,339316 messages published,8979 messages distributed
-2018/11/25 23:30:15 5754 clients connected,452733 messages published,9446 messages distributed
-2018/11/25 23:30:17 6555 clients connected,567245 messages published,9851 messages distributed
-2018/11/25 23:30:19 7241 clients connected,688740 messages published,10239 messages distributed
-2018/11/25 23:30:21 7904 clients connected,813378 messages published,10611 messages distributed
-2018/11/25 23:30:23 8497 clients connected,943972 messages published,10991 messages distributed
-2018/11/25 23:30:25 8998 clients connected,1077739 messages published,11351 messages distributed
-2018/11/25 23:30:27 9493 clients connected,1208318 messages published,11711 messages distributed
-2018/11/25 23:30:29 9951 clients connected,1340560 messages published,12071 messages distributed
-2018/11/25 23:30:31 10001 clients connected,1472450 messages published,12464 messages distributed
-2018/11/25 23:30:33 10001 clients connected,1606225 messages published,12924 messages distributed
-2018/11/25 23:30:35 10001 clients connected,1738827 messages published,13471 messages distributed
-2018/11/25 23:30:37 10001 clients connected,1873431 messages published,14251 messages distributed
-2018/11/25 23:30:39 benchmark testing finished in 32 seconds
-2018/11/25 23:30:39 10001 clients connected,2000000 messages published,16486 messages distributed,QPS: 63327
+2018/12/02 18:38:27 starting benchmark testing:
+2018/12/02 18:38:29 1825 clients connected,87983 messages published,87983 messages distributed
+2018/12/02 18:38:31 3604 clients connected,175514 messages published,175511 messages distributed
+2018/12/02 18:38:33 5356 clients connected,261674 messages published,261673 messages distributed
+2018/12/02 18:38:35 7127 clients connected,348470 messages published,348467 messages distributed
+2018/12/02 18:38:37 8845 clients connected,434100 messages published,434098 messages distributed
+2018/12/02 18:38:39 10001 clients connected,524853 messages published,524822 messages distributed
+2018/12/02 18:38:41 10001 clients connected,621653 messages published,621653 messages distributed
+2018/12/02 18:38:43 10001 clients connected,717125 messages published,717124 messages distributed
+2018/12/02 18:38:45 10001 clients connected,811075 messages published,811070 messages distributed
+2018/12/02 18:38:47 10001 clients connected,907651 messages published,907649 messages distributed
+2018/12/02 18:38:49 10001 clients connected,1000234 messages published,1000234 messages distributed
+2018/12/02 18:38:51 10001 clients connected,1095560 messages published,1095676 messages distributed
+2018/12/02 18:38:53 10001 clients connected,1191145 messages published,1190690 messages distributed
+2018/12/02 18:38:55 10001 clients connected,1286594 messages published,1286593 messages distributed
+2018/12/02 18:38:57 10001 clients connected,1382244 messages published,1382244 messages distributed
+2018/12/02 18:38:59 10001 clients connected,1478770 messages published,1478769 messages distributed
+2018/12/02 18:39:01 10001 clients connected,1574419 messages published,1574081 messages distributed
+2018/12/02 18:39:03 10001 clients connected,1669853 messages published,1669850 messages distributed
+2018/12/02 18:39:05 10001 clients connected,1767104 messages published,1767103 messages distributed
+2018/12/02 18:39:07 10001 clients connected,1863912 messages published,1863908 messages distributed
+2018/12/02 18:39:09 10001 clients connected,1961524 messages published,1961519 messages distributed
+2018/12/02 18:39:10 benchmark testing finished in 43 seconds
+2018/12/02 18:39:10 10001 clients connected,2000000 messages published,1999997 messages distributed,QPS: 93255
 
 ```
 
@@ -225,35 +232,36 @@ $ go run pub_benchmark.go -c 10000 -qos 1 -sub 1 -subqos 1
 Connect 10K clients with 100/ms interval and each client make 200 subscriptions with 100ms interval
 ```
 $ go run sub_benchmark.go -c 10000
-2018/11/25 23:36:32 starting benchmark testing:
-2018/11/25 23:36:34 472 clients connected,72939 topics subscribed,
-2018/11/25 23:36:36 831 clients connected,143091 topics subscribed,
-2018/11/25 23:36:38 1180 clients connected,213147 topics subscribed,
-2018/11/25 23:36:40 1526 clients connected,283129 topics subscribed,
-2018/11/25 23:36:42 1875 clients connected,352731 topics subscribed,
-2018/11/25 23:36:44 2248 clients connected,426733 topics subscribed,
-2018/11/25 23:36:46 10000 clients connected,516495 topics subscribed,
-2018/11/25 23:36:48 10000 clients connected,650959 topics subscribed,
-2018/11/25 23:36:50 10000 clients connected,779153 topics subscribed,
-2018/11/25 23:36:52 10000 clients connected,904905 topics subscribed,
-2018/11/25 23:36:54 10000 clients connected,999121 topics subscribed,
-2018/11/25 23:36:56 10000 clients connected,1094615 topics subscribed,
-2018/11/25 23:36:58 10000 clients connected,1179352 topics subscribed,
-2018/11/25 23:37:00 10000 clients connected,1253898 topics subscribed,
-2018/11/25 23:37:02 10000 clients connected,1315336 topics subscribed,
-2018/11/25 23:37:04 10000 clients connected,1376505 topics subscribed,
-2018/11/25 23:37:06 10000 clients connected,1437960 topics subscribed,
-2018/11/25 23:37:08 10000 clients connected,1502334 topics subscribed,
-2018/11/25 23:37:10 10000 clients connected,1564538 topics subscribed,
-2018/11/25 23:37:12 10000 clients connected,1619792 topics subscribed,
-2018/11/25 23:37:14 10000 clients connected,1678025 topics subscribed,
-2018/11/25 23:37:16 10000 clients connected,1733498 topics subscribed,
-2018/11/25 23:37:18 10000 clients connected,1783257 topics subscribed,
-2018/11/25 23:37:20 10000 clients connected,1835458 topics subscribed,
-2018/11/25 23:37:22 10000 clients connected,1885567 topics subscribed,
-2018/11/25 23:37:24 10000 clients connected,1931617 topics subscribed,
-2018/11/25 23:37:26 10000 clients connected,1979365 topics subscribed,
-2018/11/25 23:37:27 benchmark testing finished in 55 seconds
-2018/11/25 23:37:27 10000 clients connected,2000000 topics subscribed,QPS: 36545
+2018/12/02 18:42:13 starting benchmark testing:
+2018/12/02 18:42:15 1881 clients connected,100977 topics subscribed,
+2018/12/02 18:42:17 3667 clients connected,200863 topics subscribed,
+2018/12/02 18:42:19 5487 clients connected,299493 topics subscribed,
+2018/12/02 18:42:21 7264 clients connected,396722 topics subscribed,
+2018/12/02 18:42:23 9025 clients connected,492015 topics subscribed,
+2018/12/02 18:42:25 10000 clients connected,593226 topics subscribed,
+2018/12/02 18:42:27 10000 clients connected,689092 topics subscribed,
+2018/12/02 18:42:29 10000 clients connected,775540 topics subscribed,
+2018/12/02 18:42:31 10000 clients connected,861801 topics subscribed,
+2018/12/02 18:42:33 10000 clients connected,942405 topics subscribed,
+2018/12/02 18:42:35 10000 clients connected,1014145 topics subscribed,
+2018/12/02 18:42:37 10000 clients connected,1089165 topics subscribed,
+2018/12/02 18:42:39 10000 clients connected,1160592 topics subscribed,
+2018/12/02 18:42:41 10000 clients connected,1224802 topics subscribed,
+2018/12/02 18:42:43 10000 clients connected,1290350 topics subscribed,
+2018/12/02 18:42:45 10000 clients connected,1353208 topics subscribed,
+2018/12/02 18:42:47 10000 clients connected,1410131 topics subscribed,
+2018/12/02 18:42:49 10000 clients connected,1468550 topics subscribed,
+2018/12/02 18:42:51 10000 clients connected,1525145 topics subscribed,
+2018/12/02 18:42:53 10000 clients connected,1582015 topics subscribed,
+2018/12/02 18:42:55 10000 clients connected,1634913 topics subscribed,
+2018/12/02 18:42:57 10000 clients connected,1690029 topics subscribed,
+2018/12/02 18:42:59 10000 clients connected,1744026 topics subscribed,
+2018/12/02 18:43:01 10000 clients connected,1793471 topics subscribed,
+2018/12/02 18:43:03 10000 clients connected,1845218 topics subscribed,
+2018/12/02 18:43:05 10000 clients connected,1894890 topics subscribed,
+2018/12/02 18:43:07 10000 clients connected,1939596 topics subscribed,
+2018/12/02 18:43:09 10000 clients connected,1986118 topics subscribed,
+2018/12/02 18:43:10 benchmark testing finished in 57 seconds
+2018/12/02 18:43:10 10000 clients connected,2000000 topics subscribed,QPS: 35263
 
 ```

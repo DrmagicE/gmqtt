@@ -30,7 +30,7 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	fs.StringVar(&options.Password, "pwd", "", "password")
 	fs.IntVar(&options.ConnectionInterval, "ci", 100, "connection interval (ms)")
 	fs.IntVar(&options.Count, "c", 1000, "number of clients")
-	fs.BoolVar(&options.CleanSession, "C", false, "clean session")
+	fs.BoolVar(&options.CleanSession, "C", true, "clean session")
 	fs.IntVar(&options.Time, "t", 0, "timeout (second)")
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err

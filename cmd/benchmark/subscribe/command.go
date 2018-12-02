@@ -63,6 +63,5 @@ func (cmd *Command) Run(args ...string) error {
 		ctx = context.Background()
 	}
 	srv.Run(ctx)
-
 	return nil
 }

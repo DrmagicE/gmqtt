@@ -28,6 +28,79 @@ const (
 	DefaultUnRegisterLen         = 2048
 )
 
+type Server struct {
+	mu              sync.RWMutex //gard clients map
+	clients         map[string]*Client
+	tcpListener     []net.Listener //tcp listeners
+	websocketServer []*WsServer    //websocket server
+	exitChan        chan struct{}
+	retainedMsgMu   sync.Mutex
+	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
+
+	subscriptionsDB *subscriptionsDB  //store subscriptions
+
+	msgRouter  chan *msgRouter  //
+	register   chan *register   //register session
+	unregister chan *unregister //unregister session
+
+	config *config
+	//hooks
+	OnAccept    OnAccept
+	OnConnect   OnConnect
+	OnSubscribe OnSubscribe
+	OnPublish   OnPublish
+	OnClose     OnClose
+	OnStop      OnStop
+	//Monitor
+	Monitor *Monitor
+}
+
+type subscriptionsDB struct {
+	sync.RWMutex
+	topicsById   map[string]map[string]packets.Topic //[clientId][topicName]Topic fast addressing with client id
+	topicsByName map[string]map[string]packets.Topic //[topicName][clientId]Topic fast addressing with topic name
+}
+
+//init 初始化
+func (db *subscriptionsDB) init(clientId string, topicName string) {
+	if _, ok := db.topicsById[clientId]; !ok {
+		db.topicsById[clientId] = make(map[string]packets.Topic)
+	}
+	if _, ok := db.topicsByName[topicName]; !ok {
+		db.topicsByName[topicName] = make(map[string]packets.Topic)
+	}
+}
+//return true if subscription is existed 判断订阅是否存在
+func (db *subscriptionsDB) exist(clientId string, topicName string) bool {
+	if _, ok := db.topicsByName[topicName][clientId]; !ok {
+		return false
+	}
+	return true
+}
+
+
+//添加一条记录
+func (db *subscriptionsDB) add(clientId string, topicName string, topic packets.Topic) {
+	db.topicsById[clientId][topicName] = topic
+	db.topicsByName[topicName][clientId] = topic
+}
+//删除一条记录
+func (db *subscriptionsDB) remove(clientId string, topicName string) {
+	if _ , ok := db.topicsByName[topicName]; ok {
+		delete(db.topicsByName[topicName], clientId)
+		if len(db.topicsByName[topicName]) == 0 {
+			delete(db.topicsByName, topicName)
+		}
+	}
+	if _ , ok := db.topicsById[clientId]; ok {
+		delete(db.topicsById[clientId], topicName)
+		if len(db.topicsById[clientId]) == 0 {
+			delete(db.topicsById, clientId)
+		}
+	}
+}
+
+
 var log = &logger.Logger{}
 
 func SetLogger(l *logger.Logger) {
@@ -56,7 +129,7 @@ type unregister struct {
 
 type msgRouter struct {
 	forceBroadcast bool
-	clientIds      []string
+	clientIds      map[string]struct{} //key by clientId
 	pub            *packets.Publish
 }
 
@@ -88,9 +161,9 @@ func (srv *Server) registerHandler(register *register) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	var oldSession *session
-	oldClient, ok := srv.clients[client.opts.ClientId]
+	oldClient, oldExist := srv.clients[client.opts.ClientId]
 	srv.clients[client.opts.ClientId] = client
-	if ok {
+	if oldExist {
 		oldSession = oldClient.session
 		if oldClient.Status() == CONNECTED {
 			if log != nil {
@@ -166,14 +239,15 @@ func (srv *Server) registerHandler(register *register) {
 		if log != nil {
 			log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
 		}
-
 	} else {
+		if oldExist {
+			srv.subscriptionsDB.Lock()
+			srv.removeClientSubscriptions(client.opts.ClientId)
+			srv.subscriptionsDB.Unlock()
+		}
 		if log != nil {
 			log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
 		}
-		srv.topicsMu.Lock()
-		srv.topics[client.opts.ClientId] = make(map[string]packets.Topic)
-		srv.topicsMu.Unlock()
 	}
 	if srv.Monitor != nil {
 		srv.Monitor.Register(client, sessionReuse)
@@ -217,11 +291,11 @@ clearIn:
 			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
 		}
 		srv.mu.Lock()
-		srv.topicsMu.Lock()
 		delete(srv.clients, client.opts.ClientId)
-		delete(srv.topics, client.opts.ClientId)
+		srv.subscriptionsDB.Lock()
+		srv.removeClientSubscriptions(client.opts.ClientId)
+		srv.subscriptionsDB.Unlock()
 		srv.mu.Unlock()
-		srv.topicsMu.Unlock()
 	} else { //store session 保持session
 		if log != nil {
 			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
@@ -244,55 +318,98 @@ clearIn:
 	}
 }
 
-//为client匹配主题，并发送
-func (srv *Server) deliver(client *Client, pub *packets.Publish, forceDeliver bool) {
-	var matchTopic packets.Topic
-	var isMatch bool
-	if forceDeliver {
+func (srv *Server) msgRouterHandler(msg *msgRouter) {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	pub := msg.pub
+	if msg.forceBroadcast { //broadcast
 		publish := pub.CopyPublish()
 		publish.Dup = false
-		client.publish(publish)
+		if len(msg.clientIds) != 0 {
+			for cid, _ := range msg.clientIds {
+				if _, ok := srv.clients[cid]; ok {
+					srv.clients[cid].publish(publish)
+				}
+			}
+		} else {
+			for _, c := range srv.clients {
+				c.publish(publish)
+			}
+		}
 		return
-	} else {
-		once := sync.Once{}
-		for _, topic := range srv.topics[client.opts.ClientId] {
-			if packets.TopicMatch(pub.TopicName, []byte(topic.Name)) {
-				once.Do(func() {
-					matchTopic = topic
-					isMatch = true
-				})
-				if topic.Qos > matchTopic.Qos { //[MQTT-3.3.5-1]
-					matchTopic = topic
+	}
+	srv.subscriptionsDB.RLock()
+	defer srv.subscriptionsDB.RUnlock()
+	m := make(map[string]uint8)
+	cidlen := len(msg.clientIds)
+	for topicName, cmap := range srv.subscriptionsDB.topicsByName {
+		if packets.TopicMatch(pub.TopicName, []byte(topicName)) { //找到能匹配当前主题订阅等级最高的客户端
+			if cidlen != 0 { //to specific clients
+				for cid := range msg.clientIds {
+					if t, ok := cmap[cid]; ok {
+
+							if qos, ok := m[cid]; ok {
+								if t.Qos > qos {
+									m[cid] = t.Qos
+								}
+							} else {
+								m[cid] = t.Qos
+							}
+
+					}
+				}
+			} else {
+				for cid, t := range cmap { //cmap:map[string]*subscription
+
+						if qos, ok := m[cid]; ok {
+							if t.Qos > qos {
+								m[cid] = t.Qos
+							}
+						} else {
+							m[cid] = t.Qos
+						}
+
 				}
 			}
 		}
-		if isMatch { //匹配
-			publish := pub.CopyPublish()
-			if publish.Qos > matchTopic.Qos {
-				publish.Qos = matchTopic.Qos
-			}
-			publish.Dup = false
-			client.publish(publish)
+	}
+	for cid, qos := range m {
+		publish := pub.CopyPublish()
+		if publish.Qos > qos {
+			publish.Qos = qos
+		}
+		publish.Dup = false
+		if c, ok := srv.clients[cid]; ok {
+			c.publish(publish)
 		}
 	}
 }
 
-func (srv *Server) msgRouterHandler(msg *msgRouter) {
-	srv.mu.RLock()
-	srv.topicsMu.RLock()
-	defer srv.mu.RUnlock()
-	defer srv.topicsMu.RUnlock()
-	pub := msg.pub
-	if len(msg.clientIds) != 0 {
-		for _, v := range msg.clientIds {
-			if c, ok := srv.clients[v]; ok {
-				srv.deliver(c, pub, msg.forceBroadcast)
+//return whether it is a new subscription
+func (srv *Server) subscribe(clientId string, topic packets.Topic) bool {
+	var isNew bool
+	srv.subscriptionsDB.init(clientId, topic.Name)
+	isNew = !srv.subscriptionsDB.exist(clientId, topic.Name)
+	srv.subscriptionsDB.topicsById[clientId][topic.Name] = topic
+	srv.subscriptionsDB.topicsByName[topic.Name][clientId] = topic
+	return isNew
+}
+func (srv *Server) unsubscribe(clientId string, topicName string) {
+	srv.subscriptionsDB.remove(clientId,topicName)
+}
+
+func (srv *Server) removeClientSubscriptions(clientId string) {
+	db := srv.subscriptionsDB
+	if _ , ok := db.topicsById[clientId]; ok {
+		for topicName, _ := range db.topicsById[clientId] {
+			if _, ok := db.topicsByName[topicName];ok {
+				delete(db.topicsByName[topicName],clientId)
+				if len(db.topicsByName[topicName]) == 0 {
+					delete(db.topicsByName, topicName)
+				}
 			}
 		}
-	} else {
-		for _, c := range srv.clients {
-			srv.deliver(c, pub, msg.forceBroadcast)
-		}
+		delete(db.topicsById,clientId)
 	}
 }
 
@@ -310,33 +427,6 @@ func (srv *Server) eventLoop() {
 	}
 }
 
-type Server struct {
-	mu              sync.RWMutex //gard clients map
-	clients         map[string]*Client
-	tcpListener     []net.Listener //tcp listeners
-	websocketServer []*WsServer    //websocket server
-	exitChan        chan struct{}
-	retainedMsgMu   sync.Mutex
-	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
-
-	topicsMu sync.RWMutex
-	topics   map[string]map[string]packets.Topic //[clientId][topicName]Topic
-
-	msgRouter  chan *msgRouter  //
-	register   chan *register   //register session
-	unregister chan *unregister //unregister session
-
-	config *config
-	//hooks
-	OnAccept    OnAccept
-	OnConnect   OnConnect
-	OnSubscribe OnSubscribe
-	OnPublish   OnPublish
-	OnClose     OnClose
-	OnStop      OnStop
-	//Monitor
-	Monitor *Monitor
-}
 
 type WsServer struct {
 	Server   *http.Server
@@ -376,7 +466,10 @@ func NewServer() *Server {
 		register:    make(chan *register, DefaultRegisterLen),
 		unregister:  make(chan *unregister, DefaultUnRegisterLen),
 		retainedMsg: make(map[string]*packets.Publish),
-		topics:      make(map[string]map[string]packets.Topic),
+		subscriptionsDB: &subscriptionsDB{
+			topicsByName: make(map[string]map[string]packets.Topic),
+			topicsById:   make(map[string]map[string]packets.Topic),
+		},
 		config: &config{
 			deliveryRetryInterval: DefaultDeliveryRetryInterval,
 			queueQos0Messages:     DefaultQueueQos0Messages,
@@ -404,11 +497,19 @@ func (srv *Server) SetUnregisterLen(i int) {
 }
 
 func (srv *Server) Publish(publish *packets.Publish, clientIds ...string) {
-	srv.msgRouter <- &msgRouter{false, clientIds, publish}
+	cid := make(map[string]struct{})
+	for _, id := range clientIds {
+		cid[id] = struct{}{}
+	}
+	srv.msgRouter <- &msgRouter{false, cid, publish}
 }
 
 func (srv *Server) Broadcast(publish *packets.Publish, clientIds ...string) {
-	srv.msgRouter <- &msgRouter{true, clientIds, publish}
+	cid := make(map[string]struct{})
+	for _, id := range clientIds {
+		cid[id] = struct{}{}
+	}
+	srv.msgRouter <- &msgRouter{true, cid, publish}
 }
 
 func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
@@ -416,10 +517,10 @@ func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
 	if client == nil {
 		return
 	}
-	srv.topicsMu.Lock()
-	defer srv.topicsMu.Unlock()
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
 	for _, v := range topics {
-		srv.topics[clientId][string(v.Name)] = v
+		srv.subscribe(clientId, v)
 		if srv.Monitor != nil {
 			srv.Monitor.Subscribe(SubscriptionsInfo{
 				ClientId: clientId,
@@ -436,10 +537,10 @@ func (srv *Server) UnSubscribe(clientId string, topics []string) {
 	if client == nil {
 		return
 	}
-	srv.topicsMu.Lock()
-	defer srv.topicsMu.Unlock()
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
 	for _, v := range topics {
-		delete(srv.topics[clientId], v)
+		srv.unsubscribe(clientId, v)
 		if srv.Monitor != nil {
 			srv.Monitor.UnSubscribe(clientId, v)
 		}
@@ -513,12 +614,6 @@ func (srv *Server) Client(clientId string) *Client {
 	return srv.clients[clientId]
 }
 
-/*
-func (srv *Server) AddClient(client *Client) {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	srv.clients[client.opts.ClientId] = client
-}*/
 
 var defaultUpgrader = &websocket.Upgrader{
 	ReadBufferSize:  READ_BUFFER_SIZE,
@@ -599,7 +694,6 @@ func (srv *Server) Run() {
 		srv.Monitor.Repository.Open()
 	}
 	go srv.eventLoop()
-
 	for _, ln := range srv.tcpListener {
 		go srv.serveTcp(ln)
 	}
@@ -657,7 +751,6 @@ func (srv *Server) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
-
 		if srv.Monitor != nil {
 			srv.Monitor.Repository.Close()
 		}

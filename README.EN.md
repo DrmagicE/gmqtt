@@ -3,13 +3,17 @@ Gmqtt provides:
 *  MQTT broker that fully implements the MQTT protocol V3.1.1.
 *  Golang MQTT broker package for secondary development.
 *  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
+*  MQTT broker benchmark tool 
 
 # Change Log 
+## 2018.12.2
+* Optimized data structure of subscriptions that increased QPS & reduced response times
+* Updated benchmark results of optimization 
 ## 2018.11.25
 * Added benchmark tool
 * Refacotoring & performance optimization
 * Performance optimization on message distributing
-* Edited `OnClose`, added error information 
+* Added error information in `OnClose()`
 ## 2018.11.18
 * Removed sessions/messages persistence which need a redesign
 * Added monitor/management API, added `cmd/broker/restapi` as an example
@@ -23,6 +27,9 @@ Gmqtt provides:
 * ~~Support sessions/messages persistence~~
 * Provide monitor/management API
 * Provide publish/subscribe/unsubscribe API
+
+
+
 
 
 # Installation

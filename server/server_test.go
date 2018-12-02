@@ -79,104 +79,6 @@ func TestHooks(t *testing.T) {
 		t.Fatalf("hooks error, want %s, got %s", want, hooks)
 	}
 }
-func TestServer_Subscribe_Unsubscribe(t *testing.T) {
-	srv := NewServer()
-	ln, err := net.Listen("tcp", "127.0.0.1:1883")
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	srv.AddTCPListenner(ln)
-	srv.Run()
-
-	c, err := net.Dial("tcp", "127.0.0.1:1883")
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	w := packets.NewWriter(c)
-	r := packets.NewReader(c)
-	w.WriteAndFlush(defaultConnectPacket()) //connect
-	r.ReadPacket()                          //ack
-
-	cid := string(defaultConnectPacket().ClientId)
-
-	srv.Subscribe(cid, []packets.Topic{
-		{2, "qos2"},
-		{1, "qos1"},
-	})
-	srv.topicsMu.Lock()
-	want1 := packets.Topic{2, "qos2"}
-	if srv.topics[cid]["qos2"] != want1 {
-		t.Fatalf("Subscribe() error, want %v, but %v", want1, srv.topics[cid]["qos2"])
-	}
-	want2 := packets.Topic{1, "qos1"}
-	if (srv.topics[cid]["qos1"] != packets.Topic{1, "qos1"}) {
-		t.Fatalf("Subscribe() error, want %v, but %v", want2, srv.topics[cid]["qos1"])
-	}
-	srv.topicsMu.Unlock()
-	if len(srv.Monitor.ClientSubscriptions(cid)) != 2 {
-		t.Fatalf("lenth of Monitor.ClientSubscriptions() error, want %d, but %d", 2, len(srv.Monitor.ClientSubscriptions(cid)))
-	}
-	srv.UnSubscribe(cid, []string{"qos2"})
-	srv.topicsMu.Lock()
-	if _, ok := srv.topics[cid]["qos2"]; ok {
-		t.Fatalf("unexpected behaviour, topic qos2 should be removed but not")
-	}
-	if _, ok := srv.topics[cid]["qos1"]; !ok {
-		t.Fatalf("unexpected behaviour, topic qos1 should not be removed but removed")
-	}
-	srv.topicsMu.Unlock()
-
-	if len(srv.Monitor.ClientSubscriptions(cid)) != 1 {
-		t.Fatalf("lenth of Monitor.ClientSubscriptions() error, want %d, but %d", 1, len(srv.Monitor.ClientSubscriptions(cid)))
-	}
-}
-func TestServer_Publish(t *testing.T) {
-	s := NewServer()
-	pub := &packets.Publish{
-		TopicName: []byte{0x31, 0x32},
-		Qos:       2,
-		PacketId:  3,
-	}
-	s.Publish(pub, "1", "2", "3")
-	msgRouter := <-s.msgRouter
-
-	if msgRouter.forceBroadcast != false {
-		t.Fatalf("msgRouter.forceBroadcast error, want false,but got true")
-	}
-	for i := 0; i < 3; i++ {
-		want := strconv.Itoa(i + 1)
-		if msgRouter.clientIds[i] != want {
-			t.Fatalf("msgRouter.clientIds[%d] error, want %s,but got %s", i, want, msgRouter.clientIds[i])
-		}
-	}
-	if msgRouter.pub != pub {
-		t.Fatalf("msgRouter.pub error, want %s, but got %s", pub, msgRouter.pub)
-	}
-
-}
-func TestServer_Broadcast(t *testing.T) {
-	s := NewServer()
-	pub := &packets.Publish{
-		TopicName: []byte{0x31, 0x32},
-		Qos:       2,
-		PacketId:  3,
-	}
-	s.Broadcast(pub, "1", "2", "3")
-	msgRouter := <-s.msgRouter
-	if msgRouter.forceBroadcast != true {
-		t.Fatalf("msgRouter.forceBroadcast error, want true,but got false")
-	}
-	for i := 0; i < 3; i++ {
-		want := strconv.Itoa(i + 1)
-		if msgRouter.clientIds[i] != want {
-			t.Fatalf("msgRouter.clientIds[%d] error, want %s,but got %s", i, want, msgRouter.clientIds[i])
-		}
-	}
-	if msgRouter.pub != pub {
-		t.Fatalf("msgRouter.pub error, want %s, but got %s", pub, msgRouter.pub)
-	}
-
-}
 
 func TestServer_registerHandlerOnError1(t *testing.T) {
 	srv := newTestServer()
@@ -229,4 +131,134 @@ func TestServer_registerHandlerOnError2(t *testing.T) {
 	if register.error == nil {
 		t.Fatalf("register.error should not be nil")
 	}
+}
+
+func TestServer_db_subscribe_unsubscribe(t *testing.T) {
+	srv := NewServer()
+	stt := []struct {
+		topicName string
+		clientId  string
+		topic     packets.Topic
+	}{
+		{topicName: "name0", clientId: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
+		{topicName: "name1", clientId: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+	}
+	utt := []struct{
+		topicName string
+		clientId string
+	}{
+		{topicName:"name0",clientId:"id0"},{topicName:"name1",clientId:"id1"},
+	}
+	ugot := []struct {
+		topicName string
+		clientId  string
+		topic     packets.Topic
+	}{
+		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+	}
+
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
+	for _, v := range stt {
+		srv.subscriptionsDB.init(v.clientId, v.topicName)
+		srv.subscribe(v.clientId, v.topic)
+	}
+	for _, v := range stt {
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		}
+		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		}
+		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+			t.Fatalf("exist() error")
+		}
+	}
+	if len(srv.subscriptionsDB.topicsByName) != 4 || len(srv.subscriptionsDB.topicsById) != 3{
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	}
+
+	for _, v := range utt {
+		srv.unsubscribe(v.clientId, v.topicName)
+	}
+
+	for _, v := range ugot {
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		}
+		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		}
+		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+			t.Fatalf("exist() error")
+		}
+	}
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2{
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	}
+}
+
+
+func TestServer_removeClientSubscriptions(t *testing.T) {
+	srv := NewServer()
+	stt := []struct {
+		topicName string
+		clientId  string
+		topic     packets.Topic
+	}{
+		{topicName: "name0", clientId: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
+		{topicName: "name1", clientId: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+	}
+
+	srv.subscriptionsDB.Lock()
+	defer srv.subscriptionsDB.Unlock()
+	for _, v := range stt {
+		srv.subscriptionsDB.init(v.clientId, v.topicName)
+		srv.subscribe(v.clientId, v.topic)
+	}
+	removedCid := "id0"
+	srv.removeClientSubscriptions(removedCid)
+	for _, v := range stt {
+		if v.clientId == removedCid {
+			if srv.subscriptionsDB.exist(v.clientId, v.topicName){
+				t.Fatalf("exist() error")
+			}
+			continue
+		}
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		}
+		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		}
+		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+			t.Fatalf("exist() error")
+		}
+	}
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2{
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	}
+
+}
+
+func BenchmarkServer_subscribe(b *testing.B) {
+	b.StopTimer()
+	s := NewServer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		id := strconv.Itoa(i)
+		s.subscribe(id, packets.Topic{
+			Qos: packets.QOS_1, Name: id,
+		})
+	}
+	for i := 0; i < b.N; i++ {
+		id := strconv.Itoa(i)
+		s.unsubscribe(id, id)
+	}
+	b.StopTimer()
 }

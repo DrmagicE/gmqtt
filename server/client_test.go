@@ -147,7 +147,7 @@ func defaultConnectPacket() *packets.Connect {
 		WillQos:       packets.QOS_1,
 		CleanSession:  true,
 		KeepAlive:     30,
-		ClientId:      []byte{77, 81, 84, 84},
+		ClientId:      []byte{77, 81, 84, 84}, //MQTT
 	}
 }
 
@@ -507,14 +507,11 @@ func TestSubScribe(t *testing.T) {
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Suback{}), reflect.TypeOf(packet))
 	}
-	var pubpid uint16
-	pubpid = 10
 	pub := &packets.Publish{
 		Dup:       false,
 		Qos:       packets.QOS_0,
 		Retain:    false,
 		TopicName: []byte("/a/b/cc"),
-		PacketId:  pubpid,
 		Payload:   []byte("payload"),
 	}
 	err = writePacket(c, pub)
@@ -542,6 +539,197 @@ func TestSubScribe(t *testing.T) {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
 	}
 
+}
+
+func TestServer_Subscribe_UnSubscribe(t *testing.T) {
+	srv, conn := connectedServer(nil)
+	defer srv.Stop(context.Background())
+	var err error
+	c := conn.(*rwTestConn)
+	tt := []packets.Topic{
+		{Qos: packets.QOS_0, Name: "t0"},
+		{Qos: packets.QOS_1, Name: "t1"},
+		{Qos: packets.QOS_2, Name: "t2"},
+	}
+
+	srv.Subscribe("MQTT", tt)
+	srv.subscriptionsDB.Lock()
+	for _, topic := range tt {
+		if srvTopic, ok := srv.subscriptionsDB.topicsByName[topic.Name]["MQTT"]; ok {
+			if topic != srvTopic {
+				srv.subscriptionsDB.Unlock()
+				t.Fatalf("Subscribe error, want %v, got %v", topic, srvTopic)
+			}
+		} else {
+			srv.subscriptionsDB.Unlock()
+			t.Fatalf("Subscription missing, want %v", topic)
+		}
+
+		if srvTopic, ok := srv.subscriptionsDB.topicsById["MQTT"][topic.Name]; ok {
+			if topic != srvTopic {
+				srv.subscriptionsDB.Unlock()
+				t.Fatalf("Subscribe error, want %v, got %v", topic, srvTopic)
+			}
+		} else {
+			srv.subscriptionsDB.Unlock()
+			t.Fatalf("Subscription missing, want %v", topic)
+		}
+
+
+	}
+	srv.subscriptionsDB.Unlock()
+
+	pub := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	err = writePacket(c, pub)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	packet, err := readPacket(c)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	if p, ok := packet.(*packets.Publish); ok {
+		if p.Dup != false {
+			t.Fatalf("Dup error, want false,got %t", p.Dup)
+		}
+		if p.Qos != packets.QOS_0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		}
+		if !bytes.Equal(p.Payload, pub.Payload) {
+			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
+		}
+		if p.Retain {
+			t.Fatalf("Retain error, want false,got %t", p.Retain)
+		}
+	} else {
+		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
+	}
+
+	srv.UnSubscribe("MQTT", []string{"t0", "t1", "t2"})
+
+	srv.subscriptionsDB.Lock()
+	for _, topic := range tt {
+		if srvTopic, ok := srv.subscriptionsDB.topicsByName[topic.Name]["MQTT"]; ok {
+			t.Fatalf("UnSubscribe error, want nil, got %v", srvTopic)
+		}
+	}
+	if len(srv.subscriptionsDB.topicsByName) != 0 {
+		t.Fatalf("len(srv.topics) error ,want 0, got %d",len(srv.subscriptionsDB.topicsByName))
+	}
+	srv.subscriptionsDB.Unlock()
+}
+
+
+func TestServer_Publish(t *testing.T) {
+	srv, conn := connectedServer(nil)
+	defer srv.Stop(context.Background())
+	var err error
+	c := conn.(*rwTestConn)
+	tt := []packets.Topic{
+		{Qos: packets.QOS_0, Name: "t0"},
+		{Qos: packets.QOS_1, Name: "t1"},
+		{Qos: packets.QOS_2, Name: "t2"},
+	}
+	srv.Subscribe("MQTT", tt)
+	pub := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.Publish(pub)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	packet, err := readPacket(c)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	if p, ok := packet.(*packets.Publish); ok {
+		if p.Dup != false {
+			t.Fatalf("Dup error, want false,got %t", p.Dup)
+		}
+		if p.Qos != packets.QOS_0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		}
+		if !bytes.Equal(p.Payload, pub.Payload) {
+			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
+		}
+		if p.Retain {
+			t.Fatalf("Retain error, want false,got %t", p.Retain)
+		}
+	} else {
+		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
+	}
+	pub = &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.Publish(pub,"MQTT1")
+	_, err = readPacketWithTimeOut(c, 1 * time.Second)
+	if err == nil {
+		t.Fatalf("delivering message to invalid client")
+	}
+}
+
+func TestServer_Broadcast(t *testing.T) {
+	srv, conn := connectedServer(nil)
+	defer srv.Stop(context.Background())
+	var err error
+	c := conn.(*rwTestConn)
+	pub := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.Broadcast(pub)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	packet, err := readPacket(c)
+	if err != nil {
+		t.Fatalf("unexpected error:%s", err)
+	}
+	if p, ok := packet.(*packets.Publish); ok {
+		if p.Dup != false {
+			t.Fatalf("Dup error, want false,got %t", p.Dup)
+		}
+		if p.Qos != packets.QOS_0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		}
+		if !bytes.Equal(p.Payload, pub.Payload) {
+			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
+		}
+		if p.Retain {
+			t.Fatalf("Retain error, want false,got %t", p.Retain)
+		}
+	} else {
+		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
+	}
+	pub = &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.Broadcast(pub,"MQTT1")
+	_, err = readPacketWithTimeOut(c, 1 * time.Second)
+	if err == nil {
+		t.Fatalf("delivering message to invalid client")
+	}
 }
 
 func TestUnsubscribe(t *testing.T) {
@@ -583,11 +771,11 @@ func TestUnsubscribe(t *testing.T) {
 
 	srv.mu.RLock()
 	srv.mu.RUnlock()
-	srv.topicsMu.RLock()
-	if _, ok := srv.topics["MQTT"]["/a/b/+"]; ok {
+	srv.subscriptionsDB.RLock()
+	if _, ok := srv.subscriptionsDB.topicsById["MQTT"]["/a/b/+"]; ok {
 		t.Fatalf("subTopics error,the topic dose not delete from map")
 	}
-	srv.topicsMu.RUnlock()
+	srv.subscriptionsDB.RUnlock()
 
 	pub := &packets.Publish{
 		Dup:       false,
@@ -633,19 +821,30 @@ func TestOnSubscribe(t *testing.T) {
 	}
 	packet, err := readPacket(c)
 	if p, ok := packet.(*packets.Suback); ok {
+
 		if p.PacketId != sub.PacketId {
 			t.Fatalf("PacketId error, want %d, got %d", sub.PacketId, p.PacketId)
 		}
 		if !bytes.Equal(p.Payload, []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
 		}
+
 		srv.mu.RLock()
-		srv.topicsMu.Lock()
-		if len(srv.topics["MQTT"]) != 1 {
-			t.Fatalf("len(srv.topics) error, want 1, got %d", len(srv.topics["MQTT"]))
+		srv.subscriptionsDB.Lock()
+		defer srv.mu.RUnlock()
+		defer srv.subscriptionsDB.Unlock()
+		if topic0, ok := srv.subscriptionsDB.topicsByName["/a/b/c"]["MQTT"]; ok {
+			want := packets.Topic{Name: "/a/b/c", Qos: packets.QOS_1}
+			if topic0 != want {
+				t.Fatalf("onSubscribe error, want %v, got %v", want, topic0)
+			}
+		} else {
+			t.Fatalf("onSubscribe error")
 		}
-		srv.mu.RUnlock()
-		srv.topicsMu.Unlock()
+
+		if topic1, ok := srv.subscriptionsDB.topicsByName["/a/b/+"]; ok {
+			t.Fatalf("onSubscribe error, want nil, got %v", topic1)
+		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Suback{}), reflect.TypeOf(packet))
 	}
@@ -1036,6 +1235,9 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 
 func TestOfflineMessageQueueing(t *testing.T) {
 	srv = NewServer()
+	defer func() {
+		srv = nil
+	}()
 	srv.SetMaxQueueMessages(5)
 
 	conn1 := defaultConnectPacket()
