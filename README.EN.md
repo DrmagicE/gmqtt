@@ -6,7 +6,7 @@ Gmqtt provides:
 *  MQTT broker benchmark tool 
 
 # Change Log 
-## 2018.12.25
+## 2018.12.15
 * Supported go modules
 * Restructured the package layout
 ## 2018.12.2
