@@ -382,7 +382,7 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 		publish := pub.CopyPublish()
 		publish.Dup = false
 		if len(msg.clientIds) != 0 {
-			for cid, _ := range msg.clientIds {
+			for cid := range msg.clientIds {
 				if _, ok := srv.clients[cid]; ok {
 					srv.clients[cid].publish(publish)
 				}
@@ -454,7 +454,7 @@ func (srv *Server) unsubscribe(clientId string, topicName string) {
 func (srv *Server) removeClientSubscriptions(clientId string) {
 	db := srv.subscriptionsDB
 	if _, ok := db.topicsById[clientId]; ok {
-		for topicName, _ := range db.topicsById[clientId] {
+		for topicName := range db.topicsById[clientId] {
 			if _, ok := db.topicsByName[topicName]; ok {
 				delete(db.topicsByName[topicName], clientId)
 				if len(db.topicsByName[topicName]) == 0 {
