@@ -10,7 +10,7 @@ install:
   - go get -t -v -d -u ./...
 
 before_install:
-  - go get -t -v -d -u github.com/DrmagicE/gmqtt/cmd
+  - go get -t -v -d -u github.com/DrmagicE/gmqtt
 
 script:
   -  go test -race ./pkg/packets
