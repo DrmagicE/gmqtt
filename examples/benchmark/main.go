@@ -28,7 +28,6 @@ func main() {
 	}
 	s.AddTCPListenner(ln)
 	s.Run()
-	s.SetMaxInflightMessages(5)
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
