@@ -67,7 +67,7 @@ func (p *Subscribe) Pack(w io.Writer) error {
 
 func (p *Subscribe) Unpack(r io.Reader) (err error) {
 	defer func() {
-		if err := recover(); err != nil {
+		if recover() != nil {
 			err = ErrInvalUTF8String
 		}
 	}()

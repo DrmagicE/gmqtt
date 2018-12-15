@@ -553,17 +553,18 @@ func NewServer() *Server {
 	}
 }
 
-
 // SetMsgRouterLen sets the length of msgRouter channel.
 func (srv *Server) SetMsgRouterLen(i int) {
 	srv.checkStatus()
 	srv.msgRouter = make(chan *msgRouter, i)
 }
+
 // SetRegisterLen sets the length of register channel.
 func (srv *Server) SetRegisterLen(i int) {
 	srv.checkStatus()
 	srv.register = make(chan *register, i)
 }
+
 // SetUnregisterLen sets the length of unregister channel.
 func (srv *Server) SetUnregisterLen(i int) {
 	srv.checkStatus()
@@ -630,10 +631,10 @@ func (srv *Server) Broadcast(publish *packets.Publish, clientIds ...string) {
 // Subscribe subscribes topics for the client specified by clientId.
 // 	Notice: This method will not trigger the onSubscribe callback
 func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
-/*	client := srv.Client(clientId)
-	if client == nil {
-		return
-	}*/
+	/*	client := srv.Client(clientId)
+		if client == nil {
+			return
+		}*/
 	srv.subscriptionsDB.Lock()
 	defer srv.subscriptionsDB.Unlock()
 	for _, v := range topics {
@@ -648,7 +649,6 @@ func (srv *Server) Subscribe(clientId string, topics []packets.Topic) {
 		}
 	}
 }
-
 
 // 为某一个客户端取消订阅某个主题
 //
@@ -676,6 +676,7 @@ func (srv *Server) AddTCPListenner(ln ...net.Listener) {
 		srv.tcpListener = append(srv.tcpListener, v)
 	}
 }
+
 // AddWebSocketServer adds websocket server to mqtt server.
 func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
 	srv.checkStatus()

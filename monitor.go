@@ -9,7 +9,7 @@ import (
 const STATUS_ONLINE = "online"
 const STATUS_OFFLINE = "offline"
 
-// MonitorRepository is an interface which can be used to provide a persistence mechanis for the monitor data
+// MonitorRepository is an interface which can be used to provide a persistence mechanics for the monitor data
 type MonitorRepository interface {
 	Open() error
 	Close() error
@@ -279,7 +279,6 @@ func (s SessionList) Less(i, j int) bool {
 	return s[i].ConnectedAt.UnixNano() <= s[j].ConnectedAt.UnixNano()
 }
 func (s SessionList) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
-
 
 func (m *MonitorStore) PutClient(info ClientInfo) {
 	m.clients[info.ClientId] = info

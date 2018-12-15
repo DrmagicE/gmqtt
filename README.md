@@ -90,6 +90,7 @@ func main() {
 
 
 # 文档说明
+[godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
 ## 钩子方法
 Gmqtt实现了下列钩子方法
 * OnAccept  (仅支持在tcp/ssl下,websocket不支持)

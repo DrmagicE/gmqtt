@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 const max_inflight_messages = 65535
 
 type session struct {
@@ -28,7 +27,7 @@ type session struct {
 }
 
 type InflightElem struct {
-	At     time.Time //进入时间
+	At     time.Time //queued at
 	Pid    packets.PacketId
 	Packet *packets.Publish
 	Step   int

@@ -64,7 +64,7 @@ func TestQos1Inflight(t *testing.T) {
 			t.Fatalf("msgQueue.Len() error, want 00, but %d", c.session.msgQueue.Len())
 		}
 	}
-	//test imcompatible pid
+	//test incompatible pid
 	for i := test_max_inflight_len * 2; i <= test_max_inflight_len*3; i++ {
 		puback := &packets.Puback{PacketId: packets.PacketId(i)}
 		c.unsetInflight(puback)

@@ -100,8 +100,8 @@ func (c *Connect) Pack(w io.Writer) error {
 	}
 	_, err = w.Write(clienIdByte)
 	if c.WillFlag {
-		willTopicByte, _, erro := EncodeUTF8String(c.WillTopic)
-		_, err = w.Write(willTopicByte)
+		willTopicByte, _, _ := EncodeUTF8String(c.WillTopic)
+		w.Write(willTopicByte)
 		willMsgByte, _, erro := EncodeUTF8String(c.WillMsg)
 		_, err = w.Write(willMsgByte)
 		if erro != nil {

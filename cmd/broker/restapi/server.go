@@ -1,8 +1,8 @@
 package restapi
 
 import (
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"

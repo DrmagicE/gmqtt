@@ -16,7 +16,7 @@ func TestHooks(t *testing.T) {
 	}
 	srv.AddTCPListenner(ln)
 	var hooks string
-	srv.RegisterOnAccept( func(conn net.Conn) bool {
+	srv.RegisterOnAccept(func(conn net.Conn) bool {
 		hooks += "Accept"
 		return true
 	})
@@ -145,11 +145,11 @@ func TestServer_db_subscribe_unsubscribe(t *testing.T) {
 		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
 		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
 	}
-	utt := []struct{
+	utt := []struct {
 		topicName string
-		clientId string
+		clientId  string
 	}{
-		{topicName:"name0",clientId:"id0"},{topicName:"name1",clientId:"id1"},
+		{topicName: "name0", clientId: "id0"}, {topicName: "name1", clientId: "id1"},
 	}
 	ugot := []struct {
 		topicName string
@@ -177,8 +177,8 @@ func TestServer_db_subscribe_unsubscribe(t *testing.T) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 4 || len(srv.subscriptionsDB.topicsById) != 3{
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	if len(srv.subscriptionsDB.topicsByName) != 4 || len(srv.subscriptionsDB.topicsById) != 3 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
 	}
 
 	for _, v := range utt {
@@ -196,11 +196,10 @@ func TestServer_db_subscribe_unsubscribe(t *testing.T) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2{
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
 	}
 }
-
 
 func TestServer_removeClientSubscriptions(t *testing.T) {
 	srv := NewServer()
@@ -225,7 +224,7 @@ func TestServer_removeClientSubscriptions(t *testing.T) {
 	srv.removeClientSubscriptions(removedCid)
 	for _, v := range stt {
 		if v.clientId == removedCid {
-			if srv.subscriptionsDB.exist(v.clientId, v.topicName){
+			if srv.subscriptionsDB.exist(v.clientId, v.topicName) {
 				t.Fatalf("exist() error")
 			}
 			continue
@@ -240,14 +239,13 @@ func TestServer_removeClientSubscriptions(t *testing.T) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2{
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById) )
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
 	}
 
 }
 
-
-func TestServer_RegisterOnAccept(t *testing.T){
+func TestServer_RegisterOnAccept(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnAccept error, want panic")
@@ -258,7 +256,7 @@ func TestServer_RegisterOnAccept(t *testing.T){
 	srv.RegisterOnAccept(nil)
 }
 
-func TestServer_RegisterOnSubscribe(t *testing.T){
+func TestServer_RegisterOnSubscribe(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnSubscribe error, want panic")
@@ -269,7 +267,7 @@ func TestServer_RegisterOnSubscribe(t *testing.T){
 	srv.RegisterOnSubscribe(nil)
 }
 
-func TestServer_RegisterOnConnect(t *testing.T){
+func TestServer_RegisterOnConnect(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnConnect error, want panic")
@@ -280,7 +278,7 @@ func TestServer_RegisterOnConnect(t *testing.T){
 	srv.RegisterOnConnect(nil)
 }
 
-func TestServer_RegisterOnPublish(t *testing.T){
+func TestServer_RegisterOnPublish(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnPublish error, want panic")
@@ -291,7 +289,7 @@ func TestServer_RegisterOnPublish(t *testing.T){
 	srv.RegisterOnPublish(nil)
 }
 
-func TestServer_RegisterOnClose(t *testing.T){
+func TestServer_RegisterOnClose(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnClose error, want panic")
@@ -302,7 +300,7 @@ func TestServer_RegisterOnClose(t *testing.T){
 	srv.RegisterOnClose(nil)
 }
 
-func TestServer_RegisterOnStop(t *testing.T){
+func TestServer_RegisterOnStop(t *testing.T) {
 	defer func() {
 		if err := recover(); err == nil {
 			t.Fatalf("RegisterOnClose error, want panic")
@@ -339,10 +337,10 @@ func TestServer_SetFn(t *testing.T) {
 	if cap(srv.msgRouter) != 100 {
 		t.Fatalf("SetMsgRouterLen() error")
 	}
-	if cap(srv.register)!= 100 {
+	if cap(srv.register) != 100 {
 		t.Fatalf("SetRegisterLen() error")
 	}
-	if cap(srv.unregister)!= 100 {
+	if cap(srv.unregister) != 100 {
 		t.Fatalf("SetUnregisterLen() error")
 	}
 	if srv.config.maxInflightMessages != 200 {
@@ -355,12 +353,11 @@ func TestServer_SetFn(t *testing.T) {
 	if srv.config.queueQos0Messages != false {
 		t.Fatalf("SetQueueQos0Messages() error")
 	}
-	if srv.config.deliveryRetryInterval != 25 * time.Second {
+	if srv.config.deliveryRetryInterval != 25*time.Second {
 		t.Fatalf("SetDeliveryRetryInterval() error")
 	}
 
 }
-
 
 func TestServer_SetFnPanic(t *testing.T) {
 	defer func() {
@@ -381,10 +378,10 @@ func TestServer_SetFnPanic(t *testing.T) {
 	if cap(srv.msgRouter) != 100 {
 		t.Fatalf("SetMsgRouterLen() error")
 	}
-	if cap(srv.register)!= 100 {
+	if cap(srv.register) != 100 {
 		t.Fatalf("SetRegisterLen() error")
 	}
-	if cap(srv.unregister)!= 100 {
+	if cap(srv.unregister) != 100 {
 		t.Fatalf("SetUnregisterLen() error")
 	}
 	if srv.config.maxInflightMessages != 200 {
@@ -397,48 +394,47 @@ func TestServer_SetFnPanic(t *testing.T) {
 	if srv.config.queueQos0Messages != false {
 		t.Fatalf("SetQueueQos0Messages() error")
 	}
-	if srv.config.deliveryRetryInterval != 25 * time.Second {
+	if srv.config.deliveryRetryInterval != 25*time.Second {
 		t.Fatalf("SetDeliveryRetryInterval() error")
 	}
 
 }
 
 func TestSubscriptionDb(t *testing.T) {
-	db :=  &subscriptionsDB{
+	db := &subscriptionsDB{
 		topicsByName: make(map[string]map[string]packets.Topic),
 		topicsById:   make(map[string]map[string]packets.Topic),
 	}
-	db.init("cid","tpname")
+	db.init("cid", "tpname")
 
 	tpname := "tpname"
 	topic := packets.Topic{
-		Qos:packets.QOS_0,
-		Name:tpname,
+		Qos:  packets.QOS_0,
+		Name: tpname,
 	}
 
-	db.add("cid",tpname, topic)
-	if tp,ok := db.topicsById["cid"][tpname]; !ok || tp != topic{
+	db.add("cid", tpname, topic)
+	if tp, ok := db.topicsById["cid"][tpname]; !ok || tp != topic {
 		t.Fatalf("db.add error, topicsById want %v, got %v", topic, tp)
 	}
 
-	if tp,ok := db.topicsByName[tpname]["cid"]; !ok || tp != topic{
+	if tp, ok := db.topicsByName[tpname]["cid"]; !ok || tp != topic {
 		t.Fatalf("db.add error,topicsByName want %v, got %v", topic, tp)
 	}
-	if !db.exist("cid",tpname) {
+	if !db.exist("cid", tpname) {
 		t.Fatalf("db.exist error, want true, got false")
 	}
 
-	db.remove("cid",tpname)
-	if db.exist("cid",tpname) {
+	db.remove("cid", tpname)
+	if db.exist("cid", tpname) {
 		t.Fatalf("db.exist error, want false, got true")
 	}
-	if _,ok := db.topicsById["cid"][tpname]; ok{
+	if _, ok := db.topicsById["cid"][tpname]; ok {
 		t.Fatalf("db.add error, want false, got true")
 	}
 
-	if _,ok := db.topicsByName[tpname]["cid"]; ok{
+	if _, ok := db.topicsByName[tpname]["cid"]; ok {
 		t.Fatalf("db.add error, want false, got true")
 	}
-
 
 }

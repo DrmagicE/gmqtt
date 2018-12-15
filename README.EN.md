@@ -90,7 +90,7 @@ func main() {
 See `/examples` for more details.
 
 # Documentation
-
+[godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
 ## Hooks
 Gmqtt implements the following hooks:
 * OnAccept  (Only for tcp/ssl, not for ws/wss)

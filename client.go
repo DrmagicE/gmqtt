@@ -28,7 +28,7 @@ const (
 const (
 	READ_BUFFER_SIZE  = 4096
 	WRITE_BUFFER_SIZE = 4096
-	REDELIVER_TIME = 20 //second
+	REDELIVER_TIME    = 20 //second
 )
 
 var (
@@ -104,7 +104,8 @@ func (c *Client) SetUserData(data interface{}) {
 	c.userData = data
 }
 
-//Get ClientOptions
+//ClientOptions returns the ClientOptions. This is mainly used in callback functions.
+//See ./example/hook
 func (c *Client) ClientOptions() ClientOptions {
 	opts := *c.opts
 	opts.WillPayload = make([]byte, len(c.opts.WillPayload))

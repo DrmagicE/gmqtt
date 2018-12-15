@@ -3,12 +3,12 @@ package run
 import (
 	"crypto/tls"
 	"github.com/DrmagicE/gmqtt"
-	"net"
-	"net/http"
-	"time"
 	"github.com/DrmagicE/gmqtt/logger"
 	"log"
+	"net"
+	"net/http"
 	"os"
+	"time"
 )
 
 func NewServer(config *Config) (*gmqtt.Server, error) {
@@ -36,7 +36,7 @@ func NewServer(config *Config) (*gmqtt.Server, error) {
 				}
 				tlsConfig := &tls.Config{}
 				tlsConfig.Certificates = []tls.Certificate{crt}
-				l, err = tls.Listen("tcp", v.Addr, tlsConfig)
+				l, _ = tls.Listen("tcp", v.Addr, tlsConfig)
 			}
 			srv.AddTCPListenner(l)
 		} else {

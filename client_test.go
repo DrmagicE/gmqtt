@@ -151,7 +151,7 @@ func defaultConnectPacket() *packets.Connect {
 	}
 }
 
-func doconnect(srv *Server, connect *packets.Connect) (net.Conn) {
+func doconnect(srv *Server, connect *packets.Connect) net.Conn {
 	ln := srv.tcpListener[0].(*testListener)
 	if connect == nil {
 		connect = defaultConnectPacket()
@@ -594,7 +594,6 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 			t.Fatalf("Subscription missing, want %v", topic)
 		}
 
-
 	}
 	srv.subscriptionsDB.Unlock()
 
@@ -639,11 +638,10 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 		}
 	}
 	if len(srv.subscriptionsDB.topicsByName) != 0 {
-		t.Fatalf("len(srv.topics) error ,want 0, got %d",len(srv.subscriptionsDB.topicsByName))
+		t.Fatalf("len(srv.topics) error ,want 0, got %d", len(srv.subscriptionsDB.topicsByName))
 	}
 	srv.subscriptionsDB.Unlock()
 }
-
 
 func TestServer_Publish(t *testing.T) {
 	srv, conn := connectedServer(nil)
@@ -694,8 +692,8 @@ func TestServer_Publish(t *testing.T) {
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
 	}
-	srv.Publish(pub,"MQTT1")
-	_, err = readPacketWithTimeOut(c, 1 * time.Second)
+	srv.Publish(pub, "MQTT1")
+	_, err = readPacketWithTimeOut(c, 1*time.Second)
 	if err == nil {
 		t.Fatalf("delivering message to invalid client")
 	}
@@ -744,8 +742,8 @@ func TestServer_Broadcast(t *testing.T) {
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
 	}
-	srv.Broadcast(pub,"MQTT1")
-	_, err = readPacketWithTimeOut(c, 1 * time.Second)
+	srv.Broadcast(pub, "MQTT1")
+	_, err = readPacketWithTimeOut(c, 1*time.Second)
 	if err == nil {
 		t.Fatalf("delivering message to invalid client")
 	}
@@ -826,7 +824,7 @@ func TestOnSubscribe(t *testing.T) {
 		}
 		return topic.Qos
 	})
-	conn := doconnect(srv,nil)
+	conn := doconnect(srv, nil)
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
 
@@ -841,7 +839,7 @@ func TestOnSubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
-	packet, err := readPacket(c)
+	packet, _ := readPacket(c)
 	if p, ok := packet.(*packets.Suback); ok {
 
 		if p.PacketId != sub.PacketId {
@@ -958,8 +956,8 @@ func TestRetainMsg(t *testing.T) {
 		PacketId:  10,
 		Payload:   payload,
 	}
-	err = writePacket(c, pub0)
-	packet, err := readPacket(c) //publish
+	writePacket(c, pub0)
+	packet, _ := readPacket(c) //publish
 	if p, ok := packet.(*packets.Publish); ok {
 		if !bytes.Equal(p.TopicName, topicName) {
 			t.Fatalf("TopicName error, want %v, got %v", topicName, p.TopicName)
@@ -1151,7 +1149,7 @@ func TestQos2Redelivery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error:%s", err)
 		}
-		p, err = readPacket(sender) //pubcomp
+		p, _ = readPacket(sender) //pubcomp
 
 		if _, ok := p.(*packets.Pubcomp); !ok {
 			t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubcomp{}), reflect.TypeOf(p))
@@ -1160,7 +1158,7 @@ func TestQos2Redelivery(t *testing.T) {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubrec{}), reflect.TypeOf(pubrec))
 	}
 
-	p, err = readPacket(reciver) //pubrel
+	p, _ = readPacket(reciver) //pubrel
 
 	if _, ok := p.(*packets.Pubrel); !ok {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubrel{}), reflect.TypeOf(p))
@@ -1234,8 +1232,8 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
-	readPacket(reConn)           //connack
-	p, err := readPacket(reConn) //redelivery publish
+	readPacket(reConn)         //connack
+	p, _ := readPacket(reConn) //redelivery publish
 	if pub, ok := p.(*packets.Publish); ok {
 		if !bytes.Equal([]byte("test"), pub.TopicName) {
 			t.Fatalf("TopicName error, want %v, got %v", []byte("test"), pub.TopicName)
