@@ -2,28 +2,25 @@ package run
 
 import (
 	"crypto/tls"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"net"
 	"net/http"
 	"time"
-	/*	"github.com/DrmagicE/gmqtt/logger"
-		"os"
-		"log"*/
 	"github.com/DrmagicE/gmqtt/logger"
 	"log"
 	"os"
 )
 
-func NewServer(config *Config) (*server.Server, error) {
+func NewServer(config *Config) (*gmqtt.Server, error) {
 	startProfile(config.ProfileConfig.CPUProfile, config.ProfileConfig.MemProfile)
-	srv := server.NewServer()
+	srv := gmqtt.NewServer()
 	srv.SetDeliveryRetryInterval(time.Second * time.Duration(config.DeliveryRetryInterval))
 	srv.SetMaxInflightMessages(config.MaxInflightMessages)
 	srv.SetQueueQos0Messages(config.QueueQos0Messages)
 	srv.SetMaxQueueMessages(config.MaxMsgQueueMessages)
 	srv.SetMaxQueueMessages(0) //unlimited
 	var l net.Listener
-	var ws *server.WsServer
+	var ws *gmqtt.WsServer
 	var err error
 	for _, v := range config.Listener {
 		if v.Protocol == ProtocolMQTT {
@@ -44,11 +41,11 @@ func NewServer(config *Config) (*server.Server, error) {
 			srv.AddTCPListenner(l)
 		} else {
 			if v.KeyFile == "" {
-				ws = &server.WsServer{
+				ws = &gmqtt.WsServer{
 					Server: &http.Server{Addr: v.Addr},
 				}
 			} else {
-				ws = &server.WsServer{
+				ws = &gmqtt.WsServer{
 					Server:   &http.Server{Addr: v.Addr},
 					CertFile: v.CertFile,
 					KeyFile:  v.KeyFile,
@@ -58,7 +55,7 @@ func NewServer(config *Config) (*server.Server, error) {
 		}
 	}
 	if config.Logging {
-		server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
+		gmqtt.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	}
 
 	return srv, nil

@@ -2,7 +2,7 @@ package restapi
 
 import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -10,7 +10,7 @@ import (
 
 type RestServer struct {
 	Addr string
-	Srv  *server.Server
+	Srv  *gmqtt.Server
 	User gin.Accounts //BasicAuth user info,username => password
 }
 
@@ -30,7 +30,7 @@ func (rest *RestServer) Run() {
 		list := rest.Srv.Monitor.Clients()
 		provider.Pager = pager
 		provider.SetModels(list)
-		b := make(server.ClientList, 0)
+		b := make(gmqtt.ClientList, 0)
 		provider.Models(&b)
 		obj := PageAbleObj{
 			Models:       b,
@@ -58,7 +58,7 @@ func (rest *RestServer) Run() {
 		list := rest.Srv.Monitor.Sessions()
 		provider.Pager = pager
 		provider.SetModels(list)
-		b := make(server.SessionList, 0)
+		b := make(gmqtt.SessionList, 0)
 		provider.Models(&b)
 		obj := PageAbleObj{
 			Models:       b,
@@ -84,7 +84,7 @@ func (rest *RestServer) Run() {
 		list := rest.Srv.Monitor.ClientSubscriptions(c.Param("id"))
 		provider.Pager = pager
 		provider.SetModels(list)
-		b := make(server.SubscriptionList, 0)
+		b := make(gmqtt.SubscriptionList, 0)
 		provider.Models(&b)
 		obj := PageAbleObj{
 			Models:       b,
@@ -102,7 +102,7 @@ func (rest *RestServer) Run() {
 		list := rest.Srv.Monitor.Subscriptions()
 		provider.Pager = pager
 		provider.SetModels(list)
-		b := make(server.SubscriptionList, 0)
+		b := make(gmqtt.SubscriptionList, 0)
 		provider.Models(&b)
 		obj := PageAbleObj{
 			Models:       b,
@@ -145,7 +145,6 @@ func (rest *RestServer) Run() {
 			Result: make([]interface{}, 0),
 		})
 	})
-
 	basicAuth.POST("/unsubscribe", func(c *gin.Context) {
 		topic := c.PostForm("topic")
 		cid := c.PostForm("clientId")

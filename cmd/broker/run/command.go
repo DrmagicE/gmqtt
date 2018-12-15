@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/DrmagicE/gmqtt/cmd/broker/restapi"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"log"
 	"os"
 	"runtime"
@@ -13,7 +13,7 @@ import (
 )
 
 type Command struct {
-	Server *server.Server
+	Server *gmqtt.Server
 }
 
 type Options struct {

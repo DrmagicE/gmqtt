@@ -3,13 +3,14 @@ language: go
 go:
   - "1.9.x"
   - "1.10.x"
+  - "1.11.x"
   #- master
 
 install:
-  - go get -t -v -d ./...
+  - go get -t -v -d -u ./...
 
 before_install:
-  - go get -t -v -d github.com/DrmagicE/gmqtt/cmd/broker
+  - go get -t -v -d -u github.com/DrmagicE/gmqtt/cmd
 
 script:
   -  go test -race ./pkg/packets

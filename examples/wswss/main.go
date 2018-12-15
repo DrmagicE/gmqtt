@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
 	"net/http"
@@ -13,17 +13,17 @@ import (
 )
 
 func main() {
-	s := server.NewServer()
+	s := gmqtt.NewServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
 	}
 	s.AddTCPListenner(ln)
-	ws := &server.WsServer{
+	ws := &gmqtt.WsServer{
 		Server: &http.Server{Addr: ":8080"},
 	}
-	wss := &server.WsServer{
+	wss := &gmqtt.WsServer{
 		Server:   &http.Server{Addr: ":8081"},
 		CertFile: "../testcerts/server.crt",
 		KeyFile:  "../testcerts/server.key",

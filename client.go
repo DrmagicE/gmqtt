@@ -1,4 +1,5 @@
-package server
+// Package gmqtt provides an MQTT v3.1.1 server library.
+package gmqtt
 
 import (
 	"bufio"
@@ -15,7 +16,6 @@ import (
 
 var (
 	ErrInvalStatus    = errors.New("invalid connection status")
-	ErrWriteBufFull   = errors.New("write chan is full")
 	ErrConnectTimeOut = errors.New("connect time out")
 )
 
@@ -25,10 +25,11 @@ const (
 	SWITCHING
 	DISCONNECTED
 )
-const READ_BUFFER_SIZE = 4096
-const WRITE_BUFFER_SIZE = 4096
-
-const REDELIVER_TIME = 20 //second
+const (
+	READ_BUFFER_SIZE  = 4096
+	WRITE_BUFFER_SIZE = 4096
+	REDELIVER_TIME = 20 //second
+)
 
 var (
 	bufioReaderPool sync.Pool
@@ -64,17 +65,16 @@ func putBufioWriter(bw *bufio.Writer) {
 }
 
 type Client struct {
-	server       *Server
-	wg           sync.WaitGroup
-	rwc          net.Conn //raw tcp connection
-	bufr         *bufio.Reader
-	bufw         *bufio.Writer
-	packetReader *packets.Reader
-	packetWriter *packets.Writer
-	in           chan packets.Packet
-	out          chan packets.Packet
-	writeMutex   sync.Mutex
-
+	server        *Server
+	wg            sync.WaitGroup
+	rwc           net.Conn //raw tcp connection
+	bufr          *bufio.Reader
+	bufw          *bufio.Writer
+	packetReader  *packets.Reader
+	packetWriter  *packets.Writer
+	in            chan packets.Packet
+	out           chan packets.Packet
+	writeMutex    sync.Mutex
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
@@ -87,22 +87,24 @@ type Client struct {
 	userMutex sync.Mutex
 	userData  interface{}
 
-	ready chan struct{} //session prepared
+	ready chan struct{} //close after session prepared
 }
 
+//Get UserData
 func (c *Client) UserData() interface{} {
 	c.userMutex.Lock()
 	defer c.userMutex.Unlock()
 	return c.userData
 }
 
+//Set UserData
 func (c *Client) SetUserData(data interface{}) {
 	c.userMutex.Lock()
 	defer c.userMutex.Unlock()
 	c.userData = data
 }
 
-//readOnly
+//Get ClientOptions
 func (c *Client) ClientOptions() ClientOptions {
 	opts := *c.opts
 	opts.WillPayload = make([]byte, len(c.opts.WillPayload))
@@ -125,10 +127,13 @@ func (c *Client) setConnected() {
 func (c *Client) setDisConnected() {
 	atomic.StoreInt32(&c.status, DISCONNECTED)
 }
+
+//Status returns client's status
 func (c *Client) Status() int32 {
 	return atomic.LoadInt32(&c.status)
 }
 
+//ClientOptions
 type ClientOptions struct {
 	ClientId     string
 	Username     string
@@ -227,8 +232,11 @@ func (client *Client) errorWatch() {
 	}
 }
 
-//关闭连接，连接关闭完毕会close(client.closeComplete)
-//close client, close(client.closeComplete) when close completely
+/*
+ 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
+
+ Close closes the client connection. The returned channel will be closed after unregister process has been done
+*/
 func (client *Client) Close() <-chan struct{} {
 	client.setError(nil)
 	return client.closeComplete
@@ -313,8 +321,8 @@ func (client *Client) internalClose() {
 	}
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
-	if client.server.OnClose != nil {
-		client.server.OnClose(client, client.err)
+	if client.server.onClose != nil {
+		client.server.onClose(client, client.err)
 	}
 }
 
@@ -350,12 +358,12 @@ func (client *Client) write(packets packets.Packet) {
 
 }
 
-//subscribe handler
+//Subscribe handler
 func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 	srv := client.server
-	if srv.OnSubscribe != nil {
+	if srv.onSubscribe != nil {
 		for k, v := range sub.Topics {
-			sub.Topics[k].Qos = client.server.OnSubscribe(client, v)
+			sub.Topics[k].Qos = client.server.onSubscribe(client, v)
 		}
 	}
 	suback := sub.NewSubBack()
@@ -373,7 +381,7 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 				isNew = true
 			}
 			if client.server.Monitor != nil {
-				client.server.Monitor.Subscribe(SubscriptionsInfo{
+				client.server.Monitor.subscribe(SubscriptionsInfo{
 					ClientId: client.opts.ClientId,
 					Qos:      suback.Payload[k],
 					Name:     v.Name,
@@ -394,7 +402,7 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 
 }
 
-//publish handler
+//Publish handler
 func (client *Client) publishHandler(pub *packets.Publish) {
 	s := client.session
 	srv := client.server
@@ -424,8 +432,8 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 	if !dup {
 		var valid bool
 		valid = true
-		if srv.OnPublish != nil {
-			valid = client.server.OnPublish(client, pub)
+		if srv.onPublish != nil {
+			valid = client.server.onPublish(client, pub)
 		}
 		if valid {
 			pub.Retain = false
@@ -468,13 +476,12 @@ func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	for _, topicName := range unSub.Topics {
 		srv.unsubscribe(client.opts.ClientId, topicName)
 		if client.server.Monitor != nil {
-			client.server.Monitor.UnSubscribe(client.opts.ClientId, topicName)
+			client.server.Monitor.unSubscribe(client.opts.ClientId, topicName)
 		}
 	}
 }
 
-//处理读到的包
-//goroutine 退出条件，1.session逻辑错误,2链接关闭
+//读处理
 func (client *Client) readHandle() {
 	var err error
 	defer func() {
@@ -518,7 +525,7 @@ func (client *Client) readHandle() {
 	}
 }
 
-//session重发,退出条件，client连接关闭
+//重传处理
 func (client *Client) redeliver() {
 	var err error
 	s := client.session

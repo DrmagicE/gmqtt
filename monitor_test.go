@@ -1,4 +1,4 @@
-package server
+package gmqtt
 
 import (
 	"net"
@@ -39,7 +39,7 @@ func TestMonitor_Register(t *testing.T) {
 		KeepAlive:    60,
 		CleanSession: false,
 	}
-	m.Register(testMonitorClient(opts), false)
+	m.register(testMonitorClient(opts), false)
 	cinfo, ok := m.GetClient(opts.ClientId)
 	if !ok {
 		t.Fatalf("GetClient error, want true, got false")
@@ -81,8 +81,8 @@ func TestMonitor_UnRegister(t *testing.T) {
 		KeepAlive:    60,
 		CleanSession: false,
 	}
-	m.Register(testMonitorClient(opts), false)
-	m.UnRegister(opts.ClientId, true)
+	m.register(testMonitorClient(opts), false)
+	m.unRegister(opts.ClientId, true)
 	_, ok1 := m.Repository.GetClient(opts.ClientId)
 	if ok1 {
 		t.Fatalf("GetClient() error, want false, got true")
@@ -103,7 +103,7 @@ func TestMonitor_UnRegister_SessionStore(t *testing.T) {
 		CleanSession: false,
 	}
 	client := testMonitorClient(opts)
-	m.Register(testMonitorClient(opts), false)
+	m.register(testMonitorClient(opts), false)
 	sub1 := SubscriptionsInfo{
 		opts.ClientId,
 		2,
@@ -116,9 +116,9 @@ func TestMonitor_UnRegister_SessionStore(t *testing.T) {
 		"qos1",
 		time.Now().Add(1 * time.Second),
 	}
-	m.Subscribe(sub1)
-	m.Subscribe(sub2)
-	m.UnRegister(opts.ClientId, false)
+	m.subscribe(sub1)
+	m.subscribe(sub2)
+	m.unRegister(opts.ClientId, false)
 
 	_, ok1 := m.Repository.GetClient(opts.ClientId)
 	if ok1 {
@@ -181,7 +181,7 @@ func TestMonitor_Register_SessionReuse(t *testing.T) {
 		CleanSession: false,
 	}
 	client := testMonitorClient(opts)
-	m.Register(client, false)
+	m.register(client, false)
 	sub1 := SubscriptionsInfo{
 		opts.ClientId,
 		2,
@@ -194,17 +194,17 @@ func TestMonitor_Register_SessionReuse(t *testing.T) {
 		"qos1",
 		time.Now().Add(1 * time.Second),
 	}
-	m.Subscribe(sub1)
-	m.Subscribe(sub2)
+	m.subscribe(sub1)
+	m.subscribe(sub2)
 
 	s, _ := m.GetSession(opts.ClientId)
 	if s.Subscriptions != 2 {
 		t.Fatalf("Subscriptions error, want 2, got %d", s.Subscriptions)
 	}
 
-	m.UnRegister(opts.ClientId, false)
+	m.unRegister(opts.ClientId, false)
 
-	m.Register(client, true)
+	m.register(client, true)
 	_, ok1 := m.Repository.GetClient(opts.ClientId)
 	if !ok1 {
 		t.Fatalf("GetClient() error, want true, got false")
@@ -265,13 +265,13 @@ func TestMonitor_MsgEnQueue_MsgDeQueue(t *testing.T) {
 		CleanSession: false,
 	}
 	client := testMonitorClient(opts)
-	m.Register(client, false)
-	m.MsgEnQueue(opts.ClientId)
+	m.register(client, false)
+	m.msgEnQueue(opts.ClientId)
 	s, _ := m.GetSession(opts.ClientId)
 	if s.MsgQueueLen != 1 {
 		t.Fatalf("MsgQueueLen error, want 1, got %d", s.MsgQueueLen)
 	}
-	m.MsgDeQueue(opts.ClientId)
+	m.msgDeQueue(opts.ClientId)
 	s, _ = m.GetSession(opts.ClientId)
 	if s.MsgQueueLen != 0 {
 		t.Fatalf("MsgQueueLen error, want 0, got %d", s.MsgQueueLen)
@@ -288,13 +288,13 @@ func TestMonitor_AddInflight_DelInflight(t *testing.T) {
 		CleanSession: false,
 	}
 	client := testMonitorClient(opts)
-	m.Register(client, false)
-	m.AddInflight(opts.ClientId)
+	m.register(client, false)
+	m.addInflight(opts.ClientId)
 	s, _ := m.GetSession(opts.ClientId)
 	if s.InflightLen != 1 {
 		t.Fatalf("InflightLen error, want 1, got %d", s.InflightLen)
 	}
-	m.DelInflight(opts.ClientId)
+	m.delInflight(opts.ClientId)
 	s, _ = m.GetSession(opts.ClientId)
 	if s.InflightLen != 0 {
 		t.Fatalf("InflightLen error, want 0, got %d", s.InflightLen)
@@ -311,7 +311,7 @@ func TestMonitor_Subscribe_UnSubscribe(t *testing.T) {
 		CleanSession: false,
 	}
 	client := testMonitorClient(opts)
-	m.Register(client, false)
+	m.register(client, false)
 	sub1 := SubscriptionsInfo{
 		opts.ClientId,
 		2,
@@ -324,8 +324,8 @@ func TestMonitor_Subscribe_UnSubscribe(t *testing.T) {
 		"qos1",
 		time.Now().Add(1 * time.Second),
 	}
-	m.Subscribe(sub1)
-	m.Subscribe(sub2)
+	m.subscribe(sub1)
+	m.subscribe(sub2)
 
 	sublist := m.Subscriptions()
 	if len(sublist) == 0 {
@@ -344,14 +344,13 @@ func TestMonitor_Subscribe_UnSubscribe(t *testing.T) {
 		}
 	}
 
-	m.UnSubscribe(opts.ClientId, sub1.Name)
-	m.UnSubscribe(opts.ClientId, sub2.Name)
+	m.unSubscribe(opts.ClientId, sub1.Name)
+	m.unSubscribe(opts.ClientId, sub2.Name)
 
 	sublist = m.Subscriptions()
 	if len(sublist) != 0 {
 		t.Fatalf("Subscriptions() error, want 0, got %d", len(sublist))
 	}
-
 	clientSubList = m.ClientSubscriptions(opts.ClientId)
 	if len(clientSubList) != 0 {
 		t.Fatalf("ClientSubscriptions() error, want 0, got %d", len(clientSubList))

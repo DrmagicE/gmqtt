@@ -1,4 +1,4 @@
-package server
+package gmqtt
 
 import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"

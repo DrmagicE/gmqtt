@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
 	"os"
@@ -35,7 +35,7 @@ func validateUser(username string, password string) bool {
 }
 
 func main() {
-	s := server.NewServer()
+	s := gmqtt.NewServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -43,7 +43,7 @@ func main() {
 	}
 
 	//authentication
-	s.OnConnect = func(client *server.Client) (code uint8) {
+	s.RegisterOnConnect(func(client *gmqtt.Client) (code uint8) {
 		username := client.ClientOptions().Username
 		password := client.ClientOptions().Password
 		if validateUser(username, password) {
@@ -51,10 +51,10 @@ func main() {
 		} else {
 			return packets.CODE_BAD_USERNAME_OR_PSW
 		}
-	}
+	})
 
 	//acl
-	s.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
+	s.RegisterOnSubscribe(func(client *gmqtt.Client, topic packets.Topic) uint8 {
 		if client.ClientOptions().Username == "root" {
 			return topic.Qos
 		}
@@ -74,9 +74,9 @@ func main() {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	}
+	})
 
-	s.OnPublish = func(client *server.Client, publish *packets.Publish) bool {
+	s.RegisterOnPublish(func(client *gmqtt.Client, publish *packets.Publish) bool {
 		if client.ClientOptions().Username == "subscribeonly" {
 			client.Close()
 			return false
@@ -86,15 +86,15 @@ func main() {
 			return false
 		}
 		return true
-	}
+	})
 
-	s.OnClose = func(client *server.Client, err error) {
+	s.RegisterOnClose(func(client *gmqtt.Client, err error) {
 		log.Println("client id:"+client.ClientOptions().ClientId+"is closed", err)
-	}
+	})
 
-	s.OnStop = func() {
+	s.RegisterOnStop(func() {
 		log.Println("server stopped...")
-	}
+	})
 
 	s.AddTCPListenner(ln)
 	s.Run()

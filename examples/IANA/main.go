@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
 	"net/http"
@@ -19,7 +19,7 @@ func main() {
 	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()
-	s := server.NewServer()
+	s := gmqtt.NewServer()
 	s.SetMaxInflightMessages(20)
 	s.SetMaxQueueMessages(99999)
 
@@ -44,12 +44,12 @@ func main() {
 	s.AddTCPListenner(ln)
 	s.AddTCPListenner(tlsln)
 
-	s.OnSubscribe = func(client *server.Client, topic packets.Topic) uint8 {
+	s.RegisterOnSubscribe(func(client *gmqtt.Client, topic packets.Topic) uint8 {
 		if topic.Name == "test/nosubscribe" {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	}
+	})
 
 	//server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	s.Run()

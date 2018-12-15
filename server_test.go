@@ -1,11 +1,11 @@
-package server
+package gmqtt
 
 import (
 	"context"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"net"
-	"strconv"
 	"testing"
+	"time"
 )
 
 func TestHooks(t *testing.T) {
@@ -16,31 +16,31 @@ func TestHooks(t *testing.T) {
 	}
 	srv.AddTCPListenner(ln)
 	var hooks string
-	srv.OnAccept = func(conn net.Conn) bool {
+	srv.RegisterOnAccept( func(conn net.Conn) bool {
 		hooks += "Accept"
 		return true
-	}
-	srv.OnConnect = func(client *Client) (code uint8) {
+	})
+	srv.RegisterOnConnect(func(client *Client) (code uint8) {
 		hooks += "OnConnect"
 		return packets.CODE_ACCEPTED
-	}
-	srv.OnSubscribe = func(client *Client, topic packets.Topic) uint8 {
+	})
+
+	srv.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
 		hooks += "OnSubscribe"
 		return packets.QOS_1
-	}
+	})
 
-	srv.OnPublish = func(client *Client, publish *packets.Publish) bool {
+	srv.RegisterOnPublish(func(client *Client, publish *packets.Publish) bool {
 		hooks += "OnPublish"
 		return true
-	}
+	})
 
-	srv.OnClose = func(client *Client, err error) {
+	srv.RegisterOnClose(func(client *Client, err error) {
 		hooks += "OnClose"
-
-	}
-	srv.OnStop = func() {
+	})
+	srv.RegisterOnStop(func() {
 		hooks += "OnStop"
-	}
+	})
 
 	srv.Run()
 
@@ -108,9 +108,9 @@ func TestServer_registerHandlerOnError1(t *testing.T) {
 func TestServer_registerHandlerOnError2(t *testing.T) {
 	srv := newTestServer()
 	errCode := uint8(packets.CODE_BAD_USERNAME_OR_PSW)
-	srv.OnConnect = func(client *Client) (code uint8) {
+	srv.RegisterOnConnect(func(client *Client) (code uint8) {
 		return errCode
-	}
+	})
 	c := srv.newClient(nil)
 	conn := defaultConnectPacket()
 	register := &register{
@@ -246,19 +246,199 @@ func TestServer_removeClientSubscriptions(t *testing.T) {
 
 }
 
-func BenchmarkServer_subscribe(b *testing.B) {
-	b.StopTimer()
-	s := NewServer()
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		id := strconv.Itoa(i)
-		s.subscribe(id, packets.Topic{
-			Qos: packets.QOS_1, Name: id,
-		})
+
+func TestServer_RegisterOnAccept(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnAccept error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnAccept(nil)
+}
+
+func TestServer_RegisterOnSubscribe(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnSubscribe error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnSubscribe(nil)
+}
+
+func TestServer_RegisterOnConnect(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnConnect error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnConnect(nil)
+}
+
+func TestServer_RegisterOnPublish(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnPublish error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnPublish(nil)
+}
+
+func TestServer_RegisterOnClose(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnClose error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnClose(nil)
+}
+
+func TestServer_RegisterOnStop(t *testing.T){
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("RegisterOnClose error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.RegisterOnStop(nil)
+}
+
+func TestServer_SetMaxInflightMessages(t *testing.T) {
+	srv := newTestServer()
+	srv.SetMaxInflightMessages(65536)
+	if srv.config.maxInflightMessages != max_inflight_messages {
+		t.Fatalf("SetMaxInflightMessages() error, want %d, got %d", max_inflight_messages, srv.config.maxInflightMessages)
 	}
-	for i := 0; i < b.N; i++ {
-		id := strconv.Itoa(i)
-		s.unsubscribe(id, id)
+	srv.SetMaxInflightMessages(20)
+	if srv.config.maxInflightMessages != 20 {
+		t.Fatalf("SetMaxInflightMessages() error, want %d, got %d", 20, srv.config.maxInflightMessages)
 	}
-	b.StopTimer()
+}
+
+func TestServer_SetFn(t *testing.T) {
+
+	srv := newTestServer()
+	srv.SetMsgRouterLen(100)
+	srv.SetMaxInflightMessages(200)
+	srv.SetRegisterLen(100)
+	srv.SetUnregisterLen(100)
+	srv.SetMaxQueueMessages(20)
+	srv.SetQueueQos0Messages(false)
+	srv.SetDeliveryRetryInterval(25 * time.Second)
+
+	if cap(srv.msgRouter) != 100 {
+		t.Fatalf("SetMsgRouterLen() error")
+	}
+	if cap(srv.register)!= 100 {
+		t.Fatalf("SetRegisterLen() error")
+	}
+	if cap(srv.unregister)!= 100 {
+		t.Fatalf("SetUnregisterLen() error")
+	}
+	if srv.config.maxInflightMessages != 200 {
+		t.Fatalf("SetMaxInflightMessages() error")
+	}
+
+	if srv.config.maxQueueMessages != 20 {
+		t.Fatalf("SetMaxQueueMessages() error")
+	}
+	if srv.config.queueQos0Messages != false {
+		t.Fatalf("SetQueueQos0Messages() error")
+	}
+	if srv.config.deliveryRetryInterval != 25 * time.Second {
+		t.Fatalf("SetDeliveryRetryInterval() error")
+	}
+
+}
+
+
+func TestServer_SetFnPanic(t *testing.T) {
+	defer func() {
+		if err := recover(); err == nil {
+			t.Fatalf("set fn error, want panic")
+		}
+	}()
+	srv := newTestServer()
+	srv.Run()
+	srv.SetMsgRouterLen(100)
+	srv.SetMaxInflightMessages(200)
+	srv.SetRegisterLen(100)
+	srv.SetUnregisterLen(100)
+	srv.SetMaxQueueMessages(20)
+	srv.SetQueueQos0Messages(false)
+	srv.SetDeliveryRetryInterval(25 * time.Second)
+
+	if cap(srv.msgRouter) != 100 {
+		t.Fatalf("SetMsgRouterLen() error")
+	}
+	if cap(srv.register)!= 100 {
+		t.Fatalf("SetRegisterLen() error")
+	}
+	if cap(srv.unregister)!= 100 {
+		t.Fatalf("SetUnregisterLen() error")
+	}
+	if srv.config.maxInflightMessages != 200 {
+		t.Fatalf("SetMaxInflightMessages() error")
+	}
+
+	if srv.config.maxQueueMessages != 20 {
+		t.Fatalf("SetMaxQueueMessages() error")
+	}
+	if srv.config.queueQos0Messages != false {
+		t.Fatalf("SetQueueQos0Messages() error")
+	}
+	if srv.config.deliveryRetryInterval != 25 * time.Second {
+		t.Fatalf("SetDeliveryRetryInterval() error")
+	}
+
+}
+
+func TestSubscriptionDb(t *testing.T) {
+	db :=  &subscriptionsDB{
+		topicsByName: make(map[string]map[string]packets.Topic),
+		topicsById:   make(map[string]map[string]packets.Topic),
+	}
+	db.init("cid","tpname")
+
+	tpname := "tpname"
+	topic := packets.Topic{
+		Qos:packets.QOS_0,
+		Name:tpname,
+	}
+
+	db.add("cid",tpname, topic)
+	if tp,ok := db.topicsById["cid"][tpname]; !ok || tp != topic{
+		t.Fatalf("db.add error, topicsById want %v, got %v", topic, tp)
+	}
+
+	if tp,ok := db.topicsByName[tpname]["cid"]; !ok || tp != topic{
+		t.Fatalf("db.add error,topicsByName want %v, got %v", topic, tp)
+	}
+	if !db.exist("cid",tpname) {
+		t.Fatalf("db.exist error, want true, got false")
+	}
+
+	db.remove("cid",tpname)
+	if db.exist("cid",tpname) {
+		t.Fatalf("db.exist error, want false, got true")
+	}
+	if _,ok := db.topicsById["cid"][tpname]; ok{
+		t.Fatalf("db.add error, want false, got true")
+	}
+
+	if _,ok := db.topicsByName[tpname]["cid"]; ok{
+		t.Fatalf("db.add error, want false, got true")
+	}
+
+
 }

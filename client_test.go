@@ -1,4 +1,4 @@
-package server
+package gmqtt
 
 import (
 	"bytes"
@@ -149,6 +149,25 @@ func defaultConnectPacket() *packets.Connect {
 		KeepAlive:     30,
 		ClientId:      []byte{77, 81, 84, 84}, //MQTT
 	}
+}
+
+func doconnect(srv *Server, connect *packets.Connect) (net.Conn) {
+	ln := srv.tcpListener[0].(*testListener)
+	if connect == nil {
+		connect = defaultConnectPacket()
+	}
+	closec := make(chan struct{})
+	conn := &rwTestConn{
+		closec:    closec,
+		readChan:  make(chan []byte, 1024),
+		writeChan: make(chan []byte, 1024),
+	}
+	ln.conn.PushBack(conn)
+	srv.Run()
+	ln.acceptReady <- struct{}{}
+	writePacket(conn, connect)
+	readPacket(conn)
+	return conn
 }
 
 func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
@@ -796,10 +815,9 @@ func TestUnsubscribe(t *testing.T) {
 }
 
 func TestOnSubscribe(t *testing.T) {
-	srv, conn := connectedServer(nil)
-	defer srv.Stop(context.Background())
-	c := conn.(*rwTestConn)
-	srv.OnSubscribe = func(client *Client, topic packets.Topic) uint8 {
+
+	srv := newTestServer()
+	srv.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
 		if topic.Qos == packets.QOS_0 {
 			return packets.QOS_1
 		}
@@ -807,7 +825,11 @@ func TestOnSubscribe(t *testing.T) {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	}
+	})
+	conn := doconnect(srv,nil)
+	defer srv.Stop(context.Background())
+	c := conn.(*rwTestConn)
+
 	sub := &packets.Subscribe{
 		PacketId: 10,
 		Topics: []packets.Topic{

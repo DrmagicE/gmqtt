@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/server"
+	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
 	//_ "net/http/pprof"
@@ -16,7 +16,7 @@ func main() {
 /*	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()*/
-	s := server.NewServer()
+	s := gmqtt.NewServer()
 	s.SetMaxInflightMessages(65535)
 	s.SetRegisterLen(10000)
 	s.SetUnregisterLen(10000)
@@ -28,6 +28,7 @@ func main() {
 	}
 	s.AddTCPListenner(ln)
 	s.Run()
+	s.SetMaxInflightMessages(5)
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)

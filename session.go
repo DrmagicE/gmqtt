@@ -1,4 +1,4 @@
-package server
+package gmqtt
 
 import (
 	"container/list"
@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 )
+
+
+const max_inflight_messages = 65535
 
 type session struct {
 	inflightMu sync.Mutex //gard inflight
@@ -19,7 +22,6 @@ type session struct {
 	pidMu        sync.RWMutex              //gard lockedPid & freeId
 	lockedPid    map[packets.PacketId]bool //Pid inuse
 	freePid      packets.PacketId          //下一个可以使用的freeId
-
 	//config
 	maxInflightMessages int
 	maxQueueMessages    int
@@ -48,7 +50,7 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 	defer s.msgQueueMu.Unlock()
 	if s.msgQueue.Len() >= s.maxQueueMessages && s.maxQueueMessages != 0 {
 		if client.server.Monitor != nil {
-			client.server.Monitor.MsgQueueDropped(client.opts.ClientId)
+			client.server.Monitor.msgQueueDropped(client.opts.ClientId)
 		}
 		if log != nil {
 			log.Printf("%-15s[%s]", "msg queue is overflow, removing msg. ", client.ClientOptions().ClientId)
@@ -78,7 +80,7 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 			}
 		}
 	} else if client.server.Monitor != nil {
-		client.server.Monitor.MsgEnQueue(client.opts.ClientId)
+		client.server.Monitor.msgEnQueue(client.opts.ClientId)
 	}
 	s.msgQueue.PushBack(publish)
 
@@ -96,7 +98,7 @@ func (client *Client) msgDequeue() *packets.Publish {
 		}
 		s.msgQueue.Remove(queueElem)
 		if client.server.Monitor != nil {
-			client.server.Monitor.MsgDeQueue(client.opts.ClientId)
+			client.server.Monitor.msgDeQueue(client.opts.ClientId)
 		}
 		return queueElem.Value.(*packets.Publish)
 	}
@@ -111,7 +113,7 @@ func (client *Client) setInflight(publish *packets.Publish) (enqueue bool) {
 	defer s.inflightMu.Unlock()
 	defer func() {
 		if enqueue && client.server.Monitor != nil {
-			client.server.Monitor.AddInflight(client.opts.ClientId)
+			client.server.Monitor.addInflight(client.opts.ClientId)
 		}
 	}()
 	elem := &InflightElem{
@@ -183,7 +185,7 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 						s.inflight.PushBack(elem)
 						client.out <- publish
 					} else if client.server.Monitor != nil {
-						client.server.Monitor.DelInflight(client.opts.ClientId)
+						client.server.Monitor.delInflight(client.opts.ClientId)
 
 					}
 				} else {
