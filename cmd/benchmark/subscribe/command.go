@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
+// Command represents the command executed by `go run sub_benchmark.go`
 type Command struct {
 	Server *Server
 }
 
+// Options represents the subscribe benchmark options
 type Options struct {
 	Host               string //default:  localhost
 	Port               string //default: :1883
@@ -25,6 +27,7 @@ type Options struct {
 	Time               int //time limit
 }
 
+//ParseFlags parses the args into Options.
 func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	var options Options
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
@@ -46,6 +49,7 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	return options, nil
 }
 
+// Run parses the command arguments and starts the server.
 func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Server represents the publish benchmark server.
 type Server struct {
 	Options     Options
 	wg          sync.WaitGroup
@@ -107,6 +108,7 @@ func (srv *Server) displayProgress(ctx context.Context) {
 	}
 }
 
+// Run starts the server.
 func (srv *Server) Run(ctx context.Context) {
 	srv.StartAt = time.Now()
 	go srv.displayProgress(ctx)

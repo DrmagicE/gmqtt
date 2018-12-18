@@ -19,21 +19,21 @@ func NewLogger(stdout io.Writer, prefix string, flag int) *Logger {
 	return &Logger{log.New(stdout, prefix, flag)}
 }
 
-// Print
+// Print calls log.Print to print to the logger.
 func (l *Logger) Print(v ...interface{}) {
 	if l.log != nil {
 		l.log.Print(v...)
 	}
 }
 
-// Println
+// Println calls log.Println to print to the logger.
 func (l *Logger) Println(v ...interface{}) {
 	if l.log != nil {
 		l.log.Println(v...)
 	}
 }
 
-// Printf
+// Printf calls log.Printf to print to the logger.
 func (l *Logger) Printf(format string, v ...interface{}) {
 	if l.log != nil {
 		l.log.Printf(format, v...)

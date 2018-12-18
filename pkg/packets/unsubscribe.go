@@ -38,12 +38,12 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
-	c.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FLAG_UNSUBSCRIBE}
+	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FLAG_UNSUBSCRIBE}
 	buf := make([]byte, 0, 256)
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, c.PacketID)
+	binary.BigEndian.PutUint16(pid, p.PacketID)
 	buf = append(buf, pid...)
-	for _, topic := range c.Topics {
+	for _, topic := range p.Topics {
 		topicName, _, erro := EncodeUTF8String([]byte(topic))
 		buf = append(buf, topicName...)
 		if erro != nil {

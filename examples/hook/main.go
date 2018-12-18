@@ -48,9 +48,8 @@ func main() {
 		password := client.ClientOptions().Password
 		if validateUser(username, password) {
 			return packets.CodeAccepted
-		} else {
-			return packets.CodeBadUsernameorPsw
 		}
+		return packets.CodeBadUsernameorPsw
 	})
 
 	//acl

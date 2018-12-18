@@ -22,7 +22,7 @@ type SliceDataProvider struct {
 	Pager      *Pagination
 }
 
-// Pagination
+// Pagination represents information relevant to pagination of data items.
 type Pagination struct {
 	Page       int
 	PageSize   int
