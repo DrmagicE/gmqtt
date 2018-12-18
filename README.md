@@ -1,48 +1,51 @@
-[English](https://github.com/DrmagicE/gmqtt/blob/master/README.EN.md)
+[中文文档](https://github.com/DrmagicE/gmqtt/blob/master/README_ZH.md)
 # Gmqtt [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
+Gmqtt provides:
+*  MQTT broker that fully implements the MQTT protocol V3.1.1.
+*  Golang MQTT broker package for secondary development.
+*  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
+*  MQTT broker benchmark tool.
 
-
-
-# 更新日志
+# Change Log 
 ## 2018.12.15
-* 增加go modules支持
-* 调整包结构
+* Supported go modules.
+* Restructured the package layout.
 ## 2018.12.2
-* 优化订阅存储结构，大幅提高并发能力和减少响应时间
-* 更新优化后的压力测试结果
+* Optimized data structure of subscriptions that increased QPS & reduced response times.
+* Updated benchmark results of optimization .
 ## 2018.11.25
-* 增加压力测试工具
-* 优化部分代码结构
-* 改变订阅主题的存储方式，优化转发性能
-* 修改OnClose钩子方法，增加连接关闭原因
+* Added benchmark tool.
+* Refacotoring & improved performance.
+* Performance improvement on message distributing
+* Added error information in `OnClose()`
 ## 2018.11.18
-* 暂时删除了session持久化功能，需要重新设计
-* 新增运行状态监控/管理功能，在`cmd/broker`中通过restapi呈现
-* 新增服务端触发的发布/订阅功能，在`cmd/broker`中通过restapi呈现
-* 为session增加了缓存队列
-* 重构部分代码，bug修复
+* Removed sessions/messages persistence which need a redesign.
+* Added monitor/management API, added `cmd/broker/restapi` as an example.
+* Added publish/subscribe/unsubscribe API, added `cmd/broker/restapi` as an example.
+* Added session message queue.
+* Refactoring & bug fixed.
 
-# 本库的内容有：
-* 基于Go语言实现的V3.1.1版本的MQTT服务器
-* 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
-* MQTT V3.1.1 版本的协议解析库
-* MQTT压力测试工具 [README.md](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
+# Features
+* Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
+* Support tls/ssl and websocket
+* Provide monitor/management API
+* Provide publish/subscribe/unsubscribe API
 
-# 功能特性
-* 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
-* 支持tls/ssl以及ws/wss
-* 提供服务状态监控/管理api
-* 提供发布/订阅/取消订阅api
 
-# 安装
+
+
+
+# Installation
 ```$ go get -u github.com/DrmagicE/gmqtt```
-# 开始
 
-## 使用内置的MQTT服务器
-[内置MQTT服务器](https://github.com/DrmagicE/gmqtt/blob/master/cmd/broker/README.md)
+# Get Started
+## Build-in MQTT broker
+[Build-in MQTT broker](https://github.com/DrmagicE/gmqtt/blob/master/cmd/broker/README.md)
 
-## 使用MQTT服务器开发库
-当前内置的MQTT服务器功能比较弱，鉴权，ACL等功能均没有实现，建议采用MQTT服务器库进行二次开发：
+## Using `gmqtt` Library for Secondary Development
+The features of build-in MQTT broker are not rich enough.It is not implementing some features such as Authentication, ACL etc..
+So It is recommend to use `gmqtt` package to customized your broker: 
+
 ```
 func main() {
 
@@ -67,7 +70,7 @@ func main() {
     }
     s.AddTCPListenner(ln)
     s.AddTCPListenner(tlsln)
-    //在Run()之前可以设置配置参数，以及注册钩子方法
+    //Configures and registers callback before s.Run()
     s.SetMaxInflightMessages(20)
     s.SetMaxQueueMessages(99999)
     s.RegisterOnSubscribe(func(client *gmqtt.Client, topic packets.Topic) uint8 {
@@ -84,46 +87,42 @@ func main() {
     s.Stop(context.Background())
     fmt.Println("stopped")
 }
-
 ```
-更多的使用例子可以参考`\examples`，里面介绍了全部钩子的使用方法。
+See `/examples` for more details.
 
-
-# 文档说明
+# Documentation
 [godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
-## 钩子方法
-Gmqtt实现了下列钩子方法
-* OnAccept  (仅支持在tcp/ssl下,websocket不支持)
+## Hooks
+Gmqtt implements the following hooks:
+* OnAccept  (Only for tcp/ssl, not for ws/wss)
 * OnConnect 
 * OnSubscribe
 * OnPublish
 * OnClose
 * OnStop
 
-在 `/examples/hook` 中有钩子的使用方法介绍。
+See /examples/hook for more detail.
 
 ### OnAccept
-当使用tcp或者ssl方式连接的时候，该钩子方法会在`net.Listener.Accept`之后调用，
-如果返回false，则会直接关闭tcp连接。
 ```
+// OnAccept will be called after a new connection established in TCP server. If returns false, the connection will be close directly.
 type OnAccept func(conn net.Conn) bool
 ```
-该钩子方法可以拒绝一些非法链接，可以用做自定义黑名单，连接速率限制等功能。
+This hook may be used to block some invalid connections.(blacklist, rate-limiting, etc..) 
 
 ### OnConnect()
-接收到登录报文之后会调用该方法。
-该方法返回CONNACK报文当中的code值。
 ```
-//return the code of connack packet
+// OnConnect will be called when a valid connect packet is received.
+// It returns the code of the connack packet.
 type OnConnect func(client *Client) (code uint8)
 ```
-该方法可以用作鉴权实现，比如：
+This hook may be used to implement  Authentication process.For example:
 ```
 ...
 server.RegisterOnConnect(func(client *server.Client) (code uint8) {
   username := client.ClientOptions().Username
   password := client.ClientOptions().Password
-  if validateUser(username, password) { //鉴权信息可能保存在数据库，文件，内存等地方
+  if validateUser(username, password) { //Authentication info may save in DB,File System, memory, etc.
     return packets.CodeAccepted
   } else {
     return packets.CodeBadUsernameorPsw
@@ -132,38 +131,41 @@ server.RegisterOnConnect(func(client *server.Client) (code uint8) {
 
 ```
 ### OnSubscribe()
-接收到SUBSCRIBE报文之后调用。
-该方法返回允许当前订阅主题的最大QoS等级。
+This method is called after receiving MQTT SUBSCRIBE packet.
+It returns the maximum QoS level that was granted to the subscription that was requested by the SUBSCRIBE packet.
 ```
-//允许的一些返回值:
-//0x00 - 成功 - 最大 QoS 0
-//0x01 - 成功 - 最大 QoS 1
-//0x02 - 成功 - 最大 QoS 2
-//0x80 - 订阅失败
+/*
+OnSubscribe returns the maximum available QoS for the topic:
+ 0x00 - Success - Maximum QoS 0
+ 0x01 - Success - Maximum QoS 1
+ 0x02 - Success - Maximum QoS 2
+ 0x80 - Failure
+*/
 type OnSubscribe func(client *Client, topic packets.Topic) uint8
 ```
-该方法可以用作实现ACL访问控制，比如：
+This hook may be used to implement  ACL(Access Control List) process.For example:
 ```
 ...
 server.RegisterOnSubscribe(func(client *server.Client, topic packets.Topic) uint8 {
-  if client.ClientOptions().Username == "root" { //root用户想订阅什么就订阅什么
+  if client.ClientOptions().Username == "root" { //alow root user to subscribe whatever he wants
     return topic.Qos
   } else {
     if topic.Qos <= packets.QOS_1 {
       return topic.Qos
     }
-    return packets.QOS_1   //对于其他用户，最多只能订阅到QoS1等级
+    return packets.QOS_1   //for other users, the maximum QoS level is QoS1
   }
 })
 ```
 
 ### OnPublish()
-接收到PUBLISH报文之后调用。
+This method will be called after receiving a MQTT PUBLISH packet.
 ```
-//返回该报文是否会被继续分发下去
+// OnPublish returns whether the publish packet will be delivered or not.
+// If returns false, the packet will not be delivered to any clients.
 type OnPublish func(client *Client, publish *packets.Publish) bool
 ```
-比如：
+For example:
 ```
 ...
 server.RegisterOnPublish(func(client *server.Client, publish *packets.Publish)  bool {
@@ -181,28 +183,26 @@ server.RegisterOnPublish(func(client *server.Client, publish *packets.Publish)  
 >If a Server implementation does not authorize a PUBLISH to be performed by a Client; it has no way of informing that Client. It MUST either 1.make a positive acknowledgement, according to the normal QoS rules, or 2.close the Network Connection [MQTT-3.3.5-2].
 
 ### OnClose()
-当网络连接关闭之后调用
 ```
-//This is called after Network Connection close
+// OnClose will be called after the tcp connection of the client has been closed
 type OnClose func(client *Client, err error)
 ```
 
 ### OnStop()
-当mqtt服务停止的时候调用
 ```
+// OnStop will be called on server.Stop()
 type OnStop func()
 ```
 
+## Server Stop Process
+Call `server.Stop()` to stop the broker gracefully:
+1. Closing all open TCP listeners and shutting down all open websocket servers
+2. Closing all idle connections
+3. Waiting for all connections have been closed
+4. Triggering OnStop()
 
-## 服务停止流程
-调用 `server.Stop()` 将服务优雅关闭:
-1. 关闭所有的在监听的listener和websocket server
-2. 关闭所有的client连接
-3. 等待所有的client关闭完成
-4. 触发OnStop()
-
-# 测试
-## 单元测试
+# Test
+## Unit Test
 ```
 $ go test -race .
 ```
@@ -210,12 +210,16 @@ $ go test -race .
 $ cd pkg/packets
 $ go test -race .
 ```
-## 集成测试
-通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+## Integration Test
+Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
-## 压力测试
-[文档与测试结果](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
+## Benchmark Test
+[Documentation & Results](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
 
-# TODO 
-* 完善文档
-* 性能对比[EMQ/Mosquito]
+# TODO
+* Improve documentation
+* Performance comparison [EMQ/Mosquito]
+
+
+
+

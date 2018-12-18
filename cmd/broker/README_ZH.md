@@ -1,59 +1,60 @@
-# Build-in MQTT Broker
-__Notic: This is just an example to show a way of how to use this library. It is not recommend to use it in production environment__
+# 内置的MQTT服务器
+__注意: 请将此服务器看作是一个例子，不建议在生产环境下直接使用__
 
-Use the following command to start a simple broker that listens on port 1883 for TCP and 8080 for websocket.
+下列命令将监听`1883`端口[tcp]和`8080`端口[websocket]，开启MQTT服务器。
 ```
 $ cd cmd/broker
-$ go run main.go
+$ go run main.go 
 ```
-## Configration
-See `cmd/broker/config.yaml`:
+## 配置文件
+使用yaml的配置文件格式，例子见：`cmd/broker/config.yaml`
 ```
-# Delivery retry interval .Defaults to 20 seconds
+# 超时重传间隔秒数，默认20秒
 delivery_retry_interval: 20
-# The maximum number of QoS 1 or 2 messages that can be in the process of being transmitted simultaneously. Defaults to 20
+# 最大飞行窗口，默认20条
 max_inflight_messages: 20
-# Set to true to queue messages with QoS 0 when a persistent client is disconnected.Defaults to true.
+# 是否为离线的保持会话客户端转发QoS0消息，默认转发
 queue_qos0_messages: true
-# The maximum number of messages to hold in the queue (per client) above those messages that are currently in flight. 
-Defaults to 20. Set to 0 for no maximum (not recommended).
+# 缓存队列最大容量，默认20条
 max_msgqueue_messages: 20
-
-# pprof
-# pprof.cpu:The file to store CPU profile, if specified.
-# pprof.mem:The file to store memory profile, if specified.
+# pprof 监控文件，默认不开启pprof
+# pprof.cpu CPU监控文件
+# pprof.mem 内存监控文件
 profile: {cpu: "cpuprofile", mem: "memprofile"}
-# Set to true to enable logging. Defaults to false 
+# 是否打印日志，调试时使用，默认false不打印
 logging: false
-# http_server REST http server
-# http_server.addr Addr of http server
-# http_server.user User info of http basic auth, username => password
+# http_server服务监听地址
+# http_server.addr http服务监听地址
+# http_server.user http basic auth的用户名密码,key是用户名，value是密码
 http_server: {addr: ":9090",user: { admin: "admin"}}
+
 # listener
-# listener.$.protocol:Set the protocol to accept for this listener. Can be mqtt, the default, or websockets.
-# listener.$.addr:Bind address, it wil pass to net.Listen(network, address string) address parameter.
-# listener.$.certfile:The cert file path,if using tls/ssl.
-# listenr.$.keyfile:The key file path,if using tls/ssl.
+# listener.$.protocol 支持mqtt或者websocket
+# listener.$.addr 监听的端口,  用作填充net.Listen(network, address string) 中的address参数
+# listener.$.certfile 如果使用tls/ssl，填写cert文件路径
+# listenr.$.keyfile 如果使用tls/ssl，填写key文件路径
 listener:
 - {protocol: mqtt, addr: ':1883', certfile: , keyfile:  }
 - {protocol: websocket, addr: ':8080', certfile: ,keyfile: }
+
+
+
+```
+默认使用`cmd/broker/config.yaml`配置文件，使用下列命令可以设置配置文件路径
+```
+$ go run main.go -config <config-file-path>
 ```
 
-`cmd/broker/config.yaml` is the default config file.
-Use the following command to specify a config file:
-
-`$ go run main.go -config <config-file-path>`
-
-## REST API
-Using HTTP Basic Authentication.Set your username and password in configration file 
-### Get All Active Clients
-Request:
+## REST服务
+通过HTTP Basic Auth进行鉴权，用户名密码配置见配置文件
+### 获取所有在线客户端
+请求格式：
 ```
 GET /clients?page=xxx&per-page=xxx
-page: page, default to 1
-per-page:pagesize, default to 20
+page:请求页数，不传默认第一页
+per-page:每一页的条数，不传默认20条
 ```
-Response:
+响应格式：
 ```
 {
     "list": [
@@ -75,12 +76,12 @@ Response:
 
 ```
 
-### Get Client By ID
-Request:
+### 获取指定客户端id的客户端
+请求格式：
 ```
 GET /client/:id
 ```
-Response:
+响应格式：
 ```
 {
     "client_id": "1",
@@ -93,15 +94,15 @@ Response:
 ```
 
 
-### Get All Sessions
+### 获取所有会话（session）
 
-Request:
+请求格式：
 ```
 GET /sessions?page=xxx&per-page=xxx
-page: page, default to 1
-per-page:pagesize, default to 20
+page:请求页数，不传默认第一页
+per-page:每一页的条数，不传默认20条
 ```
-Response:
+响应格式：
 ```
 {
     "list": [
@@ -128,13 +129,13 @@ Response:
 }
 ```
 
-### Get Session By ID
+### 获取指定客户端id的会话
 
-Request:
+请求格式：
 ```
 GET /session/:id
 ```
-Response:
+响应格式：
 ```
 {
     "client_id": "1",
@@ -152,14 +153,13 @@ Response:
 }
 ```
 
-### Get All Subscriptions
+### 获取所有订阅主题信息
 
-Request:
+请求格式：
 ```
 GET /subscriptions
 ```
-Response:
-
+响应格式：
 ```
 {
     "list": [
@@ -184,13 +184,13 @@ Response:
 }
 ```
 
-### Get Subscriptions of the Client By ID
+### 获取指定会话的订阅主题信息
 
-Request:
+请求格式：
 ```
 GET /subscriptions/:id
 ```
-Response:
+响应格式：
 ```
 {
     "list": [
@@ -217,20 +217,20 @@ Response:
 
 
 
-### Publish
+### 发布主题
 
-Request:
+请求格式：
 ```
 POST /publish
 ```
-Post Form:
+POST请求参数：
 ```
-qos : qos level
-topic : topic name
-payload : payload
+qos : qos等级
+topic : 发布的主题名称
+payload : 主题payload
 ```
 
-Response:
+响应格式：
 ```
 {
     "code": 0,
@@ -238,20 +238,20 @@ Response:
 }
 ```
 
-### Subscribe
+### 订阅主题
 
-Request:
+请求格式：
 ```
 POST /subscribe
 ```
-Post Form:
+POST请求参数：
 ```
-qos : qos level
-topic : topic filter
-clientID : client id
+qos : qos等级
+topic : 订阅的主题名称
+clientID : 订阅的客户端id
 ```
 
-Response:
+响应格式：
 ```
 {
     "code": 0,
@@ -259,19 +259,19 @@ Response:
 }
 ```
 
-### UnSubscribe
+### 取消订阅
 
-Request:
+请求格式：
 ```
 POST /unsubscribe
 ```
-Post Form:
+POST请求参数：
 ```
-topic : topic name
-clientID : client id
+topic : 需要取消订阅的主题名称
+clientID : 需要取消订阅的客户端id
 ```
 
-Response:
+响应格式：
 ```
 {
     "code": 0,
