@@ -17,7 +17,6 @@ func (p *Suback) String() string {
 	return fmt.Sprintf("Suback, Pid: %v, Payload: %v", p.PacketID, p.Payload)
 }
 
-
 // NewSubackPacket returns a Suback instance by the given FixHeader and io.Reader.
 func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 	p := &Suback{FixHeader: fh}

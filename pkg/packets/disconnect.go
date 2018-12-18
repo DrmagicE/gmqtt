@@ -14,7 +14,6 @@ func (d *Disconnect) String() string {
 	return fmt.Sprintf("Disconnect")
 }
 
-
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (d *Disconnect) Pack(w io.Writer) error {
 	var err error

@@ -12,7 +12,6 @@ import (
 	"runtime/pprof"
 )
 
-
 type Command struct {
 	Server *gmqtt.Server
 }

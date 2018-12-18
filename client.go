@@ -28,9 +28,9 @@ const (
 	Disconnected
 )
 const (
-	readBufferSize = 4096
+	readBufferSize  = 4096
 	writeBufferSize = 4096
-	redeliveryTime = 20
+	redeliveryTime  = 20
 )
 
 var (
@@ -65,7 +65,6 @@ func putBufioWriter(bw *bufio.Writer) {
 	bw.Reset(nil)
 	bufioWriterPool.Put(bw)
 }
-
 
 // Client represents a MQTT client
 type Client struct {
@@ -242,7 +241,6 @@ func (client *Client) errorWatch() {
 		return
 	}
 }
-
 
 // Close 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
 //

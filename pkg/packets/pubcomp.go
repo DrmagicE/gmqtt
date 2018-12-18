@@ -6,7 +6,6 @@ import (
 	"io"
 )
 
-
 // Pubcomp represents the MQTT Pubcomp  packet
 type Pubcomp struct {
 	FixHeader *FixHeader
@@ -26,7 +25,6 @@ func NewPubcompPacket(fh *FixHeader, r io.Reader) (*Pubcomp, error) {
 	}
 	return p, nil
 }
-
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubcomp) Pack(w io.Writer) error {

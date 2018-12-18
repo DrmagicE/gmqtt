@@ -47,6 +47,7 @@ func NewSubscribePacket(fh *FixHeader, r io.Reader) (*Subscribe, error) {
 	err := p.Unpack(r)
 	return p, err
 }
+
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Subscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FLAG_SUBSCRIBE}
@@ -65,6 +66,7 @@ func (p *Subscribe) Pack(w io.Writer) error {
 	return err
 
 }
+
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Subscribe) Unpack(r io.Reader) (err error) {
 	defer func() {

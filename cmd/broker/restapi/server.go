@@ -8,7 +8,6 @@ import (
 	"strconv"
 )
 
-
 // RestServer represents the REST API server.
 type RestServer struct {
 	Addr string

@@ -50,8 +50,8 @@ func (p *Unsubscribe) Pack(w io.Writer) error {
 			return erro
 		}
 	}
-	c.FixHeader.RemainLength = len(buf)
-	err := c.FixHeader.Pack(w)
+	p.FixHeader.RemainLength = len(buf)
+	err := p.FixHeader.Pack(w)
 	if err != nil {
 		return err
 	}

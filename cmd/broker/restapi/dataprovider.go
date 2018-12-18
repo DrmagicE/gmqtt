@@ -6,7 +6,6 @@ import (
 	"reflect"
 )
 
-
 // DataProvider interface provides a mechanism to paginate data
 type DataProvider interface {
 	Models() interface{}
@@ -42,6 +41,7 @@ func (p *Pagination) PageCount() int {
 	return (p.TotalCount + p.PageSize - 1) / p.PageSize
 
 }
+
 // Offset returns the offset of current page.
 func (p *Pagination) Offset() int {
 	if p.PageSize < 1 {
@@ -101,6 +101,7 @@ func (cp *SliceDataProvider) Models(out interface{}) error {
 	cp.count = totalCount
 	return nil
 }
+
 // Count returns the item count of current page.
 func (cp *SliceDataProvider) Count() int {
 	return cp.count
