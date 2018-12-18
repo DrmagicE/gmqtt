@@ -8,7 +8,7 @@ import (
 
 func TestReadSuback(t *testing.T) {
 	subackBytes := bytes.NewBuffer([]byte{0x90, 5, //FixHeader
-		0, 10, //packetId
+		0, 10, //packetID
 		0, 1, 2, //payload
 	})
 	packet, err := NewReader(subackBytes).ReadPacket()
@@ -16,8 +16,8 @@ func TestReadSuback(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Suback); ok {
-		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
+		if p.PacketID != 10 {
+			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
 		}
 		if !bytes.Equal(p.Payload, []byte{0, 1, 2}) {
 			t.Fatalf("Payload error,want %v,got %v", []byte{0, 1, 2}, p.Payload)

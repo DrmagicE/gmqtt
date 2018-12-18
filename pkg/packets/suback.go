@@ -8,12 +8,12 @@ import (
 
 type Suback struct {
 	FixHeader *FixHeader
-	PacketId  PacketId
+	PacketID  PacketID
 	Payload   []byte
 }
 
 func (c *Suback) String() string {
-	return fmt.Sprintf("Suback, Pid: %v, Payload: %v", c.PacketId, c.Payload)
+	return fmt.Sprintf("Suback, Pid: %v, Payload: %v", c.PacketID, c.Payload)
 }
 
 //new suback
@@ -30,7 +30,7 @@ func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 func (p *Suback) Pack(w io.Writer) error {
 	p.FixHeader.Pack(w)
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketId)
+	binary.BigEndian.PutUint16(pid, p.PacketID)
 	w.Write(pid)
 	_, err := w.Write(p.Payload)
 	return err
@@ -42,7 +42,7 @@ func (p *Suback) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 	p.Payload = restBuffer[2:]
 	return nil
 }

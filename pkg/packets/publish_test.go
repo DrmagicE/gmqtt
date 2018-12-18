@@ -31,7 +31,7 @@ func TestWritePublishPacket(t *testing.T) {
 			Qos:       v.qos,
 			Retain:    v.retain,
 			TopicName: v.topicName,
-			PacketId:  v.pid,
+			PacketID:  v.pid,
 			Payload:   v.payload,
 		}
 		err := NewWriter(buf).WriteAndFlush(pub)
@@ -51,8 +51,8 @@ func TestWritePublishPacket(t *testing.T) {
 			if !bytes.Equal(p.TopicName, pub.TopicName) {
 				t.Fatalf("TopicName error,want %v, got %v", pub.TopicName, p.TopicName)
 			}
-			if p.PacketId != pub.PacketId {
-				t.Fatalf("PacketId error,want %v, got %v", pub.PacketId, p.PacketId)
+			if p.PacketID != pub.PacketID {
+				t.Fatalf("PacketID error,want %v, got %v", pub.PacketID, p.PacketID)
 			}
 			if !bytes.Equal(p.Payload, pub.Payload) {
 				t.Fatalf("Payload error,want %v, got %v", pub.Payload, p.Payload)
@@ -100,8 +100,8 @@ func TestReadPublishPacket(t *testing.T) {
 		t.Fatalf("TopicName error,want %v, got %v", topicName, pp.TopicName)
 	}
 
-	if pp.PacketId != pid {
-		t.Fatalf("PacketId error,want %d, got %d", pid, pp.PacketId)
+	if pp.PacketID != pid {
+		t.Fatalf("PacketID error,want %d, got %d", pid, pp.PacketID)
 	}
 
 	if !bytes.Equal(pp.Payload, payload) {
@@ -114,11 +114,11 @@ func TestPublish_NewPuback(t *testing.T) {
 	pid = 123
 	pub := &Publish{
 		Qos:      QOS_1,
-		PacketId: pid,
+		PacketID: pid,
 	}
 	puback := pub.NewPuback()
-	if puback.PacketId != pid {
-		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketId)
+	if puback.PacketID != pid {
+		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketID)
 	}
 }
 
@@ -127,10 +127,10 @@ func TestPublish_NewPubrec(t *testing.T) {
 	pid = 123
 	pub := &Publish{
 		Qos:      QOS_2,
-		PacketId: pid,
+		PacketID: pid,
 	}
 	puback := pub.NewPubrec()
-	if puback.PacketId != pid {
-		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketId)
+	if puback.PacketID != pid {
+		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketID)
 	}
 }

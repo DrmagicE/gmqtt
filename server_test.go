@@ -22,7 +22,7 @@ func TestHooks(t *testing.T) {
 	})
 	srv.RegisterOnConnect(func(client *Client) (code uint8) {
 		hooks += "OnConnect"
-		return packets.CODE_ACCEPTED
+		return packets.CodeAccepted
 	})
 
 	srv.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
@@ -55,7 +55,7 @@ func TestHooks(t *testing.T) {
 	r.ReadPacket()
 
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "name", Qos: packets.QOS_1},
 		},
@@ -68,7 +68,7 @@ func TestHooks(t *testing.T) {
 		Qos:       packets.QOS_1,
 		Retain:    false,
 		TopicName: []byte("ok"),
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   []byte("payload"),
 	}
 	w.WriteAndFlush(pub)
@@ -84,7 +84,7 @@ func TestServer_registerHandlerOnError1(t *testing.T) {
 	srv := newTestServer()
 	c := srv.newClient(nil)
 	conn := defaultConnectPacket()
-	errCode := uint8(packets.CODE_SERVER_UNAVAILABLE)
+	errCode := uint8(packets.CodeServerUnavaliable)
 	conn.AckCode = errCode
 	register := &register{
 		client:  c,
@@ -107,7 +107,7 @@ func TestServer_registerHandlerOnError1(t *testing.T) {
 }
 func TestServer_registerHandlerOnError2(t *testing.T) {
 	srv := newTestServer()
-	errCode := uint8(packets.CODE_BAD_USERNAME_OR_PSW)
+	errCode := uint8(packets.CodeBadUsernameorPsw)
 	srv.RegisterOnConnect(func(client *Client) (code uint8) {
 		return errCode
 	})
@@ -137,67 +137,67 @@ func TestServer_db_subscribe_unsubscribe(t *testing.T) {
 	srv := NewServer()
 	stt := []struct {
 		topicName string
-		clientId  string
+		clientID  string
 		topic     packets.Topic
 	}{
-		{topicName: "name0", clientId: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{topicName: "name1", clientId: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{topicName: "name0", clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
+		{topicName: "name1", clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{topicName: "name2", clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
 	}
 	utt := []struct {
 		topicName string
-		clientId  string
+		clientID  string
 	}{
-		{topicName: "name0", clientId: "id0"}, {topicName: "name1", clientId: "id1"},
+		{topicName: "name0", clientID: "id0"}, {topicName: "name1", clientID: "id1"},
 	}
 	ugot := []struct {
 		topicName string
-		clientId  string
+		clientID  string
 		topic     packets.Topic
 	}{
-		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{topicName: "name2", clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
 	}
 
 	srv.subscriptionsDB.Lock()
 	defer srv.subscriptionsDB.Unlock()
 	for _, v := range stt {
-		srv.subscriptionsDB.init(v.clientId, v.topicName)
-		srv.subscribe(v.clientId, v.topic)
+		srv.subscriptionsDB.init(v.clientID, v.topicName)
+		srv.subscribe(v.clientID, v.topic)
 	}
 	for _, v := range stt {
-		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientID]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientID, v.topic, got)
 		}
-		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByID[v.clientID][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByID[%s][%s] error, want %v, got %v", v.clientID, v.topicName, v.topic, got)
 		}
-		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+		if !srv.subscriptionsDB.exist(v.clientID, v.topicName) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 4 || len(srv.subscriptionsDB.topicsById) != 3 {
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
+	if len(srv.subscriptionsDB.topicsByName) != 4 || len(srv.subscriptionsDB.topicsByID) != 3 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsByID))
 	}
 
 	for _, v := range utt {
-		srv.unsubscribe(v.clientId, v.topicName)
+		srv.unsubscribe(v.clientID, v.topicName)
 	}
 
 	for _, v := range ugot {
-		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientID]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientID, v.topic, got)
 		}
-		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByID[v.clientID][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByID[%s][%s] error, want %v, got %v", v.clientID, v.topicName, v.topic, got)
 		}
-		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+		if !srv.subscriptionsDB.exist(v.clientID, v.topicName) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2 {
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsByID) != 2 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsByID))
 	}
 }
 
@@ -205,42 +205,42 @@ func TestServer_removeClientSubscriptions(t *testing.T) {
 	srv := NewServer()
 	stt := []struct {
 		topicName string
-		clientId  string
+		clientID  string
 		topic     packets.Topic
 	}{
-		{topicName: "name0", clientId: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{topicName: "name1", clientId: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{topicName: "name2", clientId: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{topicName: "name3", clientId: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{topicName: "name0", clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
+		{topicName: "name1", clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{topicName: "name2", clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{topicName: "name3", clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
 	}
 
 	srv.subscriptionsDB.Lock()
 	defer srv.subscriptionsDB.Unlock()
 	for _, v := range stt {
-		srv.subscriptionsDB.init(v.clientId, v.topicName)
-		srv.subscribe(v.clientId, v.topic)
+		srv.subscriptionsDB.init(v.clientID, v.topicName)
+		srv.subscribe(v.clientID, v.topic)
 	}
 	removedCid := "id0"
 	srv.removeClientSubscriptions(removedCid)
 	for _, v := range stt {
-		if v.clientId == removedCid {
-			if srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+		if v.clientID == removedCid {
+			if srv.subscriptionsDB.exist(v.clientID, v.topicName) {
 				t.Fatalf("exist() error")
 			}
 			continue
 		}
-		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientId]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientId, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByName[v.topicName][v.clientID]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByName[%s][%s] error, want %v, got %v", v.topicName, v.clientID, v.topic, got)
 		}
-		if got := srv.subscriptionsDB.topicsById[v.clientId][v.topicName]; got != v.topic {
-			t.Fatalf("subscriptionsDB.topicsById[%s][%s] error, want %v, got %v", v.clientId, v.topicName, v.topic, got)
+		if got := srv.subscriptionsDB.topicsByID[v.clientID][v.topicName]; got != v.topic {
+			t.Fatalf("subscriptionsDB.topicsByID[%s][%s] error, want %v, got %v", v.clientID, v.topicName, v.topic, got)
 		}
-		if !srv.subscriptionsDB.exist(v.clientId, v.topicName) {
+		if !srv.subscriptionsDB.exist(v.clientID, v.topicName) {
 			t.Fatalf("exist() error")
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsById) != 2 {
-		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsById))
+	if len(srv.subscriptionsDB.topicsByName) != 2 || len(srv.subscriptionsDB.topicsByID) != 2 {
+		t.Fatalf("len error,got %d, %d", len(srv.subscriptionsDB.topicsByName), len(srv.subscriptionsDB.topicsByID))
 	}
 
 }
@@ -314,8 +314,8 @@ func TestServer_RegisterOnStop(t *testing.T) {
 func TestServer_SetMaxInflightMessages(t *testing.T) {
 	srv := newTestServer()
 	srv.SetMaxInflightMessages(65536)
-	if srv.config.maxInflightMessages != max_inflight_messages {
-		t.Fatalf("SetMaxInflightMessages() error, want %d, got %d", max_inflight_messages, srv.config.maxInflightMessages)
+	if srv.config.maxInflightMessages != maxInflightMessages {
+		t.Fatalf("SetMaxInflightMessages() error, want %d, got %d", maxInflightMessages, srv.config.maxInflightMessages)
 	}
 	srv.SetMaxInflightMessages(20)
 	if srv.config.maxInflightMessages != 20 {
@@ -403,7 +403,7 @@ func TestServer_SetFnPanic(t *testing.T) {
 func TestSubscriptionDb(t *testing.T) {
 	db := &subscriptionsDB{
 		topicsByName: make(map[string]map[string]packets.Topic),
-		topicsById:   make(map[string]map[string]packets.Topic),
+		topicsByID:   make(map[string]map[string]packets.Topic),
 	}
 	db.init("cid", "tpname")
 
@@ -414,8 +414,8 @@ func TestSubscriptionDb(t *testing.T) {
 	}
 
 	db.add("cid", tpname, topic)
-	if tp, ok := db.topicsById["cid"][tpname]; !ok || tp != topic {
-		t.Fatalf("db.add error, topicsById want %v, got %v", topic, tp)
+	if tp, ok := db.topicsByID["cid"][tpname]; !ok || tp != topic {
+		t.Fatalf("db.add error, topicsByID want %v, got %v", topic, tp)
 	}
 
 	if tp, ok := db.topicsByName[tpname]["cid"]; !ok || tp != topic {
@@ -429,12 +429,11 @@ func TestSubscriptionDb(t *testing.T) {
 	if db.exist("cid", tpname) {
 		t.Fatalf("db.exist error, want false, got true")
 	}
-	if _, ok := db.topicsById["cid"][tpname]; ok {
+	if _, ok := db.topicsByID["cid"][tpname]; ok {
 		t.Fatalf("db.add error, want false, got true")
 	}
 
 	if _, ok := db.topicsByName[tpname]["cid"]; ok {
 		t.Fatalf("db.add error, want false, got true")
 	}
-
 }

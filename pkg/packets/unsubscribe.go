@@ -8,19 +8,19 @@ import (
 
 type Unsubscribe struct {
 	FixHeader *FixHeader
-	PacketId  PacketId
+	PacketID  PacketID
 
 	Topics []string
 }
 
 func (c *Unsubscribe) String() string {
-	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v", c.PacketId, c.Topics)
+	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v", c.PacketID, c.Topics)
 }
 
 //suback
 func (p *Unsubscribe) NewUnSubBack() *Unsuback {
 	fh := &FixHeader{PacketType: UNSUBACK, Flags: 0, RemainLength: 2}
-	unSuback := &Unsuback{FixHeader: fh, PacketId: p.PacketId}
+	unSuback := &Unsuback{FixHeader: fh, PacketID: p.PacketID}
 	return unSuback
 }
 
@@ -39,7 +39,7 @@ func (c *Unsubscribe) Pack(w io.Writer) error {
 	c.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FLAG_UNSUBSCRIBE}
 	buf := make([]byte, 0, 256)
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, c.PacketId)
+	binary.BigEndian.PutUint16(pid, c.PacketID)
 	buf = append(buf, pid...)
 	for _, topic := range c.Topics {
 		topicName, _, erro := EncodeUTF8String([]byte(topic))
@@ -63,7 +63,7 @@ func (p *Unsubscribe) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 
 	restBuffer = restBuffer[2:]
 	for {

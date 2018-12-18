@@ -21,11 +21,11 @@ Topic:<input id="subtopic"/><input type="button" value="subscribe" onclick="subs
 <script>
 
     function log(str) {
-        html = document.getElementById("log").innerHTML
-        document.getElementById("log").innerHTML += str+"<br>"
+        html = document.getElementByID("log").innerHTML
+        document.getElementByID("log").innerHTML += str+"<br>"
     }
 
-        client = new Paho.MQTT.Client("localhost", 8081,"clientIdwss");
+        client = new Paho.MQTT.Client("localhost", 8081,"clientIDwss");
 
         client.onConnectionLost = onConnectionLost;
         client.onMessageArrived = onMessageArrived;
@@ -51,14 +51,14 @@ Topic:<input id="subtopic"/><input type="button" value="subscribe" onclick="subs
         }
 
         function send() {
-            topic = document.getElementById("topic").value
-            payload = document.getElementById("payload").value
+            topic = document.getElementByID("topic").value
+            payload = document.getElementByID("payload").value
             log("publish msg: "+payload+" to topic:"+topic)
             client.send(topic, payload, 1, false)
         }
 
         function subscribe() {
-            topic = document.getElementById("subtopic").value
+            topic = document.getElementByID("subtopic").value
             client.subscribe(topic,{qos:1,onSuccess:function () {
                     log("topic: "+ topic +"  subscribed")
                 }})

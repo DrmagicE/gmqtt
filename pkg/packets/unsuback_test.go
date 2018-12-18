@@ -37,8 +37,8 @@ func TestReadUnSuback(t *testing.T) {
 		t.Fatalf("Unexpected error: %s", err.Error())
 	}
 	if up, ok := packet.(*Unsuback); ok {
-		if up.PacketId != 10 {
-			t.Fatalf("WillRetain error,want %d, got %d", 10, up.PacketId)
+		if up.PacketID != 10 {
+			t.Fatalf("WillRetain error,want %d, got %d", 10, up.PacketID)
 		}
 	} else {
 		t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Unsuback{}), reflect.TypeOf(packet))
@@ -50,9 +50,9 @@ func TestWriteUnSubackFixheader(t *testing.T) {
 		unsuback *Unsuback
 		want     []byte
 	}{
-		{unsuback: &Unsuback{PacketId: 10}, want: []byte{0xb0, 2, 0, 10}},
-		{unsuback: &Unsuback{PacketId: 266}, want: []byte{0xb0, 2, 1, 10}},
-		{unsuback: &Unsuback{PacketId: 522}, want: []byte{0xb0, 2, 2, 10}},
+		{unsuback: &Unsuback{PacketID: 10}, want: []byte{0xb0, 2, 0, 10}},
+		{unsuback: &Unsuback{PacketID: 266}, want: []byte{0xb0, 2, 1, 10}},
+		{unsuback: &Unsuback{PacketID: 522}, want: []byte{0xb0, 2, 2, 10}},
 	}
 	for _, v := range tt {
 		unsuback := v.unsuback

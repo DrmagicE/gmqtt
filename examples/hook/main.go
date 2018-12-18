@@ -47,9 +47,9 @@ func main() {
 		username := client.ClientOptions().Username
 		password := client.ClientOptions().Password
 		if validateUser(username, password) {
-			return packets.CODE_ACCEPTED
+			return packets.CodeAccepted
 		} else {
-			return packets.CODE_BAD_USERNAME_OR_PSW
+			return packets.CodeBadUsernameorPsw
 		}
 	})
 
@@ -89,7 +89,7 @@ func main() {
 	})
 
 	s.RegisterOnClose(func(client *gmqtt.Client, err error) {
-		log.Println("client id:"+client.ClientOptions().ClientId+"is closed", err)
+		log.Println("client id:"+client.ClientOptions().ClientID+"is closed", err)
 	})
 
 	s.RegisterOnStop(func() {

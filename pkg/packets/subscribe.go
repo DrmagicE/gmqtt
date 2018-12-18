@@ -8,13 +8,13 @@ import (
 
 type Subscribe struct {
 	FixHeader *FixHeader
-	PacketId  PacketId
+	PacketID  PacketID
 
 	Topics []Topic //suback响应之前填充
 }
 
 func (c *Subscribe) String() string {
-	str := fmt.Sprintf("Subscribe, Pid: %v", c.PacketId)
+	str := fmt.Sprintf("Subscribe, Pid: %v", c.PacketID)
 
 	for k, t := range c.Topics {
 		str += fmt.Sprintf(", Topic[%d][Name: %s, Qos: %v]", k, t.Name, t.Qos)
@@ -26,7 +26,7 @@ func (c *Subscribe) String() string {
 func (p *Subscribe) NewSubBack() *Suback {
 	fh := &FixHeader{PacketType: SUBACK, Flags: FLAG_RESERVED}
 	suback := &Suback{FixHeader: fh, Payload: make([]byte, 0, len(p.Topics))}
-	suback.PacketId = p.PacketId
+	suback.PacketID = p.PacketID
 	var qos byte
 	for _, v := range p.Topics {
 		qos = v.Qos
@@ -51,7 +51,7 @@ func (p *Subscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FLAG_SUBSCRIBE}
 	buf := make([]byte, 0, 256)
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketId)
+	binary.BigEndian.PutUint16(pid, p.PacketID)
 	buf = append(buf, pid...)
 	for _, t := range p.Topics {
 		topicName, _, _ := EncodeUTF8String([]byte(t.Name))
@@ -76,7 +76,7 @@ func (p *Subscribe) Unpack(r io.Reader) (err error) {
 	if err != nil {
 		return err
 	}
-	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 	restBuffer = restBuffer[2:]
 
 	for {

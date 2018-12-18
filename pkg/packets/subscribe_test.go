@@ -34,8 +34,8 @@ func TestReadSubscribePacketWithOneTopic(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Subscribe); ok {
-		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
+		if p.PacketID != 10 {
+			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
 		}
 		if len(p.Topics) != 1 {
 			t.Fatalf("len error,want %d, got %d", 1, len(p.Topics))
@@ -60,8 +60,8 @@ func TestReadSubscribePacketWith3Topics(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Subscribe); ok {
-		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
+		if p.PacketID != 10 {
+			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
 		}
 		if len(p.Topics) != 3 {
 			t.Fatalf("len error,want %d, got %d", 3, len(p.Topics))
@@ -108,8 +108,8 @@ func TestSubscribe_NewSubBackWithOneTopic(t *testing.T) {
 	if suback.FixHeader.RemainLength != 3 {
 		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 3, suback.FixHeader.RemainLength)
 	}
-	if suback.PacketId != p.PacketId {
-		t.Fatalf("PacketId error,want %d, got %d", p.PacketId, suback.PacketId)
+	if suback.PacketID != p.PacketID {
+		t.Fatalf("PacketID error,want %d, got %d", p.PacketID, suback.PacketID)
 	}
 	if !bytes.Equal(suback.Payload, []byte{1}) {
 		t.Fatalf("Payload error,want %v, got %v", suback.Payload, []byte{1})
@@ -133,8 +133,8 @@ func TestSubscribe_NewSubBackWith3Topics(t *testing.T) {
 		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 5, suback.FixHeader.RemainLength)
 	}
 
-	if suback.PacketId != p.PacketId {
-		t.Fatalf("PacketId error,want %d, got %d", p.PacketId, suback.PacketId)
+	if suback.PacketID != p.PacketID {
+		t.Fatalf("PacketID error,want %d, got %d", p.PacketID, suback.PacketID)
 	}
 	if !bytes.Equal(suback.Payload, []byte{0, 1, 2}) {
 		t.Fatalf("Payload error,want %v, got %v", suback.Payload, []byte{0, 1, 2})
@@ -160,7 +160,7 @@ func TestWriteSubscribePacket(t *testing.T) {
 		b := make([]byte, 0, 2048)
 		buf := bytes.NewBuffer(b)
 		sub := &Subscribe{
-			PacketId: v.pid,
+			PacketID: v.pid,
 			Topics:   v.topics,
 		}
 		err := NewWriter(buf).WriteAndFlush(sub)
@@ -187,8 +187,8 @@ func TestWriteSubscribePacket(t *testing.T) {
 				}
 			}
 
-			if p.PacketId != sub.PacketId {
-				t.Fatalf("PacketId error,want %v, got %v", sub.PacketId, p.PacketId)
+			if p.PacketID != sub.PacketID {
+				t.Fatalf("PacketID error,want %v, got %v", sub.PacketID, p.PacketID)
 			}
 
 		} else {

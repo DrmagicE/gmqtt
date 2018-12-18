@@ -32,7 +32,7 @@ func TestReadConnectPacket(t *testing.T) {
 		4,    //Protocol Level
 		206,  //11001110 Connect Flags username=1 password=1 Will Flag = 1 WillRetain=0 Will Qos=1 CleanSession=1
 		0, 0, //KeepAlive
-		0, 0, //clientId len=0
+		0, 0, //clientID len=0
 		0, 4, 116, 101, 115, 116, //Will Topic
 		0, 12, 84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100, //Will Message
 		0, 8, 116, 101, 115, 116, 117, 115, 101, 114, //Username
@@ -74,8 +74,8 @@ func TestReadConnectPacket(t *testing.T) {
 		if cp.KeepAlive != 0 {
 			t.Fatalf("KeepAlive error,want %d, got %d", 0, cp.KeepAlive)
 		}
-		if len(cp.ClientId) != 0 {
-			t.Fatalf("ClientId error,want [], got %d", cp.ClientId)
+		if len(cp.ClientID) != 0 {
+			t.Fatalf("ClientID error,want [], got %d", cp.ClientID)
 		}
 		if !bytes.Equal(cp.WillTopic, []byte{116, 101, 115, 116}) {
 			t.Fatalf("WillTopic error,want %v, got %v", []byte{116, 101, 115, 116}, cp.WillTopic)
@@ -100,7 +100,7 @@ func TestConnect_NewConnackPacket_RejectConnection(t *testing.T) {
 		2,    //Invalid Protocol Level
 		206,  //Connect Flags 11001100 username=1 password=1 Will Flag = 1 WillRetain=0 Will Qos=1 CleanSession=1
 		0, 0, //KeepAlive
-		0, 1, 0x31, //clientId
+		0, 1, 0x31, //clientID
 		0, 4, 116, 101, 115, 116, //Will Topic
 		0, 12, 84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100, //Will Message
 		0, 8, 116, 101, 115, 116, 117, 115, 101, 114, //Username
@@ -125,7 +125,7 @@ func TestConnect_NewConnackPacket_Success(t *testing.T) {
 		4,    // Protocol Level
 		204,  //Connect Flags 11001100 username=1 password=1 Will Flag = 1 WillRetain=0 Will Qos=1 CleanSession=0
 		0, 0, //KeepAlive
-		0, 1, 0x31, //clientId
+		0, 1, 0x31, //clientID
 		0, 4, 116, 101, 115, 116, //Will Topic
 		0, 12, 84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100, //Will Message
 		0, 8, 116, 101, 115, 116, 117, 115, 101, 114, //Username
@@ -139,8 +139,8 @@ func TestConnect_NewConnackPacket_Success(t *testing.T) {
 
 	connectPacket := packet.(*Connect)
 	connackPacket := connectPacket.NewConnackPacket(true)
-	if connackPacket.Code != CODE_ACCEPTED {
-		t.Fatalf("connack.Code should be %d, but %d", CODE_ACCEPTED, connackPacket.Code)
+	if connackPacket.Code != CodeAccepted {
+		t.Fatalf("connack.Code should be %d, but %d", CodeAccepted, connackPacket.Code)
 	}
 
 	if connackPacket.Code != connectPacket.AckCode {
@@ -164,17 +164,17 @@ func TestWriteConnect(t *testing.T) {
 		willMsg       []byte
 		cleanSession  bool
 		keepAlive     uint16
-		clientId      []byte
+		clientID      []byte
 		username      []byte
 		password      []byte
 	}{
-		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: true, willQos: 2, willFlag: true, willTopic: []byte("messageTopic1"), willMsg: []byte("messageContent1"), cleanSession: true, keepAlive: 60, clientId: []byte("client1"), username: []byte("admin1"), password: []byte("1236")},
-		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: true, willQos: 1, willFlag: true, willTopic: []byte("messageTopic2"), willMsg: []byte("messageContent2"), cleanSession: true, keepAlive: 60, clientId: []byte("client2"), username: []byte(""), password: []byte("")},
-		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: true, keepAlive: 60, clientId: []byte("client3"), username: []byte("admin2"), password: []byte("1234")},
-		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: false, keepAlive: 60, clientId: []byte("client4"), username: []byte("admin3"), password: []byte("123")},
-		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: false, keepAlive: 60, clientId: []byte("client5"), username: []byte("admin4"), password: []byte("1235")},
-		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: true, keepAlive: 60, clientId: []byte(""), username: []byte(""), password: []byte("")},
-		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: true, willQos: 2, willFlag: true, willTopic: []byte("messageTopic3"), willMsg: []byte("messageContent3"), cleanSession: true, keepAlive: 60, clientId: []byte("client6"), username: []byte(""), password: []byte("")},
+		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: true, willQos: 2, willFlag: true, willTopic: []byte("messageTopic1"), willMsg: []byte("messageContent1"), cleanSession: true, keepAlive: 60, clientID: []byte("client1"), username: []byte("admin1"), password: []byte("1236")},
+		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: true, willQos: 1, willFlag: true, willTopic: []byte("messageTopic2"), willMsg: []byte("messageContent2"), cleanSession: true, keepAlive: 60, clientID: []byte("client2"), username: []byte(""), password: []byte("")},
+		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: true, keepAlive: 60, clientID: []byte("client3"), username: []byte("admin2"), password: []byte("1234")},
+		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: false, keepAlive: 60, clientID: []byte("client4"), username: []byte("admin3"), password: []byte("123")},
+		{protocolLevel: 0x04, usernameFlag: true, protocolName: []byte("MQTT"), passwordFlag: true, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: false, keepAlive: 60, clientID: []byte("client5"), username: []byte("admin4"), password: []byte("1235")},
+		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: false, willQos: 0, willFlag: false, willTopic: []byte(""), willMsg: []byte(""), cleanSession: true, keepAlive: 60, clientID: []byte(""), username: []byte(""), password: []byte("")},
+		{protocolLevel: 0x04, usernameFlag: false, protocolName: []byte("MQTT"), passwordFlag: false, willRetain: true, willQos: 2, willFlag: true, willTopic: []byte("messageTopic3"), willMsg: []byte("messageContent3"), cleanSession: true, keepAlive: 60, clientID: []byte("client6"), username: []byte(""), password: []byte("")},
 	}
 
 	for _, v := range tt {
@@ -192,17 +192,17 @@ func TestWriteConnect(t *testing.T) {
 			WillMsg:       v.willMsg,
 			CleanSession:  v.cleanSession,
 			KeepAlive:     v.keepAlive,
-			ClientId:      v.clientId,
+			ClientID:      v.clientID,
 			Username:      v.username,
 			Password:      v.password,
 		}
 		err := NewWriter(buf).WriteAndFlush(con)
 		if err != nil {
-			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.clientId))
+			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.clientID))
 		}
 		packet, err := NewReader(buf).ReadPacket()
 		if err != nil {
-			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.clientId))
+			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.clientID))
 		}
 		n, err := buf.ReadByte()
 		if err != io.EOF {
@@ -212,8 +212,8 @@ func TestWriteConnect(t *testing.T) {
 			if !bytes.Equal(p.WillTopic, con.WillTopic) {
 				t.Fatalf("TopicName error,want %v, got %v", con.WillTopic, p.WillTopic)
 			}
-			if !bytes.Equal(p.ClientId, con.ClientId) {
-				t.Fatalf("ClientId error,want %v, got %v", con.ClientId, p.ClientId)
+			if !bytes.Equal(p.ClientID, con.ClientID) {
+				t.Fatalf("ClientID error,want %v, got %v", con.ClientID, p.ClientID)
 			}
 			if !bytes.Equal(p.Username, con.Username) {
 				t.Fatalf("Username error,want %v, got %v", con.Username, p.Username)

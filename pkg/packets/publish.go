@@ -13,13 +13,13 @@ type Publish struct {
 	Qos       uint8  //qos等级
 	Retain    bool   //是否保留消息
 	TopicName []byte //主题名
-	PacketId         //报文标识符
+	PacketID         //报文标识符
 	Payload   []byte
 }
 
 func (c *Publish) String() string {
 	return fmt.Sprintf("Publish, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
-		c.PacketId, c.Dup, c.Qos, c.Retain, c.TopicName, c.Payload)
+		c.PacketID, c.Dup, c.Qos, c.Retain, c.TopicName, c.Payload)
 }
 
 //copy一份分发
@@ -28,7 +28,7 @@ func (p *Publish) CopyPublish() *Publish {
 		Dup:      p.Dup,
 		Qos:      p.Qos,
 		Retain:   p.Retain,
-		PacketId: p.PacketId,
+		PacketID: p.PacketID,
 	}
 	pub.Payload = make([]byte, len(p.Payload))
 	pub.TopicName = make([]byte, len(p.TopicName))
@@ -83,7 +83,7 @@ func (p *Publish) Pack(w io.Writer) error {
 	w.Write(p.TopicName)
 	if p.Qos == QOS_1 || p.Qos == QOS_2 {
 		pid := make([]byte, 2)
-		binary.BigEndian.PutUint16(pid, p.PacketId)
+		binary.BigEndian.PutUint16(pid, p.PacketID)
 		w.Write(pid)
 	}
 	_, err := w.Write(p.Payload)
@@ -108,7 +108,7 @@ func (p *Publish) Unpack(r io.Reader) error {
 		return ErrInvalTopicName
 	}
 	if p.Qos > QOS_0 {
-		p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+		p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 		restBuffer = restBuffer[2:]
 	}
 	p.Payload = restBuffer
@@ -118,13 +118,13 @@ func (p *Publish) Unpack(r io.Reader) error {
 //qos = 1
 func (p *Publish) NewPuback() *Puback {
 	pub := &Puback{FixHeader: &FixHeader{PacketType: PUBACK, Flags: RESERVED, RemainLength: 2}}
-	pub.PacketId = p.PacketId
+	pub.PacketID = p.PacketID
 	return pub
 }
 
 //qos2
 func (p *Publish) NewPubrec() *Pubrec {
 	pub := &Pubrec{FixHeader: &FixHeader{PacketType: PUBREC, Flags: RESERVED, RemainLength: 2}}
-	pub.PacketId = p.PacketId
+	pub.PacketID = p.PacketID
 	return pub
 }

@@ -14,21 +14,23 @@ import (
 	"time"
 )
 
+// Error
 var (
 	ErrInvalStatus    = errors.New("invalid connection status")
 	ErrConnectTimeOut = errors.New("connect time out")
 )
 
+// Client status
 const (
-	CONNECTING = iota
-	CONNECTED
-	SWITCHING
-	DISCONNECTED
+	Connecting = iota
+	Connected
+	Switiching
+	Disconnected
 )
 const (
-	READ_BUFFER_SIZE  = 4096
-	WRITE_BUFFER_SIZE = 4096
-	REDELIVER_TIME    = 20 //second
+	readBufferSize = 4096
+	writeBufferSize = 4096
+	redeliveryTime = 20
 )
 
 var (
@@ -64,6 +66,8 @@ func putBufioWriter(bw *bufio.Writer) {
 	bufioWriterPool.Put(bw)
 }
 
+
+// Client represents a MQTT client
 type Client struct {
 	server        *Server
 	wg            sync.WaitGroup
@@ -90,53 +94,59 @@ type Client struct {
 	ready chan struct{} //close after session prepared
 }
 
-//Get UserData
-func (c *Client) UserData() interface{} {
-	c.userMutex.Lock()
-	defer c.userMutex.Unlock()
-	return c.userData
+// UserData returns the user data
+func (client *Client) UserData() interface{} {
+	client.userMutex.Lock()
+	defer client.userMutex.Unlock()
+	return client.userData
 }
 
-//Set UserData
-func (c *Client) SetUserData(data interface{}) {
-	c.userMutex.Lock()
-	defer c.userMutex.Unlock()
-	c.userData = data
+// SetUserData is used to bind user data to the client
+func (client *Client) SetUserData(data interface{}) {
+	client.userMutex.Lock()
+	defer client.userMutex.Unlock()
+	client.userData = data
 }
 
 //ClientOptions returns the ClientOptions. This is mainly used in callback functions.
 //See ./example/hook
-func (c *Client) ClientOptions() ClientOptions {
-	opts := *c.opts
-	opts.WillPayload = make([]byte, len(c.opts.WillPayload))
-	copy(opts.WillPayload, c.opts.WillPayload)
+func (client *Client) ClientOptions() ClientOptions {
+	opts := *client.opts
+	opts.WillPayload = make([]byte, len(client.opts.WillPayload))
+	copy(opts.WillPayload, client.opts.WillPayload)
 	return opts
 }
 
-func (c *Client) setConnecting() {
-	atomic.StoreInt32(&c.status, CONNECTING)
+func (client *Client) setConnecting() {
+	atomic.StoreInt32(&client.status, Connecting)
 }
 
-func (c *Client) setSwitching() {
-	atomic.StoreInt32(&c.status, SWITCHING)
+func (client *Client) setSwitching() {
+	atomic.StoreInt32(&client.status, Switiching)
 }
 
-func (c *Client) setConnected() {
-	atomic.StoreInt32(&c.status, CONNECTED)
+func (client *Client) setConnected() {
+	atomic.StoreInt32(&client.status, Connected)
 }
 
-func (c *Client) setDisConnected() {
-	atomic.StoreInt32(&c.status, DISCONNECTED)
+func (client *Client) setDisConnected() {
+	atomic.StoreInt32(&client.status, Disconnected)
 }
 
 //Status returns client's status
-func (c *Client) Status() int32 {
-	return atomic.LoadInt32(&c.status)
+func (client *Client) Status() int32 {
+	return atomic.LoadInt32(&client.status)
 }
 
-//ClientOptions
+// IsConnected returns whether the client is connected or not.
+func (client *Client) IsConnected() bool {
+	return client.Status() == Connected
+}
+
+//ClientOptions is mainly used in callback functions.
+//See ClientOptions()
 type ClientOptions struct {
-	ClientId     string
+	ClientID     string
 	Username     string
 	Password     string
 	KeepAlive    uint16
@@ -202,7 +212,7 @@ func (client *Client) readLoop() {
 	}()
 	for {
 		var packet packets.Packet
-		if client.Status() == CONNECTED {
+		if client.IsConnected() {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
@@ -233,11 +243,10 @@ func (client *Client) errorWatch() {
 	}
 }
 
-/*
- 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
 
- Close closes the client connection. The returned channel will be closed after unregister process has been done
-*/
+// Close 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
+//
+// Close closes the client connection. The returned channel will be closed after unregister process has been done
 func (client *Client) Close() <-chan struct{} {
 	client.setError(nil)
 	return client.closeComplete
@@ -267,7 +276,7 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 		err = ErrInvalStatus
 		return
 	}
-	client.opts.ClientId = string(conn.ClientId)
+	client.opts.ClientID = string(conn.ClientID)
 	client.opts.KeepAlive = conn.KeepAlive
 	client.opts.CleanSession = conn.CleanSession
 	client.opts.Username = string(conn.Username)
@@ -302,10 +311,10 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 
 func (client *Client) newSession() {
 	s := &session{
-		unackpublish:        make(map[packets.PacketId]bool),
+		unackpublish:        make(map[packets.PacketID]bool),
 		inflight:            list.New(),
 		msgQueue:            list.New(),
-		lockedPid:           make(map[packets.PacketId]bool),
+		lockedPid:           make(map[packets.PacketID]bool),
 		freePid:             1,
 		maxInflightMessages: client.server.config.maxInflightMessages,
 		maxQueueMessages:    client.server.config.maxQueueMessages,
@@ -315,7 +324,7 @@ func (client *Client) newSession() {
 
 func (client *Client) internalClose() {
 	defer close(client.closeComplete)
-	if client.Status() != SWITCHING {
+	if client.Status() != Switiching {
 		unregister := &unregister{client: client, done: make(chan struct{})}
 		client.server.unregister <- unregister
 		<-unregister.done
@@ -328,13 +337,13 @@ func (client *Client) internalClose() {
 }
 
 func (client *Client) publish(publish *packets.Publish) {
-	if client.Status() == CONNECTED { //在线消息
+	if client.Status() == Connected { //在线消息
 		if publish.Qos >= packets.QOS_1 {
 			if publish.Dup == true {
 				//redelivery on reconnect,use the original packet id
-				client.session.setPacketId(publish.PacketId)
+				client.session.setPacketID(publish.PacketID)
 			} else {
-				publish.PacketId = client.session.getPacketId()
+				publish.PacketID = client.session.getPacketID()
 			}
 			if !client.setInflight(publish) {
 				return
@@ -378,12 +387,12 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 				Name: v.Name,
 				Qos:  suback.Payload[k],
 			}
-			if srv.subscribe(client.opts.ClientId, topic) {
+			if srv.subscribe(client.opts.ClientID, topic) {
 				isNew = true
 			}
 			if client.server.Monitor != nil {
 				client.server.Monitor.subscribe(SubscriptionsInfo{
-					ClientId: client.opts.ClientId,
+					ClientID: client.opts.ClientID,
 					Qos:      suback.Payload[k],
 					Name:     v.Name,
 					At:       time.Now(),
@@ -415,10 +424,10 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 	if pub.Qos == packets.QOS_2 {
 		pubrec := pub.NewPubrec()
 		client.write(pubrec)
-		if _, ok := s.unackpublish[pub.PacketId]; ok {
+		if _, ok := s.unackpublish[pub.PacketID]; ok {
 			dup = true
 		} else {
-			s.unackpublish[pub.PacketId] = true
+			s.unackpublish[pub.PacketID] = true
 		}
 	}
 	if pub.Retain {
@@ -451,7 +460,7 @@ func (client *Client) pubackHandler(puback *packets.Puback) {
 	client.unsetInflight(puback)
 }
 func (client *Client) pubrelHandler(pubrel *packets.Pubrel) {
-	delete(client.session.unackpublish, pubrel.PacketId)
+	delete(client.session.unackpublish, pubrel.PacketID)
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
 }
@@ -475,9 +484,9 @@ func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	defer srv.subscriptionsDB.Unlock()
 
 	for _, topicName := range unSub.Topics {
-		srv.unsubscribe(client.opts.ClientId, topicName)
+		srv.unsubscribe(client.opts.ClientID, topicName)
 		if client.server.Monitor != nil {
-			client.server.Monitor.unSubscribe(client.opts.ClientId, topicName)
+			client.server.Monitor.unSubscribe(client.opts.ClientID, topicName)
 		}
 	}
 }

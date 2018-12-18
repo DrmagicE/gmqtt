@@ -9,11 +9,11 @@ import (
 //响应
 type Unsuback struct {
 	FixHeader *FixHeader
-	PacketId  PacketId
+	PacketID  PacketID
 }
 
 func (c *Unsuback) String() string {
-	return fmt.Sprintf("Unsuback, Pid: %v", c.PacketId)
+	return fmt.Sprintf("Unsuback, Pid: %v", c.PacketID)
 }
 
 func (p *Unsuback) Pack(w io.Writer) error {
@@ -25,7 +25,7 @@ func (p *Unsuback) Pack(w io.Writer) error {
 		return err
 	}
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketId)
+	binary.BigEndian.PutUint16(pid, p.PacketID)
 	_, err = w.Write(pid)
 	return err
 }
@@ -39,7 +39,7 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 	return nil
 }
 

@@ -19,10 +19,10 @@ type Server struct {
 	connected  int64 //connected client
 }
 
-func (srv *Server) connect(clientId string) (mqtt.Client, error) {
+func (srv *Server) connect(clientID string) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	opts.SetUsername(srv.Options.Username)
-	opts.SetClientID(clientId)
+	opts.SetClientID(clientID)
 	opts.SetPassword(srv.Options.Password)
 	opts.SetCleanSession(srv.Options.CleanSession)
 	opts.SetProtocolVersion(4)

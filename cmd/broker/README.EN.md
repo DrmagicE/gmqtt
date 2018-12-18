@@ -75,7 +75,7 @@ Response:
 
 ```
 
-### Get Client By Id
+### Get Client By ID
 Request:
 ```
 GET /client/:id
@@ -128,7 +128,7 @@ Response:
 }
 ```
 
-### Get Session By Id
+### Get Session By ID
 
 Request:
 ```
@@ -184,7 +184,7 @@ Response:
 }
 ```
 
-### Get Subscriptions of the Client By Id
+### Get Subscriptions of the Client By ID
 
 Request:
 ```
@@ -248,7 +248,7 @@ Post Form:
 ```
 qos : qos level
 topic : topic filter
-clientId : client id
+clientID : client id
 ```
 
 Response:
@@ -268,7 +268,7 @@ POST /unsubscribe
 Post Form:
 ```
 topic : topic name
-clientId : client id
+clientID : client id
 ```
 
 Response:

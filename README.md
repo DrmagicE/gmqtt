@@ -124,9 +124,9 @@ server.RegisterOnConnect(func(client *server.Client) (code uint8) {
   username := client.ClientOptions().Username
   password := client.ClientOptions().Password
   if validateUser(username, password) { //鉴权信息可能保存在数据库，文件，内存等地方
-    return packets.CODE_ACCEPTED
+    return packets.CodeAccepted
   } else {
-    return packets.CODE_BAD_USERNAME_OR_PSW
+    return packets.CodeBadUsernameorPsw
   }
 })
 

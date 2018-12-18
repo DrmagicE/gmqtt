@@ -122,9 +122,9 @@ server.RegisterOnConnect(func(client *server.Client) (code uint8) {
   username := client.ClientOptions().Username
   password := client.ClientOptions().Password
   if validateUser(username, password) { //Authentication info may save in DB,File System, memory, etc.
-    return packets.CODE_ACCEPTED
+    return packets.CodeAccepted
   } else {
-    return packets.CODE_BAD_USERNAME_OR_PSW
+    return packets.CodeBadUsernameorPsw
   }
 })
 

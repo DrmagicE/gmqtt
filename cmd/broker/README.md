@@ -248,7 +248,7 @@ POST请求参数：
 ```
 qos : qos等级
 topic : 订阅的主题名称
-clientId : 订阅的客户端id
+clientID : 订阅的客户端id
 ```
 
 响应格式：
@@ -268,7 +268,7 @@ POST /unsubscribe
 POST请求参数：
 ```
 topic : 需要取消订阅的主题名称
-clientId : 需要取消订阅的客户端id
+clientID : 需要取消订阅的客户端id
 ```
 
 响应格式：

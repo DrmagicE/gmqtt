@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
-const STATUS_ONLINE = "online"
-const STATUS_OFFLINE = "offline"
+// Client Status
+const (
+	StatusOnline  = "online"
+	StatusOffline = "offline"
+)
 
 // MonitorRepository is an interface which can be used to provide a persistence mechanics for the monitor data
 type MonitorRepository interface {
@@ -15,28 +18,28 @@ type MonitorRepository interface {
 	Close() error
 	//PutClient puts a ClientInfo into the repository when the client connects
 	PutClient(info ClientInfo)
-	//GetClient returns the ClientInfo for the given clientId
-	GetClient(clientId string) (ClientInfo, bool)
+	//GetClient returns the ClientInfo for the given clientID
+	GetClient(clientID string) (ClientInfo, bool)
 	//Clients returns ClientList which is the list for all connected clients, this method should be idempotency
 	Clients() ClientList
 	//DelClient deletes the ClientInfo from repository
-	DelClient(clientId string)
+	DelClient(clientID string)
 	//PutSession puts a SessionInfo into monitor repository when the client is connects
 	PutSession(info SessionInfo)
-	//GetSession returns the SessionInfo for the given clientId
-	GetSession(clientId string) (SessionInfo, bool)
+	//GetSession returns the SessionInfo for the given clientID
+	GetSession(clientID string) (SessionInfo, bool)
 	//Sessions returns SessionList which is the list for all sessions including online sessions and offline sessions, this method should be idempotency
 	Sessions() SessionList
 	//DelSession deletes the SessionInfo from repository
-	DelSession(clientId string)
-	//ClientSubscriptions returns the SubscriptionList for given clientId, this method should be idempotency
-	ClientSubscriptions(clientId string) SubscriptionList
-	//DelClientSubscriptions deletes the subscription info for given clientId from the repository
-	DelClientSubscriptions(clientId string)
+	DelSession(clientID string)
+	//ClientSubscriptions returns the SubscriptionList for given clientID, this method should be idempotency
+	ClientSubscriptions(clientID string) SubscriptionList
+	//DelClientSubscriptions deletes the subscription info for given clientID from the repository
+	DelClientSubscriptions(clientID string)
 	//PutSubscription puts the SubscriptionsInfo into the repository when a new subscription is made
 	PutSubscription(info SubscriptionsInfo)
-	//DelSubscription deletes the topic for given clientId from repository
-	DelSubscription(clientId string, topicName string)
+	//DelSubscription deletes the topic for given clientID from repository
+	DelSubscription(clientID string, topicName string)
 	//Subscriptions returns all  subscriptions of the server
 	Subscriptions() SubscriptionList
 }
@@ -51,17 +54,17 @@ type Monitor struct {
 type MonitorStore struct {
 	clients       map[string]ClientInfo
 	sessions      map[string]SessionInfo
-	subscriptions map[string]map[string]SubscriptionsInfo //[clientId][topicName]
+	subscriptions map[string]map[string]SubscriptionsInfo //[clientID][topicName]
 }
 
 // register puts the session and client info into repository when a new client connects
 func (m *Monitor) register(client *Client, sessionReuse bool) {
 	m.Lock()
 	defer m.Unlock()
-	clientId := client.opts.ClientId
+	clientID := client.opts.ClientID
 	username := client.opts.Username
 	cinfo := ClientInfo{
-		ClientId:     clientId,
+		ClientID:     clientID,
 		Username:     username,
 		RemoteAddr:   client.rwc.RemoteAddr().String(),
 		CleanSession: client.opts.CleanSession,
@@ -76,11 +79,11 @@ func (m *Monitor) register(client *Client, sessionReuse bool) {
 		msgQueueLen := client.session.msgQueue.Len()
 		client.session.inflightMu.Unlock()
 		client.session.msgQueueMu.Unlock()
-		/*		sub := m.Repository.ClientSubscriptions(clientId)
-				m.Repository.PutClientSubscriptions(clientId ,sub)*/
-		if c, ok := m.Repository.GetSession(clientId); ok {
+		/*		sub := m.Repository.ClientSubscriptions(clientID)
+				m.Repository.PutClientSubscriptions(clientID ,sub)*/
+		if c, ok := m.Repository.GetSession(clientID); ok {
 			c.ConnectedAt = time.Now()
-			c.Status = STATUS_ONLINE
+			c.Status = StatusOnline
 			c.InflightLen = inflightLen
 			c.MsgQueueLen = msgQueueLen
 			m.Repository.PutSession(c)
@@ -88,8 +91,8 @@ func (m *Monitor) register(client *Client, sessionReuse bool) {
 		}
 	}
 	m.Repository.PutSession(SessionInfo{
-		ClientId:        clientId,
-		Status:          STATUS_ONLINE,
+		ClientID:        clientID,
+		Status:          StatusOffline,
 		RemoteAddr:      client.rwc.RemoteAddr().String(),
 		CleanSession:    client.opts.CleanSession,
 		Subscriptions:   0,
@@ -104,17 +107,17 @@ func (m *Monitor) register(client *Client, sessionReuse bool) {
 }
 
 // unRegister deletes the session(if cleanSession = true) and client info from repository when a client disconnects
-func (m *Monitor) unRegister(clientId string, cleanSession bool) {
+func (m *Monitor) unRegister(clientID string, cleanSession bool) {
 	m.Lock()
 	defer m.Unlock()
-	m.Repository.DelClient(clientId)
+	m.Repository.DelClient(clientID)
 	if cleanSession {
-		m.Repository.DelSession(clientId)
-		m.Repository.DelClientSubscriptions(clientId)
+		m.Repository.DelSession(clientID)
+		m.Repository.DelClientSubscriptions(clientID)
 	} else {
-		if s, ok := m.Repository.GetSession(clientId); ok {
+		if s, ok := m.Repository.GetSession(clientID); ok {
 			s.OfflineAt = time.Now()
-			s.Status = STATUS_OFFLINE
+			s.Status = StatusOffline
 			m.Repository.PutSession(s)
 		}
 	}
@@ -125,8 +128,8 @@ func (m *Monitor) subscribe(info SubscriptionsInfo) {
 	m.Lock()
 	defer m.Unlock()
 	m.Repository.PutSubscription(info)
-	list := m.Repository.ClientSubscriptions(info.ClientId)
-	if s, ok := m.Repository.GetSession(info.ClientId); ok {
+	list := m.Repository.ClientSubscriptions(info.ClientID)
+	if s, ok := m.Repository.GetSession(info.ClientID); ok {
 		s.Subscriptions = len(list)
 		m.Repository.PutSession(s)
 	}
@@ -134,52 +137,52 @@ func (m *Monitor) subscribe(info SubscriptionsInfo) {
 }
 
 // unSubscribe deletes the subscription info from repository
-func (m *Monitor) unSubscribe(clientId string, topicName string) {
+func (m *Monitor) unSubscribe(clientID string, topicName string) {
 	m.Lock()
 	defer m.Unlock()
-	m.Repository.DelSubscription(clientId, topicName)
-	list := m.Repository.ClientSubscriptions(clientId)
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	m.Repository.DelSubscription(clientID, topicName)
+	list := m.Repository.ClientSubscriptions(clientID)
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.Subscriptions = len(list)
 		m.Repository.PutSession(s)
 	}
 }
-func (m *Monitor) addInflight(clientId string) {
+func (m *Monitor) addInflight(clientID string) {
 	m.Lock()
 	defer m.Unlock()
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.InflightLen++
 		m.Repository.PutSession(s)
 	}
 }
-func (m *Monitor) delInflight(clientId string) {
+func (m *Monitor) delInflight(clientID string) {
 	m.Lock()
 	defer m.Unlock()
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.InflightLen--
 		m.Repository.PutSession(s)
 	}
 }
-func (m *Monitor) msgEnQueue(clientId string) {
+func (m *Monitor) msgEnQueue(clientID string) {
 	m.Lock()
 	defer m.Unlock()
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.MsgQueueLen++
 		m.Repository.PutSession(s)
 	}
 }
-func (m *Monitor) msgDeQueue(clientId string) {
+func (m *Monitor) msgDeQueue(clientID string) {
 	m.Lock()
 	defer m.Unlock()
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.MsgQueueLen--
 		m.Repository.PutSession(s)
 	}
 }
-func (m *Monitor) msgQueueDropped(clientId string) {
+func (m *Monitor) msgQueueDropped(clientID string) {
 	m.Lock()
 	defer m.Unlock()
-	if s, ok := m.Repository.GetSession(clientId); ok {
+	if s, ok := m.Repository.GetSession(clientID); ok {
 		s.MsgQueueDropped++
 		m.Repository.PutSession(s)
 	}
@@ -192,11 +195,11 @@ func (m *Monitor) Clients() ClientList {
 	return m.Repository.Clients()
 }
 
-// GetClient returns the client info for the given clientId
-func (m *Monitor) GetClient(clientId string) (ClientInfo, bool) {
+// GetClient returns the client info for the given clientID
+func (m *Monitor) GetClient(clientID string) (ClientInfo, bool) {
 	m.Lock()
 	defer m.Unlock()
-	return m.Repository.GetClient(clientId)
+	return m.Repository.GetClient(clientID)
 }
 
 //Sessions returns the session info for all  sessions
@@ -206,18 +209,18 @@ func (m *Monitor) Sessions() SessionList {
 	return m.Repository.Sessions()
 }
 
-// GetSession returns the session info for the given clientId
-func (m *Monitor) GetSession(clientId string) (SessionInfo, bool) {
+// GetSession returns the session info for the given clientID
+func (m *Monitor) GetSession(clientID string) (SessionInfo, bool) {
 	m.Lock()
 	defer m.Unlock()
-	return m.Repository.GetSession(clientId)
+	return m.Repository.GetSession(clientID)
 }
 
-// ClientSubscriptions returns the subscription info for the given clientId
-func (m *Monitor) ClientSubscriptions(clientId string) SubscriptionList {
+// ClientSubscriptions returns the subscription info for the given clientID
+func (m *Monitor) ClientSubscriptions(clientID string) SubscriptionList {
 	m.Lock()
 	defer m.Unlock()
-	return m.Repository.ClientSubscriptions(clientId)
+	return m.Repository.ClientSubscriptions(clientID)
 }
 
 // Subscriptions returns all  subscription info
@@ -229,11 +232,12 @@ func (m *Monitor) Subscriptions() SubscriptionList {
 
 // SubscriptionsInfo represents a subscription of a session
 type SubscriptionsInfo struct {
-	ClientId string    `json:"client_id"`
+	ClientID string    `json:"client_id"`
 	Qos      uint8     `json:"qos"`
 	Name     string    `json:"name"`
 	At       time.Time `json:"at"`
 }
+// SubscriptionList is SubscriptionsInfo slice
 type SubscriptionList []SubscriptionsInfo
 
 func (s SubscriptionList) Len() int           { return len(s) }
@@ -242,13 +246,15 @@ func (s SubscriptionList) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
 // ClientInfo represents a connected client
 type ClientInfo struct {
-	ClientId     string    `json:"client_id"`
+	ClientID     string    `json:"client_id"`
 	Username     string    `json:"username"`
 	RemoteAddr   string    `json:"remote_addr"`
 	CleanSession bool      `json:"clean_session"`
 	KeepAlive    uint16    `json:"keep_alive"`
 	ConnectedAt  time.Time `json:"connected_at"`
 }
+
+// ClientList represents ClientInfo slice
 type ClientList []ClientInfo
 
 func (c ClientList) Len() int { return len(c) }
@@ -259,7 +265,7 @@ func (c ClientList) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
 
 // SessionInfo represents a session
 type SessionInfo struct {
-	ClientId        string    `json:"client_id"`
+	ClientID        string    `json:"client_id"`
 	Status          string    `json:"status"`
 	RemoteAddr      string    `json:"remote_addr"`
 	CleanSession    bool      `json:"clean_session"`
@@ -272,6 +278,7 @@ type SessionInfo struct {
 	ConnectedAt     time.Time `json:"connected_at"`
 	OfflineAt       time.Time `json:"offline_at,omitempty"`
 }
+// SessionList represent SessionInfo slice
 type SessionList []SessionInfo
 
 func (s SessionList) Len() int { return len(s) }
@@ -281,10 +288,10 @@ func (s SessionList) Less(i, j int) bool {
 func (s SessionList) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func (m *MonitorStore) PutClient(info ClientInfo) {
-	m.clients[info.ClientId] = info
+	m.clients[info.ClientID] = info
 }
-func (m *MonitorStore) GetClient(clientId string) (ClientInfo, bool) {
-	info, ok := m.clients[clientId]
+func (m *MonitorStore) GetClient(clientID string) (ClientInfo, bool) {
+	info, ok := m.clients[clientID]
 	return info, ok
 }
 func (m *MonitorStore) Clients() ClientList {
@@ -299,14 +306,14 @@ func (m *MonitorStore) Clients() ClientList {
 	sort.Sort(list)
 	return list
 }
-func (m *MonitorStore) DelClient(clientId string) {
-	delete(m.clients, clientId)
+func (m *MonitorStore) DelClient(clientID string) {
+	delete(m.clients, clientID)
 }
 func (m *MonitorStore) PutSession(info SessionInfo) {
-	m.sessions[info.ClientId] = info
+	m.sessions[info.ClientID] = info
 }
-func (m *MonitorStore) GetSession(clientId string) (SessionInfo, bool) {
-	s, ok := m.sessions[clientId]
+func (m *MonitorStore) GetSession(clientID string) (SessionInfo, bool) {
+	s, ok := m.sessions[clientID]
 	return s, ok
 }
 func (m *MonitorStore) Sessions() SessionList {
@@ -321,33 +328,33 @@ func (m *MonitorStore) Sessions() SessionList {
 	sort.Sort(list)
 	return list
 }
-func (m *MonitorStore) DelSession(clientId string) {
-	delete(m.sessions, clientId)
+func (m *MonitorStore) DelSession(clientID string) {
+	delete(m.sessions, clientID)
 }
-func (m *MonitorStore) ClientSubscriptions(clientId string) SubscriptionList {
-	mlen := len(m.subscriptions[clientId])
+func (m *MonitorStore) ClientSubscriptions(clientID string) SubscriptionList {
+	mlen := len(m.subscriptions[clientID])
 	if mlen == 0 {
 		return nil
 	}
 	list := make(SubscriptionList, 0, mlen)
-	for _, v := range m.subscriptions[clientId] {
+	for _, v := range m.subscriptions[clientID] {
 		list = append(list, v)
 	}
 	sort.Sort(list)
 	return list
 }
-func (m *MonitorStore) DelClientSubscriptions(clientId string) {
-	delete(m.subscriptions, clientId)
+func (m *MonitorStore) DelClientSubscriptions(clientID string) {
+	delete(m.subscriptions, clientID)
 }
 func (m *MonitorStore) PutSubscription(info SubscriptionsInfo) {
-	if _, ok := m.subscriptions[info.ClientId]; !ok {
-		m.subscriptions[info.ClientId] = make(map[string]SubscriptionsInfo)
+	if _, ok := m.subscriptions[info.ClientID]; !ok {
+		m.subscriptions[info.ClientID] = make(map[string]SubscriptionsInfo)
 	}
-	m.subscriptions[info.ClientId][info.Name] = info
+	m.subscriptions[info.ClientID][info.Name] = info
 }
-func (m *MonitorStore) DelSubscription(clientId string, topicName string) {
-	if _, ok := m.subscriptions[clientId]; ok {
-		delete(m.subscriptions[clientId], topicName)
+func (m *MonitorStore) DelSubscription(clientID string, topicName string) {
+	if _, ok := m.subscriptions[clientID]; ok {
+		delete(m.subscriptions[clientID], topicName)
 	}
 }
 func (m *MonitorStore) Subscriptions() SubscriptionList {

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const max_inflight_messages = 65535
+const maxInflightMessages = 65535
 
 type session struct {
 	inflightMu sync.Mutex //gard inflight
@@ -17,10 +17,10 @@ type session struct {
 	//QOS=2 的情况下，判断报文是否是客户端重发报文，如果重发，则不分发.
 	// 确保[MQTT-4.3.3-2]中：在收发送PUBREC报文确认任何到对应的PUBREL报文之前，接收者必须后续的具有相同标识符的PUBLISH报文。
 	// 在这种情况下，它不能重复分发消息给任何后续的接收者
-	unackpublish map[packets.PacketId]bool //[MQTT-4.3.3-2]
-	pidMu        sync.RWMutex              //gard lockedPid & freeId
-	lockedPid    map[packets.PacketId]bool //Pid inuse
-	freePid      packets.PacketId          //下一个可以使用的freeId
+	unackpublish map[packets.PacketID]bool //[MQTT-4.3.3-2]
+	pidMu        sync.RWMutex              //gard lockedPid & freeID
+	lockedPid    map[packets.PacketID]bool //Pid inuse
+	freePid      packets.PacketID          //下一个可以使用的freeID
 	//config
 	maxInflightMessages int
 	maxQueueMessages    int
@@ -28,7 +28,7 @@ type session struct {
 
 type InflightElem struct {
 	At     time.Time //queued at
-	Pid    packets.PacketId
+	Pid    packets.PacketID
 	Packet *packets.Publish
 	Step   int
 }
@@ -49,10 +49,10 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 	defer s.msgQueueMu.Unlock()
 	if s.msgQueue.Len() >= s.maxQueueMessages && s.maxQueueMessages != 0 {
 		if client.server.Monitor != nil {
-			client.server.Monitor.msgQueueDropped(client.opts.ClientId)
+			client.server.Monitor.msgQueueDropped(client.opts.ClientID)
 		}
 		if log != nil {
-			log.Printf("%-15s[%s]", "msg queue is overflow, removing msg. ", client.ClientOptions().ClientId)
+			log.Printf("%-15s[%s]", "msg queue is overflow, removing msg. ", client.ClientOptions().ClientID)
 		}
 		var removeMsg *list.Element
 		for e := s.msgQueue.Front(); e != nil; e = e.Next() {
@@ -66,7 +66,7 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
 			s.msgQueue.Remove(removeMsg)
 			if log != nil {
-				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.ClientOptions().ClientId, removeMsg.Value.(packets.Packet))
+				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.ClientOptions().ClientID, removeMsg.Value.(packets.Packet))
 			}
 		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
 			return
@@ -75,11 +75,11 @@ func (client *Client) msgEnQueue(publish *packets.Publish) {
 			s.msgQueue.Remove(e)
 			if log != nil {
 				p := e.Value.(packets.Packet)
-				log.Printf("%-15s[%s],packet: %s ", "first msg removed", client.ClientOptions().ClientId, p)
+				log.Printf("%-15s[%s],packet: %s ", "first msg removed", client.ClientOptions().ClientID, p)
 			}
 		}
 	} else if client.server.Monitor != nil {
-		client.server.Monitor.msgEnQueue(client.opts.ClientId)
+		client.server.Monitor.msgEnQueue(client.opts.ClientID)
 	}
 	s.msgQueue.PushBack(publish)
 
@@ -93,11 +93,11 @@ func (client *Client) msgDequeue() *packets.Publish {
 	if s.msgQueue.Len() > 0 {
 		queueElem := s.msgQueue.Front()
 		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "sending queued msg ", client.ClientOptions().ClientId, queueElem.Value.(*packets.Publish))
+			log.Printf("%-15s[%s],packet: %s ", "sending queued msg ", client.ClientOptions().ClientID, queueElem.Value.(*packets.Publish))
 		}
 		s.msgQueue.Remove(queueElem)
 		if client.server.Monitor != nil {
-			client.server.Monitor.msgDeQueue(client.opts.ClientId)
+			client.server.Monitor.msgDeQueue(client.opts.ClientID)
 		}
 		return queueElem.Value.(*packets.Publish)
 	}
@@ -112,18 +112,18 @@ func (client *Client) setInflight(publish *packets.Publish) (enqueue bool) {
 	defer s.inflightMu.Unlock()
 	defer func() {
 		if enqueue && client.server.Monitor != nil {
-			client.server.Monitor.addInflight(client.opts.ClientId)
+			client.server.Monitor.addInflight(client.opts.ClientID)
 		}
 	}()
 	elem := &InflightElem{
 		At:     time.Now(),
-		Pid:    publish.PacketId,
+		Pid:    publish.PacketID,
 		Packet: publish,
 		Step:   0,
 	}
 	if s.inflight.Len() >= s.maxInflightMessages && s.maxInflightMessages != 0 { //加入缓存队列
 		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "inflight window is overflow, saving msg into msgQueue", client.ClientOptions().ClientId, elem.Packet)
+			log.Printf("%-15s[%s],packet: %s ", "inflight window is overflow, saving msg into msgQueue", client.ClientOptions().ClientID, elem.Packet)
 		}
 		client.msgEnQueue(publish)
 		enqueue = false
@@ -141,8 +141,8 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 	s := client.session
 	s.inflightMu.Lock()
 	defer s.inflightMu.Unlock()
-	var freeId bool
-	var pid packets.PacketId
+	var freeID bool
+	var pid packets.PacketID
 	var isRemove bool
 	for e := s.inflight.Front(); e != nil; e = e.Next() {
 		if el, ok := e.Value.(*InflightElem); ok {
@@ -151,47 +151,47 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 				if el.Packet.Qos != packets.QOS_1 {
 					continue
 				}
-				pid = packet.(*packets.Puback).PacketId
-				freeId = true
+				pid = packet.(*packets.Puback).PacketID
+				freeID = true
 				isRemove = true
 			case *packets.Pubrec: //QOS2
 				if el.Packet.Qos != packets.QOS_2 && el.Step != 0 {
 					continue
 				}
-				pid = packet.(*packets.Pubrec).PacketId
+				pid = packet.(*packets.Pubrec).PacketID
 			case *packets.Pubcomp: //QOS2
 				if el.Packet.Qos != packets.QOS_2 && el.Step != 1 {
 					continue
 				}
-				freeId = true //[MQTT-4.3.3-1]. 一旦发送者收到PUBCOMP报文，这个报文标识符就可以重用。
+				freeID = true //[MQTT-4.3.3-1]. 一旦发送者收到PUBCOMP报文，这个报文标识符就可以重用。
 				isRemove = true
-				pid = packet.(*packets.Pubcomp).PacketId
+				pid = packet.(*packets.Pubcomp).PacketID
 			}
 			if pid == el.Pid {
 				if isRemove {
 					s.inflight.Remove(e)
 					if log != nil {
-						log.Printf("%-15s[%s],packet: %s ", "inflight msg released ", client.ClientOptions().ClientId, packet)
+						log.Printf("%-15s[%s],packet: %s ", "inflight msg released ", client.ClientOptions().ClientID, packet)
 					}
 					publish := client.msgDequeue()
 					if publish != nil {
 						elem := &InflightElem{
 							At:     time.Now(),
-							Pid:    publish.PacketId,
+							Pid:    publish.PacketID,
 							Packet: publish,
 							Step:   0,
 						}
 						s.inflight.PushBack(elem)
 						client.out <- publish
 					} else if client.server.Monitor != nil {
-						client.server.Monitor.delInflight(client.opts.ClientId)
+						client.server.Monitor.delInflight(client.opts.ClientID)
 
 					}
 				} else {
 					el.Step++
 				}
-				if freeId {
-					s.freePacketId(pid)
+				if freeID {
+					s.freePacketID(pid)
 				}
 				return
 			}
@@ -200,19 +200,19 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 
 }
 
-func (s *session) freePacketId(id packets.PacketId) {
+func (s *session) freePacketID(id packets.PacketID) {
 	s.pidMu.Lock()
 	defer s.pidMu.Unlock()
 	s.lockedPid[id] = false
 }
 
-func (s *session) setPacketId(id packets.PacketId) {
+func (s *session) setPacketID(id packets.PacketID) {
 	s.pidMu.Lock()
 	defer s.pidMu.Unlock()
 	s.lockedPid[id] = true
 }
 
-func (s *session) getPacketId() packets.PacketId {
+func (s *session) getPacketID() packets.PacketID {
 	s.pidMu.RLock()
 	defer s.pidMu.RUnlock()
 	for s.lockedPid[s.freePid] {

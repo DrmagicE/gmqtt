@@ -11,9 +11,9 @@ func TestWriteConnack(t *testing.T) {
 		connack *Connack
 		want    []byte
 	}{
-		{connack: &Connack{Code: CODE_ACCEPTED, SessionPresent: 1}, want: []byte{0x20, 2, 1, 0}},
-		{connack: &Connack{Code: CODE_ACCEPTED, SessionPresent: 0}, want: []byte{0x20, 2, 0, 0}},
-		{connack: &Connack{Code: CODE_NOT_AUTHORIZED, SessionPresent: 0}, want: []byte{0x20, 2, 0, 0x05}},
+		{connack: &Connack{Code: CodeAccepted, SessionPresent: 1}, want: []byte{0x20, 2, 1, 0}},
+		{connack: &Connack{Code: CodeAccepted, SessionPresent: 0}, want: []byte{0x20, 2, 0, 0}},
+		{connack: &Connack{Code: CodeNotAuthorized, SessionPresent: 0}, want: []byte{0x20, 2, 0, 0x05}},
 	}
 	for _, v := range tt {
 		connack := v.connack

@@ -31,8 +31,8 @@ func TestReadUnSubscribePacketWithOneTopic(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Unsubscribe); ok {
-		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
+		if p.PacketID != 10 {
+			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
 		}
 		if len(p.Topics) != 1 {
 			t.Fatalf("len error,want %d, got %d", 1, len(p.Topics))
@@ -53,8 +53,8 @@ func TestReadUnSubscribePacketWith3Topics(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Unsubscribe); ok {
-		if p.PacketId != 10 {
-			t.Fatalf("PacketId error,want %d, got %d", 10, p.PacketId)
+		if p.PacketID != 10 {
+			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
 		}
 		if len(p.Topics) != 3 {
 			t.Fatalf("len error,want %d, got %d", 3, len(p.Topics))
@@ -76,31 +76,31 @@ func TestReadUnSubscribePacketWith3Topics(t *testing.T) {
 
 func TestWriteUnSubscribePacket(t *testing.T) {
 	var tt = []struct {
-		packetId PacketId
+		packetID PacketID
 		topics   []string
 	}{
-		{packetId: 10, topics: []string{"a/b/c"}},
-		{packetId: 266, topics: []string{"a/b/c/d"}},
-		{packetId: 522, topics: []string{"a/b/c/d/e"}},
-		{packetId: 10, topics: []string{"a/b/c", "a/b/cc", "a/b/ccc"}},
-		{packetId: 266, topics: []string{"a/b/c/d", "a/b/c/dd", "a/b/c/ddd"}},
-		{packetId: 522, topics: []string{"a/b/c/d/e", "a/b/c/d/ee", "a/b/c/d/eee"}},
+		{packetID: 10, topics: []string{"a/b/c"}},
+		{packetID: 266, topics: []string{"a/b/c/d"}},
+		{packetID: 522, topics: []string{"a/b/c/d/e"}},
+		{packetID: 10, topics: []string{"a/b/c", "a/b/cc", "a/b/ccc"}},
+		{packetID: 266, topics: []string{"a/b/c/d", "a/b/c/dd", "a/b/c/ddd"}},
+		{packetID: 522, topics: []string{"a/b/c/d/e", "a/b/c/d/ee", "a/b/c/d/eee"}},
 	}
 
 	for _, v := range tt {
 		b := make([]byte, 0, 2048)
 		buf := bytes.NewBuffer(b)
 		uns := &Unsubscribe{
-			PacketId: v.packetId,
+			PacketID: v.packetID,
 			Topics:   v.topics,
 		}
 		err := NewWriter(buf).WriteAndFlush(uns)
 		if err != nil {
-			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.packetId))
+			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.packetID))
 		}
 		packet, err := NewReader(buf).ReadPacket()
 		if err != nil {
-			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.packetId))
+			t.Fatalf("unexpected error: %s,%v", err.Error(), string(v.packetID))
 		}
 		n, err := buf.ReadByte()
 		if err != io.EOF {
@@ -116,8 +116,8 @@ func TestWriteUnSubscribePacket(t *testing.T) {
 			} else {
 				t.Fatalf("Topics slice length error,want %v, got %v", len(uns.Topics), len(p.Topics))
 			}
-			if p.PacketId != uns.PacketId {
-				t.Fatalf("PacketId error,want %v, got %v", uns.PacketId, p.PacketId)
+			if p.PacketID != uns.PacketID {
+				t.Fatalf("PacketID error,want %v, got %v", uns.PacketID, p.PacketID)
 			}
 
 		} else {
@@ -143,8 +143,8 @@ func TestUnsubscribe_NewUnSubBack(t *testing.T) {
 	if unsuback.FixHeader.RemainLength != 2 {
 		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 2, unsuback.FixHeader.RemainLength)
 	}
-	if unsuback.PacketId != p.PacketId {
-		t.Fatalf("PacketId error,want %d, got %d", p.PacketId, unsuback.PacketId)
+	if unsuback.PacketID != p.PacketID {
+		t.Fatalf("PacketID error,want %d, got %d", p.PacketID, unsuback.PacketID)
 	}
 }
 
@@ -166,8 +166,8 @@ func TestSubscribe_NewSubBackWith3Topics(t *testing.T) {
 		t.Fatalf("FixHeader.RemainLength error,want %d, got %d",5,suback.FixHeader.RemainLength)
 	}
 
-	if suback.PacketId != p.PacketId {
-		t.Fatalf("PacketId error,want %d, got %d",p.PacketId,suback.PacketId)
+	if suback.PacketID != p.PacketID {
+		t.Fatalf("PacketID error,want %d, got %d",p.PacketID,suback.PacketID)
 	}
 	if !bytes.Equal(suback.Payload,[]byte{0, 1, 2}) {
 		t.Fatalf("Payload error,want %v, got %v",suback.Payload,[]byte{0, 1, 2})

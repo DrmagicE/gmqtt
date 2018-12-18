@@ -13,7 +13,7 @@ func TestWritePubrelPacket(t *testing.T) {
 	var pid uint16
 	pid = 65535
 	pubrel := &Pubrel{
-		PacketId: pid,
+		PacketID: pid,
 	}
 	err := NewWriter(buf).WriteAndFlush(pubrel)
 	if err != nil {
@@ -28,8 +28,8 @@ func TestWritePubrelPacket(t *testing.T) {
 		t.Fatalf("ReadByte() error,want io.EOF,got %s and %v bytes", err, n)
 	}
 	if p, ok := packet.(*Pubrel); ok {
-		if p.PacketId != pid {
-			t.Fatalf("PacketId error,want %d, got %d", pid, p.PacketId)
+		if p.PacketID != pid {
+			t.Fatalf("PacketID error,want %d, got %d", pid, p.PacketID)
 		}
 	} else {
 		t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Pubrec{}), reflect.TypeOf(packet))
@@ -44,8 +44,8 @@ func TestReadPubrelPacket(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
 	if p, ok := packet.(*Pubrel); ok {
-		if p.PacketId != 1 {
-			t.Fatalf("PacketId  error,want %d,got %d", 1, p.PacketId)
+		if p.PacketID != 1 {
+			t.Fatalf("PacketID  error,want %d,got %d", 1, p.PacketID)
 		}
 	} else {
 		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Pubrel{}), reflect.TypeOf(packet))
@@ -56,10 +56,10 @@ func TestPubrel_NewPubcomp(t *testing.T) {
 	var pid uint16
 	pid = 10
 	pubrel := &Pubrel{
-		PacketId: pid,
+		PacketID: pid,
 	}
 	pubcomp := pubrel.NewPubcomp()
-	if pubcomp.PacketId != pid {
-		t.Fatalf("PacketId  error,want %d,got %d", 1, pubcomp.PacketId)
+	if pubcomp.PacketID != pid {
+		t.Fatalf("PacketID  error,want %d,got %d", 1, pubcomp.PacketID)
 	}
 }

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const test_redelivery_internal = 10 * time.Second
+const testRedeliveryInternal = 10 * time.Second
 
 type dummyAddr string
 
@@ -74,13 +74,10 @@ type rwTestConn struct {
 }
 
 func (c *rwTestConn) RemoteAddr() net.Addr {
-
 	if c.netAddr != "" {
 		return dummyAddr(c.netAddr)
-	} else {
-		return dummyAddr("remote-addr")
 	}
-
+	return dummyAddr("remote-addr")
 }
 
 func (c *rwTestConn) Read(p []byte) (int, error) {
@@ -124,7 +121,7 @@ func newTestServer() *Server {
 		s = srv
 	} else {
 		s = NewServer()
-		s.SetDeliveryRetryInterval(test_redelivery_internal)
+		s.SetDeliveryRetryInterval(testRedeliveryInternal)
 	}
 	/*SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))*/
 	ln := &testListener{acceptReady: make(chan struct{})}
@@ -147,7 +144,7 @@ func defaultConnectPacket() *packets.Connect {
 		WillQos:       packets.QOS_1,
 		CleanSession:  true,
 		KeepAlive:     30,
-		ClientId:      []byte{77, 81, 84, 84}, //MQTT
+		ClientID:      []byte{77, 81, 84, 84}, //MQTT
 	}
 }
 
@@ -217,14 +214,14 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 	var conn1, conn2 *packets.Connect
 	if conn[0] == nil {
 		conn1 = defaultConnectPacket()
-		conn1.ClientId = []byte("id1")
+		conn1.ClientID = []byte("id1")
 	} else {
 		conn1 = conn[0]
 	}
 
 	if conn[1] == nil {
 		conn2 = defaultConnectPacket()
-		conn2.ClientId = []byte("id2")
+		conn2.ClientID = []byte("id2")
 	} else {
 		conn2 = conn[1]
 	}
@@ -269,59 +266,61 @@ func TestConnect(t *testing.T) {
 		if p.SessionPresent != 0 {
 			t.Fatalf("SessionPresent error,want 0, got %d", p.SessionPresent)
 		}
-		if p.Code != packets.CODE_ACCEPTED {
-			t.Fatalf("SessionPresent error,want %d, got %d", packets.CODE_ACCEPTED, p.Code)
+		if p.Code != packets.CodeAccepted {
+			t.Fatalf("SessionPresent error,want %d, got %d", packets.CodeAccepted, p.Code)
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), packet)
 	}
-	/*	if se, ok := srv.sessions["MQTT"]; ok {
-			opts := se.client.opts
-
-			usernameWant := string([]byte{116, 101, 115, 116, 117, 115, 101, 114})
-			if opts.Username != usernameWant {
-				t.Fatalf("Username error,want %s, got %s", usernameWant, opts.Username)
-			}
-			passwordWant := string([]byte{116, 101, 115, 116, 112, 97, 115, 115})
-			if opts.Password != passwordWant {
-				t.Fatalf("Password error,want %s, got %s", passwordWant, opts.Password)
-			}
-
-			if opts.CleanSession != true {
-				t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
-			}
-
-			if opts.ClientId != "MQTT" {
-				t.Fatalf("ClientId error,want MQTT, got %s", opts.ClientId)
-			}
-
-			if opts.KeepAlive != 30 {
-				t.Fatalf("KeepAlive error,want 30, got %d", opts.KeepAlive)
-			}
-
-			if opts.WillRetain != false {
-				t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
-			}
-
-			willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}
-			if !bytes.Equal(opts.WillPayload, willPayloadWant) {
-				t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.WillPayload)
-			}
-
-			willTopicWant := string([]byte{116, 101, 115, 116})
-			if opts.WillTopic != willTopicWant {
-				t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.WillTopic)
-			}
-			if opts.WillQos != 1 {
-				t.Fatalf("WillQos error,want 1, got %d", opts.WillQos)
-			}
-			if opts.WillFlag != true {
-				t.Fatalf("WillFlag error,want true, got %t", opts.WillFlag)
-			}
-		} else {
-			t.Fatalf("session not found")
+	if se := srv.Client("MQTT"); se != nil {
+		if !se.IsConnected() {
+			t.Fatalf("IsConnected() error, want true, got false")
 		}
-	*/
+		opts := se.opts
+		usernameWant := string([]byte{116, 101, 115, 116, 117, 115, 101, 114})
+		if opts.Username != usernameWant {
+			t.Fatalf("Username error,want %s, got %s", usernameWant, opts.Username)
+		}
+		passwordWant := string([]byte{116, 101, 115, 116, 112, 97, 115, 115})
+		if opts.Password != passwordWant {
+			t.Fatalf("Password error,want %s, got %s", passwordWant, opts.Password)
+		}
+
+		if opts.CleanSession != true {
+			t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
+		}
+
+		if opts.ClientID != "MQTT" {
+			t.Fatalf("ClientID error,want MQTT, got %s", opts.ClientID)
+		}
+
+		if opts.KeepAlive != 30 {
+			t.Fatalf("KeepAlive error,want 30, got %d", opts.KeepAlive)
+		}
+
+		if opts.WillRetain != false {
+			t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
+		}
+
+		willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}
+		if !bytes.Equal(opts.WillPayload, willPayloadWant) {
+			t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.WillPayload)
+		}
+
+		willTopicWant := string([]byte{116, 101, 115, 116})
+		if opts.WillTopic != willTopicWant {
+			t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.WillTopic)
+		}
+		if opts.WillQos != 1 {
+			t.Fatalf("WillQos error,want 1, got %d", opts.WillQos)
+		}
+		if opts.WillFlag != true {
+			t.Fatalf("WillFlag error,want true, got %t", opts.WillFlag)
+		}
+	} else {
+		t.Fatalf("session not found")
+	}
+
 	select {
 	case <-closec:
 		t.Fatalf("unexpected close")
@@ -362,7 +361,7 @@ func TestQos0Publish(t *testing.T) {
 		Qos:       0,
 		Retain:    false,
 		TopicName: []byte("topic name"),
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   []byte("payload"),
 	}
 	err := writePacket(c, pub)
@@ -386,7 +385,7 @@ func TestQos1Publish(t *testing.T) {
 		Qos:       1,
 		Retain:    false,
 		TopicName: []byte("topic name"),
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   []byte("payload"),
 	}
 	err := writePacket(c, pub)
@@ -398,8 +397,8 @@ func TestQos1Publish(t *testing.T) {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	if p, ok := packet.(*packets.Puback); ok {
-		if p.PacketId != pub.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", pub.PacketId, p.PacketId)
+		if p.PacketID != pub.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", pub.PacketID, p.PacketID)
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Puback{}), reflect.TypeOf(packet))
@@ -411,7 +410,7 @@ func TestQos2Publish(t *testing.T) {
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
-	var pid packets.PacketId
+	var pid packets.PacketID
 	pid = 10
 	for i := 0; i < 2; i++ { //发送两次相同的packet id
 		pub := &packets.Publish{
@@ -419,7 +418,7 @@ func TestQos2Publish(t *testing.T) {
 			Qos:       2,
 			Retain:    false,
 			TopicName: []byte("topic name"),
-			PacketId:  pid,
+			PacketID:  pid,
 			Payload:   []byte("payload"),
 		}
 		err := writePacket(c, pub)
@@ -431,8 +430,8 @@ func TestQos2Publish(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		if p, ok := packet.(*packets.Pubrec); ok {
-			if p.PacketId != pub.PacketId {
-				t.Fatalf("PacketId error, want %d, got %d", pub.PacketId, p.PacketId)
+			if p.PacketID != pub.PacketID {
+				t.Fatalf("PacketID error, want %d, got %d", pub.PacketID, p.PacketID)
 			}
 		} else {
 			t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubrec{}), reflect.TypeOf(packet))
@@ -441,7 +440,7 @@ func TestQos2Publish(t *testing.T) {
 
 	for i := 0; i < 2; i++ { //发送两次相同的packet id
 		pubrel := &packets.Pubrel{
-			PacketId: 10,
+			PacketID: 10,
 		}
 		err := writePacket(c, pubrel)
 		if err != nil {
@@ -452,8 +451,8 @@ func TestQos2Publish(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		if p, ok := packet.(*packets.Pubcomp); ok {
-			if p.PacketId != pid {
-				t.Fatalf("PacketId error, want %d, got %d", pid, p.PacketId)
+			if p.PacketID != pid {
+				t.Fatalf("PacketID error, want %d, got %d", pid, p.PacketID)
 			}
 		} else {
 			t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubcomp{}), reflect.TypeOf(packet))
@@ -472,14 +471,14 @@ func readPacket(c *rwTestConn) (packets.Packet, error) {
 
 }
 
-var testErrReadTimeout = errors.New("reade timeout")
+var errTestReadTimeout = errors.New("reade timeout")
 
 func readPacketWithTimeOut(c *rwTestConn, timeout time.Duration) (packets.Packet, error) {
 	select {
 	case <-c.closec:
 		return nil, io.EOF
 	case <-time.After(timeout):
-		return nil, testErrReadTimeout
+		return nil, errTestReadTimeout
 	case b := <-c.writeChan:
 		return packets.NewReader(bytes.NewBuffer(b)).ReadPacket()
 	}
@@ -502,7 +501,7 @@ func TestSubScribe(t *testing.T) {
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "/a/b/c", Qos: packets.QOS_0},
 			{Name: "/a/b/+", Qos: packets.QOS_1},
@@ -517,8 +516,8 @@ func TestSubScribe(t *testing.T) {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	if p, ok := packet.(*packets.Suback); ok {
-		if p.PacketId != sub.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", sub.PacketId, p.PacketId)
+		if p.PacketID != sub.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", sub.PacketID, p.PacketID)
 		}
 		if !bytes.Equal(p.Payload, []byte{0, 1}) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{0, 1}, p.Payload)
@@ -584,7 +583,7 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 			t.Fatalf("Subscription missing, want %v", topic)
 		}
 
-		if srvTopic, ok := srv.subscriptionsDB.topicsById["MQTT"][topic.Name]; ok {
+		if srvTopic, ok := srv.subscriptionsDB.topicsByID["MQTT"][topic.Name]; ok {
 			if topic != srvTopic {
 				srv.subscriptionsDB.Unlock()
 				t.Fatalf("Subscribe error, want %v, got %v", topic, srvTopic)
@@ -754,7 +753,7 @@ func TestUnsubscribe(t *testing.T) {
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "/a/b/c", Qos: packets.QOS_0},
 			{Name: "/a/b/+", Qos: packets.QOS_1},
@@ -767,7 +766,7 @@ func TestUnsubscribe(t *testing.T) {
 	readPacket(c) //suback
 
 	unsub := &packets.Unsubscribe{
-		PacketId: 11,
+		PacketID: 11,
 		Topics:   []string{"/a/b/+"},
 	}
 	err = writePacket(c, unsub)
@@ -779,8 +778,8 @@ func TestUnsubscribe(t *testing.T) {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	if unsuback, ok := p.(*packets.Unsuback); ok {
-		if unsuback.PacketId != unsub.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", sub.PacketId, unsuback.PacketId)
+		if unsuback.PacketID != unsub.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", sub.PacketID, unsuback.PacketID)
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Unsuback{}), reflect.TypeOf(p))
@@ -789,7 +788,7 @@ func TestUnsubscribe(t *testing.T) {
 	srv.mu.RLock()
 	srv.mu.RUnlock()
 	srv.subscriptionsDB.RLock()
-	if _, ok := srv.subscriptionsDB.topicsById["MQTT"]["/a/b/+"]; ok {
+	if _, ok := srv.subscriptionsDB.topicsByID["MQTT"]["/a/b/+"]; ok {
 		t.Fatalf("subTopics error,the topic dose not delete from map")
 	}
 	srv.subscriptionsDB.RUnlock()
@@ -799,7 +798,7 @@ func TestUnsubscribe(t *testing.T) {
 		Qos:       packets.QOS_0,
 		Retain:    false,
 		TopicName: []byte("/a/b/cc"),
-		PacketId:  11,
+		PacketID:  11,
 		Payload:   []byte("payload"),
 	}
 	err = writePacket(c, pub)
@@ -829,7 +828,7 @@ func TestOnSubscribe(t *testing.T) {
 	c := conn.(*rwTestConn)
 
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "/a/b/c", Qos: packets.QOS_0},
 			{Name: "/a/b/+", Qos: packets.QOS_1},
@@ -842,8 +841,8 @@ func TestOnSubscribe(t *testing.T) {
 	packet, _ := readPacket(c)
 	if p, ok := packet.(*packets.Suback); ok {
 
-		if p.PacketId != sub.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", sub.PacketId, p.PacketId)
+		if p.PacketID != sub.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", sub.PacketID, p.PacketID)
 		}
 		if !bytes.Equal(p.Payload, []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
@@ -883,7 +882,7 @@ func TestRetainMsg(t *testing.T) {
 		Qos:       packets.QOS_1,
 		Retain:    true,
 		TopicName: topicName,
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   payload,
 	}
 	err = writePacket(c, pub)
@@ -892,7 +891,7 @@ func TestRetainMsg(t *testing.T) {
 	}
 	readPacket(c) //read puback
 	sub := &packets.Subscribe{
-		PacketId: 11,
+		PacketID: 11,
 		Topics: []packets.Topic{
 			{Name: string(topicName), Qos: packets.QOS_2},
 		},
@@ -953,7 +952,7 @@ func TestRetainMsg(t *testing.T) {
 		Qos:       packets.QOS_0,
 		Retain:    true,
 		TopicName: topicName,
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   payload,
 	}
 	writePacket(c, pub0)
@@ -1003,7 +1002,7 @@ func TestQos1Redelivery(t *testing.T) {
 	topicName := []byte("a/b")
 	payload := []byte("payload")
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "a/b", Qos: packets.QOS_2},
 		},
@@ -1020,7 +1019,7 @@ func TestQos1Redelivery(t *testing.T) {
 		Qos:       packets.QOS_1,
 		Retain:    false,
 		TopicName: topicName,
-		PacketId:  11,
+		PacketID:  11,
 		Payload:   payload,
 	}
 	err = writePacket(c, pub1)
@@ -1034,10 +1033,10 @@ func TestQos1Redelivery(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		if pub, ok := p.(*packets.Publish); ok {
-			originalPid = pub.PacketId
+			originalPid = pub.PacketID
 		}
 	}
-	p, err := readPacketWithTimeOut(c, test_redelivery_internal+1*time.Second)
+	p, err := readPacketWithTimeOut(c, testRedeliveryInternal+1*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -1054,8 +1053,8 @@ func TestQos1Redelivery(t *testing.T) {
 		if pub.Qos != packets.QOS_1 {
 			t.Fatalf("Qos error, want %d, got %d", packets.QOS_1, pub.Qos)
 		}
-		if pub.PacketId != originalPid {
-			t.Fatalf("PacketId error, want %d, got %d", originalPid, pub.PacketId)
+		if pub.PacketID != originalPid {
+			t.Fatalf("PacketID error, want %d, got %d", originalPid, pub.PacketID)
 		}
 	}
 	puback := p.(*packets.Publish).NewPuback()
@@ -1092,7 +1091,7 @@ func TestQos2Redelivery(t *testing.T) {
 		Qos:       packets.QOS_2,
 		Retain:    false,
 		TopicName: topicName,
-		PacketId:  senderPid,
+		PacketID:  senderPid,
 		Payload:   payload,
 	}
 	err = writePacket(sender, pub2)
@@ -1138,11 +1137,11 @@ func TestQos2Redelivery(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		pubrec2 := p.(*packets.Pubrec)
-		if pubrec2.PacketId != pubrec.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", pubrec.PacketId, pubrec2.PacketId)
+		if pubrec2.PacketID != pubrec.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", pubrec.PacketID, pubrec2.PacketID)
 		}
 		p, err = readPacketWithTimeOut(reciver, 1*time.Second)
-		if err != testErrReadTimeout {
+		if err != errTestReadTimeout {
 			t.Fatalf("delivery duplicated messages， %v", reflect.TypeOf(p))
 		}
 		err = writePacket(sender, pubrec.NewPubrel())
@@ -1165,13 +1164,13 @@ func TestQos2Redelivery(t *testing.T) {
 	}
 	pubrel1 := p.(*packets.Pubrel)
 
-	p, err = readPacketWithTimeOut(reciver, (REDELIVER_TIME+1)*time.Second) //redelivery pubrel
+	p, err = readPacketWithTimeOut(reciver, (redeliveryTime+1)*time.Second) //redelivery pubrel
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	if pubrel2, ok := p.(*packets.Pubrel); ok {
-		if pubrel1.PacketId != pubrel2.PacketId {
-			t.Fatalf("PacketId error, want %d, got %d", pubrel1.PacketId, pubrel2.PacketId)
+		if pubrel1.PacketID != pubrel2.PacketID {
+			t.Fatalf("PacketID error, want %d, got %d", pubrel1.PacketID, pubrel2.PacketID)
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Pubrel{}), reflect.TypeOf(p))
@@ -1187,7 +1186,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 	c := conn.(*rwTestConn)
 	//ln := srv.tcpListener[0].(*testListener)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: string("#"), Qos: packets.QOS_1},
 		},
@@ -1202,7 +1201,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 		Qos:       1,
 		Retain:    false,
 		TopicName: []byte("test"),
-		PacketId:  10,
+		PacketID:  10,
 		Payload:   []byte("payload"),
 	}
 	err = writePacket(c, pub)
@@ -1216,7 +1215,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		if pub, ok := p.(*packets.Publish); ok {
-			originalPid = pub.PacketId
+			originalPid = pub.PacketID
 		}
 	}
 	c.Close()
@@ -1241,8 +1240,8 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 		if !bytes.Equal([]byte("payload"), pub.Payload) {
 			t.Fatalf("Payload error, want %v, got %v", []byte("payload"), pub.Payload)
 		}
-		if pub.PacketId != originalPid {
-			t.Fatalf("PacketId error, want %d, got %d", originalPid, pub.PacketId)
+		if pub.PacketID != originalPid {
+			t.Fatalf("PacketID error, want %d, got %d", originalPid, pub.PacketID)
 		}
 		if pub.Dup != true {
 			t.Fatalf("Dup error, want %t, got %t", true, false)
@@ -1262,18 +1261,18 @@ func TestOfflineMessageQueueing(t *testing.T) {
 
 	conn1 := defaultConnectPacket()
 	conn1.CleanSession = false
-	conn1.ClientId = []byte("id1")
+	conn1.ClientID = []byte("id1")
 
 	conn2 := defaultConnectPacket()
 	conn2.CleanSession = false
-	conn2.ClientId = []byte("id2")
+	conn2.ClientID = []byte("id2")
 	srv, s, r := connectedServerWith2Client(conn1, conn2)
 	defer srv.Stop(context.Background())
 	var err error
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: string("#"), Qos: packets.QOS_1},
 		},
@@ -1293,7 +1292,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			Qos:       packets.QOS_1,
 			Retain:    false,
 			TopicName: []byte{byte(i)},
-			PacketId:  uint16(i),
+			PacketID:  uint16(i),
 			Payload:   []byte{byte(i), byte(i)},
 		}
 		err = writePacket(sender, pub)
@@ -1313,7 +1312,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	sinfo, ok := srv.Monitor.GetSession(string(conn2.ClientId))
+	sinfo, ok := srv.Monitor.GetSession(string(conn2.ClientID))
 	if !ok {
 		t.Fatalf("GetSession() error,want true,but false")
 	}
@@ -1350,7 +1349,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 	}
 
-	sinfo, ok = srv.Monitor.GetSession(string(conn2.ClientId))
+	sinfo, ok = srv.Monitor.GetSession(string(conn2.ClientID))
 	if !ok {
 		t.Fatalf("GetSession() error,want true,but false")
 	}
@@ -1367,7 +1366,7 @@ func TestWillMsg(t *testing.T) {
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "#", Qos: packets.QOS_1},
 		},
@@ -1402,7 +1401,7 @@ func TestRemoveWillMsg(t *testing.T) {
 	sender := s.(*rwTestConn)
 	reciver := r.(*rwTestConn)
 	sub := &packets.Subscribe{
-		PacketId: 10,
+		PacketID: 10,
 		Topics: []packets.Topic{
 			{Name: "topicname", Qos: packets.QOS_1},
 		},

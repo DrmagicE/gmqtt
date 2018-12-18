@@ -21,10 +21,10 @@ type Server struct {
 	distributed int64 //distributed msg
 }
 
-func (srv *Server) connect(clientId string) (mqtt.Client, error) {
+func (srv *Server) connect(clientID string) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	opts.SetUsername(srv.Options.Username)
-	opts.SetClientID(clientId)
+	opts.SetClientID(clientID)
 	opts.SetPassword(srv.Options.Password)
 	opts.SetCleanSession(srv.Options.CleanSession)
 	opts.SetProtocolVersion(4)
@@ -64,8 +64,8 @@ func (srv *Server) publish(ctx context.Context, client mqtt.Client) {
 	}
 }
 
-func (srv *Server) subscribe(clientId string) (mqtt.Client, error) {
-	c, err := srv.connect(clientId)
+func (srv *Server) subscribe(clientID string) (mqtt.Client, error) {
+	c, err := srv.connect(clientID)
 	if err != nil {
 		log.Println("subscriber connect error:", err)
 		return nil, err

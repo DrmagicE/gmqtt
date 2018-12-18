@@ -26,7 +26,7 @@ func Example() {
 	s.AddWebSocketServer(ws)
 
 	s.RegisterOnConnect(func(client *Client) (code uint8) {
-		return packets.CODE_ACCEPTED
+		return packets.CodeAccepted
 	})
 	s.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
 		fmt.Println("register onSubscribe callback")

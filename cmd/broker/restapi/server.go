@@ -117,7 +117,7 @@ func (rest *RestServer) Run() {
 	basicAuth.POST("/subscribe", func(c *gin.Context) {
 		qosParam := c.PostForm("qos")
 		topic := c.PostForm("topic")
-		cid := c.PostForm("clientId")
+		cid := c.PostForm("clientID")
 		qos, err := strconv.Atoi(qosParam)
 		if err != nil {
 			c.String(http.StatusBadRequest, "%s", packets.ErrInvalQos)
@@ -134,7 +134,7 @@ func (rest *RestServer) Run() {
 		}
 
 		if cid == "" {
-			c.String(http.StatusBadRequest, "%s", "invalid clientId")
+			c.String(http.StatusBadRequest, "%s", "invalid clientID")
 			return
 		}
 		rest.Srv.Subscribe(cid, []packets.Topic{
@@ -147,7 +147,7 @@ func (rest *RestServer) Run() {
 	})
 	basicAuth.POST("/unsubscribe", func(c *gin.Context) {
 		topic := c.PostForm("topic")
-		cid := c.PostForm("clientId")
+		cid := c.PostForm("clientID")
 
 		if !packets.ValidTopicFilter([]byte(topic)) {
 			c.String(http.StatusBadRequest, "%s", packets.ErrInvalTopicFilter)
@@ -155,7 +155,7 @@ func (rest *RestServer) Run() {
 		}
 
 		if cid == "" {
-			c.String(http.StatusBadRequest, "%s", "invalid clientId")
+			c.String(http.StatusBadRequest, "%s", "invalid clientID")
 			return
 		}
 		rest.Srv.UnSubscribe(cid, []string{topic})

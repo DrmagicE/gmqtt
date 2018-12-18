@@ -54,24 +54,33 @@ const QOS_2 = 0x02
 
 const SUBSCRIBE_FAILURE = 0x80
 
-//PacketIdentifier
-type PacketId = uint16
+//PacketIDentifier
+type PacketID = uint16
 
-const MAX_PACKET_ID PacketId = 65535
-const MIN_PACKET_ID PacketId = 1
+const MAX_PACKET_ID PacketID = 65535
+const MIN_PACKET_ID PacketID = 1
 
+
+// Packet defines the interface for structs intended to hold
+// decoded MQTT packets, either from being read or before being
+// written
 type Packet interface {
+	// Pack encodes the packet struct into bytes and write it to io.Writer.
 	Pack(w io.Writer) error
+	// Unpack read the packet bytes from io.Reader and decodes it into the packet struct
 	Unpack(r io.Reader) error
-	String() string //for logging
+	// String is mainly used in logging, debugging and testing.
+	String() string
 }
 
+// FixHeader represents the FixHeader of the MQTT packet
 type FixHeader struct {
-	PacketType   byte //报文类型
-	Flags        byte //flags
-	RemainLength int  //剩余长度
+	PacketType   byte
+	Flags        byte
+	RemainLength int
 }
 
+// Topic represents the MQTT Topic
 type Topic struct {
 	Qos  uint8
 	Name string
@@ -93,7 +102,6 @@ type ReadWriter struct {
 	*Writer
 }
 
-//
 func NewReader(r io.Reader) *Reader {
 	if bufr, ok := r.(*bufio.Reader); ok {
 		return &Reader{bufr: bufr}

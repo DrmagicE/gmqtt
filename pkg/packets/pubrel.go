@@ -9,13 +9,13 @@ import (
 //qos2 step2
 type Pubrel struct {
 	FixHeader *FixHeader
-	PacketId  PacketId
+	PacketID  PacketID
 
 	Dup bool //是否重发标记，不属于协议包内容
 }
 
 func (c *Pubrel) String() string {
-	return fmt.Sprintf("Pubrel, Pid: %v", c.PacketId)
+	return fmt.Sprintf("Pubrel, Pid: %v", c.PacketID)
 }
 
 func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
@@ -29,7 +29,7 @@ func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
 
 func (p *Pubrel) NewPubcomp() *Pubcomp {
 	pub := &Pubcomp{FixHeader: &FixHeader{PacketType: PUBCOMP, Flags: RESERVED, RemainLength: 2}}
-	pub.PacketId = p.PacketId
+	pub.PacketID = p.PacketID
 	return pub
 }
 
@@ -37,7 +37,7 @@ func (p *Pubrel) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBREL, Flags: FLAG_PUBREL, RemainLength: 2}
 	p.FixHeader.Pack(w)
 	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketId)
+	binary.BigEndian.PutUint16(pid, p.PacketID)
 	_, err := w.Write(pid)
 	return err
 }
@@ -51,6 +51,6 @@ func (p *Pubrel) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	p.PacketId = binary.BigEndian.Uint16(restBuffer[0:2])
+	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 	return nil
 }
