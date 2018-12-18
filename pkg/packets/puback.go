@@ -6,7 +6,6 @@ import (
 	"io"
 )
 
-
 // Puback represents the MQTT Puback  packet
 type Puback struct {
 	FixHeader *FixHeader

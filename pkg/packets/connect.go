@@ -29,12 +29,14 @@ type Connect struct {
 	Password []byte
 	AckCode  uint8 //ack的返回码
 }
+
 // String is mainly used in logging, debugging and testing.
 func (c *Connect) String() string {
 	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanSession: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
 		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
 		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanSession, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }
+
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (c *Connect) Pack(w io.Writer) error {
 	var err error
@@ -211,6 +213,7 @@ func (c *Connect) unpackPayload(restBuffer []byte) error {
 	}
 	return nil
 }
+
 // NewConnectPacket returns a Connect instance by the given FixHeader and io.Reader
 func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	//b1 := buffer[0] //一定是16
@@ -225,7 +228,6 @@ func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	}
 	return p, err
 }
-
 
 // NewConnackPacket returns the Connack struct which is the ack packet of the Connect packet.
 func (c *Connect) NewConnackPacket(sessionReuse bool) *Connack {

@@ -29,9 +29,9 @@ type session struct {
 //InflightElem is the element type in inflight queue
 type InflightElem struct {
 	//At is the entry time
-	At     time.Time
+	At time.Time
 	//Pid is the packetID
-	Pid    packets.PacketID
+	Pid packets.PacketID
 	//Packet represents Publish packet
 	Packet *packets.Publish
 	Step   int

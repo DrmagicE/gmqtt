@@ -5,7 +5,6 @@ import (
 	"io"
 )
 
-
 // Pingreq represents the MQTT Pingreq  packet
 type Pingreq struct {
 	FixHeader *FixHeader
@@ -14,6 +13,7 @@ type Pingreq struct {
 func (p *Pingreq) String() string {
 	return fmt.Sprintf("Pingreq")
 }
+
 // NewPingreqPacket returns a Pingreq instance by the given FixHeader and io.Reader
 func NewPingreqPacket(fh *FixHeader, r io.Reader) (*Pingreq, error) {
 	if fh.Flags != FLAG_RESERVED {
@@ -26,11 +26,13 @@ func NewPingreqPacket(fh *FixHeader, r io.Reader) (*Pingreq, error) {
 	}
 	return p, nil
 }
+
 // NewPingresp returns a Pingresp struct
 func (p *Pingreq) NewPingresp() *Pingresp {
 	fh := &FixHeader{PacketType: PINGRESP, Flags: 0, RemainLength: 0}
 	return &Pingresp{FixHeader: fh}
 }
+
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pingreq) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PINGREQ, Flags: 0, RemainLength: 0}

@@ -5,15 +5,14 @@ import (
 	"io"
 )
 
-
 // There are the possible code in the connack packet.
 const (
-	CodeAccepted                      = 0x00
+	CodeAccepted                    = 0x00
 	CodeUnacceptableProtocolVersion = 0x01
-	CodeIdentifierRejected           = 0x02
-	CodeServerUnavaliable            = 0x03
-	CodeBadUsernameorPsw           = 0x04
-	CodeNotAuthorized                = 0x05
+	CodeIdentifierRejected          = 0x02
+	CodeServerUnavaliable           = 0x03
+	CodeBadUsernameorPsw            = 0x04
+	CodeNotAuthorized               = 0x05
 )
 
 // Connack represents the MQTT Connack  packet

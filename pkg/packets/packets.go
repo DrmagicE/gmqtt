@@ -94,10 +94,12 @@ type Topic struct {
 	Qos  uint8
 	Name string
 }
+
 // Reader is used to read data from bufio.Reader and create MQTT packet instance.
 type Reader struct {
 	bufr *bufio.Reader
 }
+
 // Writer is used to encode MQTT packet into bytes and write it to bufio.Writer.
 type Writer struct {
 	bufw *bufio.Writer
@@ -113,6 +115,7 @@ type ReadWriter struct {
 	*Reader
 	*Writer
 }
+
 // NewReader returns a new Reader.
 func NewReader(r io.Reader) *Reader {
 	if bufr, ok := r.(*bufio.Reader); ok {
@@ -120,6 +123,7 @@ func NewReader(r io.Reader) *Reader {
 	}
 	return &Reader{bufr: bufio.NewReaderSize(r, 2048)}
 }
+
 // NewWriter returns a new Writer.
 func NewWriter(w io.Writer) *Writer {
 	if bufw, ok := w.(*bufio.Writer); ok {
@@ -155,6 +159,7 @@ func (w *Writer) WritePacket(packet Packet) error {
 	}
 	return nil
 }
+
 // WriteAndFlush writes and flush the packet bytes to the underlying io.Writer.
 func (w *Writer) WriteAndFlush(packet Packet) error {
 	err := packet.Pack(w.bufw)

@@ -8,17 +8,21 @@ import (
 	"strconv"
 )
 
+
+// RestServer represents the REST API server.
 type RestServer struct {
 	Addr string
 	Srv  *gmqtt.Server
 	User gin.Accounts //BasicAuth user info,username => password
 }
 
+// OkResponse is the response for a successful request.
 type OkResponse struct {
 	Code   int           `json:"code"`
 	Result []interface{} `json:"result"`
 }
 
+// Run starts the REST server.
 func (rest *RestServer) Run() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()

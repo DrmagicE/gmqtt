@@ -7,7 +7,6 @@ import (
 	"fmt"
 )
 
-
 // Publish represents the MQTT Publish  packet
 type Publish struct {
 	FixHeader *FixHeader

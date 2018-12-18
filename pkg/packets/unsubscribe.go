@@ -35,6 +35,7 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	err := p.Unpack(r)
 	return p, err
 }
+
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
 	c.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FLAG_UNSUBSCRIBE}
@@ -57,6 +58,7 @@ func (p *Unsubscribe) Pack(w io.Writer) error {
 	_, err = w.Write(buf)
 	return err
 }
+
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Unsubscribe) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)

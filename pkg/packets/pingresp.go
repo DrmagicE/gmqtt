@@ -5,7 +5,6 @@ import (
 	"io"
 )
 
-
 // Pingresp represents the MQTT Pingresp  packet
 type Pingresp struct {
 	FixHeader *FixHeader

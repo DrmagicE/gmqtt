@@ -239,6 +239,7 @@ type SubscriptionsInfo struct {
 	Name     string    `json:"name"`
 	At       time.Time `json:"at"`
 }
+
 // SubscriptionList is SubscriptionsInfo slice
 type SubscriptionList []SubscriptionsInfo
 
@@ -280,6 +281,7 @@ type SessionInfo struct {
 	ConnectedAt     time.Time `json:"connected_at"`
 	OfflineAt       time.Time `json:"offline_at,omitempty"`
 }
+
 // SessionList represent SessionInfo slice
 type SessionList []SessionInfo
 
@@ -293,7 +295,6 @@ func (s SessionList) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 func (m *MonitorStore) PutClient(info ClientInfo) {
 	m.clients[info.ClientID] = info
 }
-
 
 //GetClient returns the ClientInfo for the given clientID
 func (m *MonitorStore) GetClient(clientID string) (ClientInfo, bool) {
@@ -404,6 +405,7 @@ func (m *MonitorStore) Subscriptions() SubscriptionList {
 func (m *MonitorStore) Open() error {
 	return nil
 }
+
 //Close close the repository
 func (m *MonitorStore) Close() error {
 	return nil

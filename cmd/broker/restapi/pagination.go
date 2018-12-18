@@ -6,6 +6,7 @@ import (
 	"strconv"
 )
 
+//PageAbleObj is used to create response data.
 type PageAbleObj struct {
 	Models       interface{} `json:"list"`
 	Page         int         `json:"page"`
@@ -15,6 +16,7 @@ type PageAbleObj struct {
 	TotalPage    int         `json:"total_page"`
 }
 
+// NewHttpPager creates and returns the Pagination by the http GET params.
 func NewHttpPager(req *http.Request) *Pagination {
 	queryForm, err := url.ParseQuery(req.URL.RawQuery)
 	pagination := &Pagination{
