@@ -14,7 +14,9 @@ const (
 
 // MonitorRepository is an interface which can be used to provide a persistence mechanics for the monitor data
 type MonitorRepository interface {
+	//Open opens the repository
 	Open() error
+	//Close closes the repository
 	Close() error
 	//PutClient puts a ClientInfo into the repository when the client connects
 	PutClient(info ClientInfo)
@@ -287,13 +289,19 @@ func (s SessionList) Less(i, j int) bool {
 }
 func (s SessionList) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
+//PutClient puts a ClientInfo into the repository when the client connects
 func (m *MonitorStore) PutClient(info ClientInfo) {
 	m.clients[info.ClientID] = info
 }
+
+
+//GetClient returns the ClientInfo for the given clientID
 func (m *MonitorStore) GetClient(clientID string) (ClientInfo, bool) {
 	info, ok := m.clients[clientID]
 	return info, ok
 }
+
+//Clients returns ClientList which is the list for all connected clients, this method should be idempotency
 func (m *MonitorStore) Clients() ClientList {
 	mlen := len(m.clients)
 	if mlen == 0 {
@@ -306,16 +314,24 @@ func (m *MonitorStore) Clients() ClientList {
 	sort.Sort(list)
 	return list
 }
+
+//DelClient deletes the ClientInfo from repository
 func (m *MonitorStore) DelClient(clientID string) {
 	delete(m.clients, clientID)
 }
+
+//PutSession puts a SessionInfo into monitor repository when the client is connects
 func (m *MonitorStore) PutSession(info SessionInfo) {
 	m.sessions[info.ClientID] = info
 }
+
+//GetSession returns the SessionInfo for the given clientID
 func (m *MonitorStore) GetSession(clientID string) (SessionInfo, bool) {
 	s, ok := m.sessions[clientID]
 	return s, ok
 }
+
+//Sessions returns SessionList which is the list for all sessions including online sessions and offline sessions, this method should be idempotency
 func (m *MonitorStore) Sessions() SessionList {
 	mlen := len(m.sessions)
 	if mlen == 0 {
@@ -328,9 +344,13 @@ func (m *MonitorStore) Sessions() SessionList {
 	sort.Sort(list)
 	return list
 }
+
+//DelSession deletes the SessionInfo from repository
 func (m *MonitorStore) DelSession(clientID string) {
 	delete(m.sessions, clientID)
 }
+
+//ClientSubscriptions returns the SubscriptionList for given clientID, this method should be idempotency
 func (m *MonitorStore) ClientSubscriptions(clientID string) SubscriptionList {
 	mlen := len(m.subscriptions[clientID])
 	if mlen == 0 {
@@ -343,20 +363,28 @@ func (m *MonitorStore) ClientSubscriptions(clientID string) SubscriptionList {
 	sort.Sort(list)
 	return list
 }
+
+//DelClientSubscriptions deletes the subscription info for given clientID from the repository
 func (m *MonitorStore) DelClientSubscriptions(clientID string) {
 	delete(m.subscriptions, clientID)
 }
+
+//PutSubscription puts the SubscriptionsInfo into the repository when a new subscription is made
 func (m *MonitorStore) PutSubscription(info SubscriptionsInfo) {
 	if _, ok := m.subscriptions[info.ClientID]; !ok {
 		m.subscriptions[info.ClientID] = make(map[string]SubscriptionsInfo)
 	}
 	m.subscriptions[info.ClientID][info.Name] = info
 }
+
+//DelSubscription deletes the topic for given clientID from repository
 func (m *MonitorStore) DelSubscription(clientID string, topicName string) {
 	if _, ok := m.subscriptions[clientID]; ok {
 		delete(m.subscriptions[clientID], topicName)
 	}
 }
+
+//Subscriptions returns all  subscriptions of the server
 func (m *MonitorStore) Subscriptions() SubscriptionList {
 	mlen := len(m.subscriptions)
 	if mlen == 0 {
@@ -371,9 +399,12 @@ func (m *MonitorStore) Subscriptions() SubscriptionList {
 	sort.Sort(list)
 	return list
 }
+
+//Open opens the repository
 func (m *MonitorStore) Open() error {
 	return nil
 }
+//Close close the repository
 func (m *MonitorStore) Close() error {
 	return nil
 }

@@ -27,7 +27,7 @@ func (c *Connack) String() string {
 	return fmt.Sprintf("Connack, Code:%v, SessionPresent:%v", c.Code, c.SessionPresent)
 }
 
-
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (c *Connack) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNACK, Flags: FLAG_RESERVED, RemainLength: 2}
@@ -42,7 +42,7 @@ func (c *Connack) Pack(w io.Writer) error {
 	return err
 }
 
-
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct
 func (c *Connack) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, c.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
@@ -60,7 +60,7 @@ func (c *Connack) Unpack(r io.Reader) error {
 	return nil
 }
 
-// NewConnackPacket returns a Connack instance by the given fix header and io.Reader
+// NewConnackPacket returns a Connack instance by the given FixHeader and io.Reader
 func NewConnackPacket(fh *FixHeader, r io.Reader) (*Connack, error) {
 	p := &Connack{FixHeader: fh}
 	if fh.Flags != FLAG_RESERVED {

@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-//qos2 step2
+// Pubrel represents the MQTT Pubrel  packet
 type Pubrel struct {
 	FixHeader *FixHeader
 	PacketID  PacketID
@@ -14,10 +14,11 @@ type Pubrel struct {
 	Dup bool //是否重发标记，不属于协议包内容
 }
 
-func (c *Pubrel) String() string {
-	return fmt.Sprintf("Pubrel, Pid: %v", c.PacketID)
+func (p *Pubrel) String() string {
+	return fmt.Sprintf("Pubrel, Pid: %v", p.PacketID)
 }
 
+// NewPubrelPacket returns a Pubrel instance by the given FixHeader and io.Reader.
 func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
 	p := &Pubrel{FixHeader: fh}
 	err := p.Unpack(r)
@@ -27,12 +28,14 @@ func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
 	return p, nil
 }
 
+// NewPubcomp returns the Pubcomp struct related to the Pubrel struct in QoS 2.
 func (p *Pubrel) NewPubcomp() *Pubcomp {
 	pub := &Pubcomp{FixHeader: &FixHeader{PacketType: PUBCOMP, Flags: RESERVED, RemainLength: 2}}
 	pub.PacketID = p.PacketID
 	return pub
 }
 
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubrel) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBREL, Flags: FLAG_PUBREL, RemainLength: 2}
 	p.FixHeader.Pack(w)
@@ -42,6 +45,7 @@ func (p *Pubrel) Pack(w io.Writer) error {
 	return err
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pubrel) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 2 {
 		return ErrInvalRemainLength

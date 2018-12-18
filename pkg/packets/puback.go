@@ -6,16 +6,18 @@ import (
 	"io"
 )
 
+
+// Puback represents the MQTT Puback  packet
 type Puback struct {
 	FixHeader *FixHeader
 	PacketID
 }
 
-func (c *Puback) String() string {
-	return fmt.Sprintf("Puback, Pid: %v", c.PacketID)
+func (p *Puback) String() string {
+	return fmt.Sprintf("Puback, Pid: %v", p.PacketID)
 }
 
-//from reader
+// NewPubackPacket returns a Puback instance by the given FixHeader and io.Reader
 func NewPubackPacket(fh *FixHeader, r io.Reader) (*Puback, error) {
 	p := &Puback{FixHeader: fh}
 	err := p.Unpack(r)
@@ -25,6 +27,7 @@ func NewPubackPacket(fh *FixHeader, r io.Reader) (*Puback, error) {
 	return p, nil
 }
 
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Puback) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBACK, Flags: RESERVED, RemainLength: 2}
 	p.FixHeader.Pack(w)
@@ -34,6 +37,7 @@ func (p *Puback) Pack(w io.Writer) error {
 	return err
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Puback) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 2 {
 		return ErrInvalRemainLength

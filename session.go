@@ -26,9 +26,13 @@ type session struct {
 	maxQueueMessages    int
 }
 
+//InflightElem is the element type in inflight queue
 type InflightElem struct {
-	At     time.Time //queued at
+	//At is the entry time
+	At     time.Time
+	//Pid is the packetID
 	Pid    packets.PacketID
+	//Packet represents Publish packet
 	Packet *packets.Publish
 	Step   int
 }

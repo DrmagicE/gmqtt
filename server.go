@@ -158,6 +158,7 @@ func (db *subscriptionsDB) remove(clientID string, topicName string) {
 
 var log = &logger.Logger{}
 
+// SetLogger sets the logger. It is used in DEBUG mode.
 func SetLogger(l *logger.Logger) {
 	log = l
 }

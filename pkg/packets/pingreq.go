@@ -5,14 +5,16 @@ import (
 	"io"
 )
 
+
+// Pingreq represents the MQTT Pingreq  packet
 type Pingreq struct {
 	FixHeader *FixHeader
 }
 
-func (c *Pingreq) String() string {
+func (p *Pingreq) String() string {
 	return fmt.Sprintf("Pingreq")
 }
-
+// NewPingreqPacket returns a Pingreq instance by the given FixHeader and io.Reader
 func NewPingreqPacket(fh *FixHeader, r io.Reader) (*Pingreq, error) {
 	if fh.Flags != FLAG_RESERVED {
 		return nil, ErrInvalFlags
@@ -24,17 +26,18 @@ func NewPingreqPacket(fh *FixHeader, r io.Reader) (*Pingreq, error) {
 	}
 	return p, nil
 }
-
+// NewPingresp returns a Pingresp struct
 func (p *Pingreq) NewPingresp() *Pingresp {
 	fh := &FixHeader{PacketType: PINGRESP, Flags: 0, RemainLength: 0}
 	return &Pingresp{FixHeader: fh}
 }
-
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pingreq) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PINGREQ, Flags: 0, RemainLength: 0}
 	return p.FixHeader.Pack(w)
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pingreq) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 0 {
 		return ErrInvalRemainLength

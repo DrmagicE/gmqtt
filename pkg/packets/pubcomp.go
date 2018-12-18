@@ -6,15 +6,18 @@ import (
 	"io"
 )
 
+
+// Pubcomp represents the MQTT Pubcomp  packet
 type Pubcomp struct {
 	FixHeader *FixHeader
 	PacketID
 }
 
-func (c *Pubcomp) String() string {
-	return fmt.Sprintf("Pubcomp, Pid: %v", c.PacketID)
+func (p *Pubcomp) String() string {
+	return fmt.Sprintf("Pubcomp, Pid: %v", p.PacketID)
 }
 
+// NewPubcompPacket returns a Pubcomp instance by the given FixHeader and io.Reader
 func NewPubcompPacket(fh *FixHeader, r io.Reader) (*Pubcomp, error) {
 	p := &Pubcomp{FixHeader: fh}
 	err := p.Unpack(r)
@@ -24,6 +27,8 @@ func NewPubcompPacket(fh *FixHeader, r io.Reader) (*Pubcomp, error) {
 	return p, nil
 }
 
+
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubcomp) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBCOMP, Flags: RESERVED, RemainLength: 2}
 	p.FixHeader.Pack(w)
@@ -33,6 +38,7 @@ func (p *Pubcomp) Pack(w io.Writer) error {
 	return err
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pubcomp) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 2 {
 		return ErrInvalRemainLength

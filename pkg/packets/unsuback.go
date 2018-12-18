@@ -6,16 +6,16 @@ import (
 	"io"
 )
 
-//响应
+// Unsuback represents the MQTT Unsuback  packet.
 type Unsuback struct {
 	FixHeader *FixHeader
 	PacketID  PacketID
 }
 
-func (c *Unsuback) String() string {
-	return fmt.Sprintf("Unsuback, Pid: %v", c.PacketID)
+func (p *Unsuback) String() string {
+	return fmt.Sprintf("Unsuback, Pid: %v", p.PacketID)
 }
-
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsuback) Pack(w io.Writer) error {
 	if p.FixHeader == nil {
 		p.FixHeader = &FixHeader{PacketType: UNSUBACK, Flags: FLAG_RESERVED, RemainLength: 2}
@@ -29,7 +29,7 @@ func (p *Unsuback) Pack(w io.Writer) error {
 	_, err = w.Write(pid)
 	return err
 }
-
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Unsuback) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 2 {
 		return ErrInvalRemainLength
@@ -42,7 +42,7 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
 	return nil
 }
-
+// NewUnsubackPacket returns a Unsuback instance by the given FixHeader and io.Reader.
 func NewUnsubackPacket(fh *FixHeader, r io.Reader) (*Unsuback, error) {
 	p := &Unsuback{FixHeader: fh}
 	if fh.Flags != FLAG_RESERVED {

@@ -35,7 +35,7 @@ func (c *Connect) String() string {
 		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
 		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanSession, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }
-
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (c *Connect) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNECT, Flags: FLAG_RESERVED}
@@ -126,6 +126,7 @@ func (c *Connect) Pack(w io.Writer) error {
 	return err
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (c *Connect) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, c.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
@@ -210,6 +211,7 @@ func (c *Connect) unpackPayload(restBuffer []byte) error {
 	}
 	return nil
 }
+// NewConnectPacket returns a Connect instance by the given FixHeader and io.Reader
 func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	//b1 := buffer[0] //一定是16
 	p := &Connect{FixHeader: fh}
@@ -224,7 +226,8 @@ func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	return p, err
 }
 
-//构建一个connect包
+
+// NewConnackPacket returns the Connack struct which is the ack packet of the Connect packet.
 func (c *Connect) NewConnackPacket(sessionReuse bool) *Connack {
 	//b1 := buffer[0] //一定是16
 	ack := &Connack{}

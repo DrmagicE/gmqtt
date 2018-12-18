@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+
+// Publish represents the MQTT Publish  packet
 type Publish struct {
 	FixHeader *FixHeader
 	Dup       bool   //是否重发 [MQTT-3.3.1.-1]
@@ -17,12 +19,14 @@ type Publish struct {
 	Payload   []byte
 }
 
-func (c *Publish) String() string {
+func (p *Publish) String() string {
 	return fmt.Sprintf("Publish, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
-		c.PacketID, c.Dup, c.Qos, c.Retain, c.TopicName, c.Payload)
+		p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload)
 }
 
-//copy一份分发
+// CopyPublish 将 publish 复制一份
+//
+// CopyPublish returns the copied publish struct for distribution
 func (p *Publish) CopyPublish() *Publish {
 	pub := &Publish{
 		Dup:      p.Dup,
@@ -37,6 +41,7 @@ func (p *Publish) CopyPublish() *Publish {
 	return pub
 }
 
+// NewPublishPacket returns a Publish instance by the given FixHeader and io.Reader.
 func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
 	p := &Publish{FixHeader: fh}
 	p.Dup = (1 & (fh.Flags >> 3)) > 0
@@ -57,7 +62,7 @@ func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
 	return p, nil
 }
 
-//pack
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Publish) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBLISH}
 	var dup, retain byte
@@ -91,6 +96,7 @@ func (p *Publish) Pack(w io.Writer) error {
 
 }
 
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Publish) Unpack(r io.Reader) error {
 	var size int
 	var err error
@@ -115,14 +121,14 @@ func (p *Publish) Unpack(r io.Reader) error {
 	return nil
 }
 
-//qos = 1
+// NewPuback returns the puback struct related to the publish struct in QoS 1
 func (p *Publish) NewPuback() *Puback {
 	pub := &Puback{FixHeader: &FixHeader{PacketType: PUBACK, Flags: RESERVED, RemainLength: 2}}
 	pub.PacketID = p.PacketID
 	return pub
 }
 
-//qos2
+// NewPubrec returns the pubrec struct related to the publish struct in QoS 2
 func (p *Publish) NewPubrec() *Pubrec {
 	pub := &Pubrec{FixHeader: &FixHeader{PacketType: PUBREC, Flags: RESERVED, RemainLength: 2}}
 	pub.PacketID = p.PacketID
