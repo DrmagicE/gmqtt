@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// NewServer creates a new  gmqtt.Server instance by the given Config param.
 func NewServer(config *Config) (*gmqtt.Server, error) {
 	startProfile(config.ProfileConfig.CPUProfile, config.ProfileConfig.MemProfile)
 	srv := gmqtt.NewServer()

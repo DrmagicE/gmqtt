@@ -7,8 +7,10 @@ import (
 	"io/ioutil"
 )
 
+// ProtocolMQTT represents the MQTT protocol under TCP server
 const ProtocolMQTT = "mqtt"
 
+// ProtocolWebsocket represents the MQTT protocol under websocket server.
 const ProtocolWebsocket = "websocket"
 
 //Default configration
@@ -18,10 +20,9 @@ const (
 	DefaultMaxInflightMessages   = 20
 	DefaultLogging               = false
 	DefaultMaxMsgQueueMessages   = 2048
-	DefaultHttpAddr              = ":8080"
 )
 
-//监听地址,类型：tcp/ssl ws/wss
+// Config represents the configuration options.
 type Config struct {
 	DeliveryRetryInterval int64            `yaml:"delivery_retry_interval"`
 	QueueQos0Messages     bool             `yaml:"queue_qos0_messages"`
@@ -33,16 +34,19 @@ type Config struct {
 	HttpServerConfig      HttpServerConfig `yaml:"http_server"`
 }
 
+// ProfileConfig represents the server profile configuration.
 type ProfileConfig struct {
 	CPUProfile string `yaml:"cpu"`
 	MemProfile string `yaml:"mem"`
 }
 
+// HttpServerConfig represents the REST server configuration.
 type HttpServerConfig struct {
 	Addr string       `yaml:"addr"`
 	User gin.Accounts `yaml:"user"`
 }
 
+// ListenerConfig represents the tcp server configuration.
 type ListenerConfig struct {
 	Protocol string `yaml:"protocol"`
 	Addr     string `yaml:"addr"`
@@ -50,6 +54,7 @@ type ListenerConfig struct {
 	KeyFile  string `yaml:"keyfile"`
 }
 
+// Validate validate the Config, returns error if it is invalid.
 func (c *Config) Validate() error {
 	for _, v := range c.Listener {
 		if v.Protocol != ProtocolMQTT && v.Protocol != ProtocolWebsocket {
@@ -68,6 +73,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// NewConfig returns the default Config instance.
 func NewConfig() *Config {
 	return &Config{
 		DeliveryRetryInterval: DefaultDeliveryRetryInterval,
@@ -78,7 +84,7 @@ func NewConfig() *Config {
 	}
 }
 
-// loads the config from a yaml config file
+// FromConfigFile loads the configuration from a yaml  file
 func (c *Config) FromConfigFile(fpath string) error {
 	bs, err := ioutil.ReadFile(fpath)
 	if err != nil {

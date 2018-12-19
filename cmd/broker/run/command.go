@@ -12,19 +12,22 @@ import (
 	"runtime/pprof"
 )
 
+// Command represents the command executed by `go run main.go`
 type Command struct {
 	Server *gmqtt.Server
 }
 
+// Options contains the path of configuration file
 type Options struct {
 	ConfigPath string
-	//todo: more options
 }
 
+// NewCommand returns Command
 func NewCommand() *Command {
 	return &Command{}
 }
 
+// ParseFlags parses the args into Options.
 func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	var options Options
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
@@ -50,6 +53,7 @@ func (cmd *Command) ParseConfig(path string) (*Config, error) {
 	return config, nil
 }
 
+// Run parses the command arguments and starts the server.
 func (cmd *Command) Run(args ...string) error {
 	options, err := cmd.ParseFlags(args...)
 	if err != nil {
@@ -79,9 +83,7 @@ func (cmd *Command) Run(args ...string) error {
 		}
 		go api.Run()
 	}
-
 	s.Run()
-
 	return nil
 }
 
