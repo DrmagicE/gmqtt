@@ -1,7 +1,6 @@
 package restapi
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 )
@@ -34,9 +33,8 @@ func (p *Pagination) PageCount() int {
 	if p.PageSize < 1 {
 		if p.TotalCount > 0 {
 			return 1
-		} else {
-			return 0
 		}
+		return 0
 	}
 	return (p.TotalCount + p.PageSize - 1) / p.PageSize
 
@@ -46,10 +44,8 @@ func (p *Pagination) PageCount() int {
 func (p *Pagination) Offset() int {
 	if p.PageSize < 1 {
 		return 0
-	} else {
-		return p.Page * p.PageSize
 	}
-
+	return p.Page * p.PageSize
 }
 
 // SetModels sets the models into DataProvide.
@@ -67,7 +63,7 @@ func (cp *SliceDataProvider) Models(out interface{}) error {
 	totalCount := cp.TotalCount()
 	rv := reflect.ValueOf(out)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return errors.New(fmt.Sprintf("invalid value,want reflect.Ptr or not nil, got %s", reflect.TypeOf(out).Kind()))
+		return fmt.Errorf("invalid value,want reflect.Ptr or not nil, got %s", reflect.TypeOf(out).Kind())
 	}
 	e := rv.Elem()
 	if totalCount == 0 {
