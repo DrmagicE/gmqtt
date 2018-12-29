@@ -156,7 +156,7 @@ func (db *subscriptionsDB) remove(clientID string, topicName string) {
 	}
 }
 
-var log = &logger.Logger{}
+var log *logger.Logger
 
 // SetLogger sets the logger. It is used in DEBUG mode.
 func SetLogger(l *logger.Logger) {
@@ -202,8 +202,8 @@ func (srv *Server) registerHandler(register *register) {
 	if connect.AckCode != packets.CodeAccepted {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
 		ack := connect.NewConnackPacket(false)
-		client.out <- ack
-		client.setError(err)
+		//client.out <- ack
+		client.writePacket(ack)
 		register.error = err
 		return
 	}
@@ -213,7 +213,8 @@ func (srv *Server) registerHandler(register *register) {
 		if code != packets.CodeAccepted {
 			err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
 			ack := connect.NewConnackPacket(false)
-			client.out <- ack
+			//client.out <- ack
+			client.writePacket(ack)
 			client.setError(err)
 			register.error = err
 			return
@@ -824,6 +825,7 @@ func (srv *Server) Run() {
 			conn := &wsConn{c.UnderlyingConn(), c}
 			client := srv.newClient(conn)
 			client.serve()
+
 		})
 	}
 	for _, server := range srv.websocketServer {

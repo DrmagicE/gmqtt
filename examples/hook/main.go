@@ -49,6 +49,7 @@ func main() {
 		if validateUser(username, password) {
 			return packets.CodeAccepted
 		}
+
 		return packets.CodeBadUsernameorPsw
 	})
 

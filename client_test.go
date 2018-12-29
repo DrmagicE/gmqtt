@@ -1418,3 +1418,19 @@ func TestRemoveWillMsg(t *testing.T) {
 		t.Fatalf("delivering removed will message")
 	}
 }
+
+func TestEmptyClientID(t *testing.T) {
+	connect := defaultConnectPacket()
+	connect.ClientID = make([]byte, 0)
+	connect.CleanSession = true
+	srv, _ := connectedServer(connect)
+	defer srv.Stop(context.Background())
+	if len(srv.clients) != 1 {
+		t.Fatalf("len error, want %d, got %d", 1, len(srv.clients))
+	}
+	for id := range srv.clients {
+		if id == "" {
+			t.Fatalf("id is empty, should be generated as a uuid")
+		}
+	}
+}

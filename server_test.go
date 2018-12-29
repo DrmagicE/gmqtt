@@ -3,13 +3,16 @@ package gmqtt
 import (
 	"context"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"io"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 )
 
 func TestHooks(t *testing.T) {
 	srv := NewServer()
+	defer srv.Stop(context.Background())
 	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -80,57 +83,136 @@ func TestHooks(t *testing.T) {
 	}
 }
 
-func TestServer_registerHandlerOnError1(t *testing.T) {
-	srv := newTestServer()
-	c := srv.newClient(nil)
-	conn := defaultConnectPacket()
-	errCode := uint8(packets.CodeServerUnavaliable)
-	conn.AckCode = errCode
-	register := &register{
-		client:  c,
-		connect: conn,
+func TestConnackInvalidCode(t *testing.T) {
+	srv := NewServer()
+	defer srv.Stop(context.Background())
+	ln, err := net.Listen("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.registerHandler(register)
-	ack := <-c.out
-	connack := ack.(*packets.Connack)
-	if connack.Code != errCode {
-		t.Fatalf("connack.Code error, want %d, but got %d", errCode, connack.Code)
+	srv.AddTCPListenner(ln)
+	srv.Run()
+	c, err := net.Dial("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	select {
-	case <-c.error:
-	default:
-		t.Fatalf("unexpected error")
+	w := packets.NewWriter(c)
+	r := packets.NewReader(c)
+	connect := defaultConnectPacket()
+	connect.ProtocolLevel = 0x01
+	w.WriteAndFlush(connect)
+	p, err := r.ReadPacket()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	if register.error == nil {
-		t.Fatalf("register.error should not be nil")
+	if ack, ok := p.(*packets.Connack); ok {
+		if ack.Code != packets.CodeUnacceptableProtocolVersion {
+			t.Fatalf("connack.Code error, want %d, but got %d", packets.CodeUnacceptableProtocolVersion, ack.Code)
+		}
+	} else {
+		t.Fatalf("invalid type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), reflect.TypeOf(p))
 	}
+
+	_, err = r.ReadPacket()
+	if err != io.EOF {
+		t.Fatalf("err error, want %s, but got nil", io.EOF)
+	}
+
 }
-func TestServer_registerHandlerOnError2(t *testing.T) {
-	srv := newTestServer()
-	errCode := uint8(packets.CodeBadUsernameorPsw)
+
+func TestConnackInvalidCodeInHooks(t *testing.T) {
+	srv := NewServer()
+	defer srv.Stop(context.Background())
+	ln, err := net.Listen("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	srv.AddTCPListenner(ln)
 	srv.RegisterOnConnect(func(client *Client) (code uint8) {
-		return errCode
+		return packets.CodeBadUsernameorPsw
 	})
-	c := srv.newClient(nil)
-	conn := defaultConnectPacket()
-	register := &register{
-		client:  c,
-		connect: conn,
+	srv.Run()
+	c, err := net.Dial("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.registerHandler(register)
-	ack := <-c.out
-	connack := ack.(*packets.Connack)
-	if connack.Code != errCode {
-		t.Fatalf("connack.Code error, want %d, but got %d", errCode, connack.Code)
+	w := packets.NewWriter(c)
+	r := packets.NewReader(c)
+	connect := defaultConnectPacket()
+	w.WriteAndFlush(connect)
+	p, err := r.ReadPacket()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	select {
-	case <-c.error:
-	default:
-		t.Fatalf("unexpected error")
+	if ack, ok := p.(*packets.Connack); ok {
+		if ack.Code != packets.CodeBadUsernameorPsw {
+			t.Fatalf("connack.Code error, want %d, but got %d", packets.CodeBadUsernameorPsw, ack.Code)
+		}
+	} else {
+		t.Fatalf("invalid type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), reflect.TypeOf(p))
 	}
-	if register.error == nil {
-		t.Fatalf("register.error should not be nil")
+	_, err = r.ReadPacket()
+	if err != io.EOF {
+		t.Fatalf("err error, want %s, but got nil", io.EOF)
 	}
+
+}
+
+func TestZeroBytesClientId(t *testing.T) {
+	srv := NewServer()
+	defer srv.Stop(context.Background())
+	ln, err := net.Listen("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	srv.AddTCPListenner(ln)
+	srv.Run()
+	c, err := net.Dial("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	w := packets.NewWriter(c)
+	r := packets.NewReader(c)
+	connect := defaultConnectPacket()
+	connect.CleanSession = true
+	connect.ClientID = make([]byte, 0)
+	w.WriteAndFlush(connect)
+	p, err := r.ReadPacket()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if ack, ok := p.(*packets.Connack); ok {
+		if ack.Code != packets.CodeAccepted {
+			t.Fatalf("connack.Code error, want %d, but got %d", packets.CodeAccepted, ack.Code)
+		}
+	} else {
+		t.Fatalf("invalid type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), reflect.TypeOf(p))
+	}
+	c2, err := net.Dial("tcp", "127.0.0.1:1883")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	w2 := packets.NewWriter(c2)
+	r2 := packets.NewReader(c2)
+	connect2 := defaultConnectPacket()
+	connect2.CleanSession = true
+	connect2.ClientID = make([]byte, 0)
+	w2.WriteAndFlush(connect2)
+	p, err = r2.ReadPacket()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if ack, ok := p.(*packets.Connack); ok {
+		if ack.Code != packets.CodeAccepted {
+			t.Fatalf("connack.Code error, want %d, but got %d", packets.CodeAccepted, ack.Code)
+		}
+	} else {
+		t.Fatalf("invalid type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), reflect.TypeOf(p))
+	}
+	if len(srv.Monitor.Clients()) != 2 {
+		t.Fatalf("len error, want 2, got %d", len(srv.Monitor.Clients()))
+	}
+
 }
 
 func TestServer_db_subscribe_unsubscribe(t *testing.T) {
@@ -435,5 +517,16 @@ func TestSubscriptionDb(t *testing.T) {
 
 	if _, ok := db.topicsByName[tpname]["cid"]; ok {
 		t.Fatalf("db.add error, want false, got true")
+	}
+}
+
+func TestRandUUID(t *testing.T) {
+	var uuids map[string]struct{}
+	uuids = make(map[string]struct{})
+	for i := 0; i < 100; i++ {
+		uuids[getRandomUUID()] = struct{}{}
+	}
+	if len(uuids) != 100 {
+		t.Fatalf("duplicated ID")
 	}
 }

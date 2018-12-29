@@ -96,7 +96,6 @@ func (c *Connect) Pack(w io.Writer) error {
 	keepAlive := make([]byte, 2)
 	binary.BigEndian.PutUint16(keepAlive, c.KeepAlive)
 	w.Write(keepAlive)
-
 	clienIDByte, _, erro := EncodeUTF8String(c.ClientID)
 	if erro != nil {
 		return erro
@@ -136,7 +135,6 @@ func (c *Connect) Unpack(r io.Reader) error {
 		return err
 	}
 	if !bytes.Equal(restBuffer[0:6], []byte{0, 4, 77, 81, 84, 84}) { //protocol name
-
 		return ErrInvalProtocolName // [MQTT-3.1.2-1] 不符合的protocol name直接关闭
 	}
 	c.ProtocolName = []byte{77, 81, 84, 84}
@@ -145,7 +143,6 @@ func (c *Connect) Unpack(r io.Reader) error {
 		c.AckCode = CodeUnacceptableProtocolVersion // [MQTT-3.1.2-2]
 	}
 	connectFlags := restBuffer[7]
-
 	reserved := 1 & connectFlags
 	if reserved != 0 { //[MQTT-3.1.2-3]
 		return ErrInvalConnFlags

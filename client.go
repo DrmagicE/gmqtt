@@ -4,11 +4,15 @@ package gmqtt
 import (
 	"bufio"
 	"container/list"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +95,10 @@ type Client struct {
 	userData  interface{}
 
 	ready chan struct{} //close after session prepared
+}
+
+func (client *Client) Server() *Server {
+	return client.server
 }
 
 // UserData returns the user data
@@ -178,19 +186,20 @@ func (client *Client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
-			if log != nil {
-				log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
-			}
 			err = client.writePacket(packet)
 			if err != nil {
 				return
 			}
+
 		}
 
 	}
 }
 
 func (client *Client) writePacket(packet packets.Packet) error {
+	if log != nil {
+		log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
+	}
 	var err error
 	err = client.packetWriter.WritePacket(packet)
 	if err != nil {
@@ -250,6 +259,45 @@ func (client *Client) Close() <-chan struct{} {
 	return client.closeComplete
 }
 
+var pid = os.Getpid()
+var counter uint32
+var machineId = readMachineId()
+
+func readMachineId() []byte {
+	id := make([]byte, 3, 3)
+	hostname, err1 := os.Hostname()
+	if err1 != nil {
+		_, err2 := io.ReadFull(rand.Reader, id)
+		if err2 != nil {
+			panic(fmt.Errorf("cannot get hostname: %v; %v", err1, err2))
+		}
+		return id
+	}
+	hw := md5.New()
+	hw.Write([]byte(hostname))
+	copy(id, hw.Sum(nil))
+	return id
+}
+
+func getRandomUUID() string {
+	var b [12]byte
+	// Timestamp, 4 bytes, big endian
+	binary.BigEndian.PutUint32(b[:], uint32(time.Now().Unix()))
+	// Machine, first 3 bytes of md5(hostname)
+	b[4] = machineId[0]
+	b[5] = machineId[1]
+	b[6] = machineId[2]
+	// Pid, 2 bytes, specs don't specify endianness, but we use big endian.
+	b[7] = byte(pid >> 8)
+	b[8] = byte(pid)
+	// Increment, 3 bytes, big endian
+	i := atomic.AddUint32(&counter, 1)
+	b[9] = byte(i >> 16)
+	b[10] = byte(i >> 8)
+	b[11] = byte(i)
+	return fmt.Sprintf(`%x`, string(b[:]))
+}
+
 func (client *Client) connectWithTimeOut() (ok bool) {
 	var err error
 	defer func() {
@@ -275,6 +323,9 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 		return
 	}
 	client.opts.ClientID = string(conn.ClientID)
+	if client.opts.ClientID == "" {
+		client.opts.ClientID = getRandomUUID()
+	}
 	client.opts.KeepAlive = conn.KeepAlive
 	client.opts.CleanSession = conn.CleanSession
 	client.opts.Username = string(conn.Username)
@@ -304,7 +355,6 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	}
 	err = register.error
 	return
-
 }
 
 func (client *Client) newSession() {
