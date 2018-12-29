@@ -97,9 +97,6 @@ type Client struct {
 	ready chan struct{} //close after session prepared
 }
 
-func (client *Client) Server() *Server {
-	return client.server
-}
 
 // UserData returns the user data
 func (client *Client) UserData() interface{} {
