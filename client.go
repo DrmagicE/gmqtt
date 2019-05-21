@@ -97,7 +97,6 @@ type Client struct {
 	ready chan struct{} //close after session prepared
 }
 
-
 // UserData returns the user data
 func (client *Client) UserData() interface{} {
 	client.userMutex.Lock()
