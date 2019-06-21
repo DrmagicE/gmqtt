@@ -1,24 +1,5 @@
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
-# 更新日志
-## 2018.12.15
-* 增加go modules支持
-* 调整包结构
-## 2018.12.2
-* 优化订阅存储结构，大幅提高并发能力和减少响应时间
-* 更新优化后的压力测试结果
-## 2018.11.25
-* 增加压力测试工具
-* 优化部分代码结构
-* 改变订阅主题的存储方式，优化转发性能
-* 修改OnClose钩子方法，增加连接关闭原因
-## 2018.11.18
-* 暂时删除了session持久化功能，需要重新设计
-* 新增运行状态监控/管理功能，在`cmd/broker`中通过restapi呈现
-* 新增服务端触发的发布/订阅功能，在`cmd/broker`中通过restapi呈现
-* 为session增加了缓存队列
-* 重构部分代码，bug修复
-
 # 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
@@ -93,6 +74,7 @@ Gmqtt实现了下列钩子方法
 * OnAccept  (仅支持在tcp/ssl下,websocket不支持)
 * OnConnect 
 * OnSubscribe
+* OnUnsubscribed
 * OnPublish
 * OnClose
 * OnStop
@@ -153,6 +135,12 @@ server.RegisterOnSubscribe(func(client *server.Client, topic packets.Topic) uint
   }
 })
 ```
+### OnUnsubscribed()
+取消订阅之后调用。
+```
+// OnUnsubscribed will be called after the topic has been unsubscribed
+type OnUnsubscribed func(client *Client, topicName string)
+```
 
 ### OnPublish()
 接收到PUBLISH报文之后调用。
@@ -212,7 +200,3 @@ $ go test -race .
 
 ## 压力测试
 [文档与测试结果](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README_ZH.md)
-
-# TODO 
-* 完善文档
-* 性能对比[EMQ/Mosquito]

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"log"
@@ -76,6 +75,9 @@ func main() {
 		return topic.Qos
 	})
 
+	s.RegisterOnUnsubscribed(func(client *gmqtt.Client, topicName string) {
+		log.Printf(`topic: "%s" unsubscribed`, topicName)
+	})
 	s.RegisterOnPublish(func(client *gmqtt.Client, publish *packets.Publish) bool {
 		if client.ClientOptions().Username == "subscribeonly" {
 			client.Close()
@@ -89,7 +91,7 @@ func main() {
 	})
 
 	s.RegisterOnClose(func(client *gmqtt.Client, err error) {
-		log.Println("client id:"+client.ClientOptions().ClientID+"is closed", err)
+		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
 	})
 
 	s.RegisterOnStop(func() {
@@ -98,10 +100,10 @@ func main() {
 
 	s.AddTCPListenner(ln)
 	s.Run()
-	fmt.Println("started...")
+	log.Println("started...")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	s.Stop(context.Background())
-	fmt.Println("stopped")
+	log.Println("stopped")
 }

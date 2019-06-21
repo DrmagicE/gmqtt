@@ -60,6 +60,7 @@ type Server struct {
 	onAccept    OnAccept
 	onConnect   OnConnect
 	onSubscribe OnSubscribe
+	onUnsubscribed  OnUnsubscribed
 	onPublish   OnPublish
 	onClose     OnClose
 	onStop      OnStop
@@ -90,6 +91,12 @@ func (srv *Server) RegisterOnConnect(callback OnConnect) {
 func (srv *Server) RegisterOnSubscribe(callback OnSubscribe) {
 	srv.checkStatus()
 	srv.onSubscribe = callback
+}
+
+// RegisterOnUnsubscribed registers a onUnsubscribed callback.
+func (srv *Server) RegisterOnUnsubscribed(callback OnUnsubscribed) {
+	srv.checkStatus()
+	srv.onUnsubscribed = callback
 }
 
 // RegisterOnPublish registers a onPublish callback.
@@ -510,6 +517,9 @@ OnSubscribe returns the maximum available QoS for the topic:
  0x80 - Failure
 */
 type OnSubscribe func(client *Client, topic packets.Topic) uint8
+
+// OnUnsubscribed will be called after the topic has been unsubscribed
+type OnUnsubscribed func(client *Client, topicName string)
 
 // OnPublish 返回接收到的publish报文是否允许转发，返回false则该报文不会被继续转发
 //

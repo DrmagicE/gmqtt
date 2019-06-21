@@ -526,11 +526,13 @@ func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	client.write(unSuback)
 	srv.subscriptionsDB.Lock()
 	defer srv.subscriptionsDB.Unlock()
-
 	for _, topicName := range unSub.Topics {
 		srv.unsubscribe(client.opts.ClientID, topicName)
 		if client.server.Monitor != nil {
 			client.server.Monitor.unSubscribe(client.opts.ClientID, topicName)
+		}
+		if srv.onUnsubscribed != nil {
+			client.server.onUnsubscribed(client, topicName)
 		}
 	}
 }

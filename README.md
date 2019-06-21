@@ -6,33 +6,12 @@ Gmqtt provides:
 *  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
 *  MQTT broker benchmark tool.
 
-# Change Log 
-## 2018.12.15
-* Supported go modules.
-* Restructured the package layout.
-## 2018.12.2
-* Optimized data structure of subscriptions that increased QPS & reduced response times.
-* Updated benchmark results of optimization .
-## 2018.11.25
-* Added benchmark tool.
-* Refacotoring & improved performance.
-* Performance improvement on message distributing
-* Added error information in `OnClose()`
-## 2018.11.18
-* Removed sessions/messages persistence which need a redesign.
-* Added monitor/management API, added `cmd/broker/restapi` as an example.
-* Added publish/subscribe/unsubscribe API, added `cmd/broker/restapi` as an example.
-* Added session message queue.
-* Refactoring & bug fixed.
 
 # Features
 * Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
 * Support tls/ssl and websocket
 * Provide monitor/management API
 * Provide publish/subscribe/unsubscribe API
-
-
-
 
 
 # Installation
@@ -97,6 +76,7 @@ Gmqtt implements the following hooks:
 * OnAccept  (Only for tcp/ssl, not for ws/wss)
 * OnConnect 
 * OnSubscribe
+* OnUnsubscribed
 * OnPublish
 * OnClose
 * OnStop
@@ -157,6 +137,12 @@ server.RegisterOnSubscribe(func(client *server.Client, topic packets.Topic) uint
   }
 })
 ```
+### OnUnsubscribed()
+```
+// OnUnsubscribed will be called after the topic has been unsubscribed
+type OnUnsubscribed func(client *Client, topicName string)
+```
+
 
 ### OnPublish()
 This method will be called after receiving a MQTT PUBLISH packet.
@@ -174,7 +160,7 @@ server.RegisterOnPublish(func(client *server.Client, publish *packets.Publish)  
     return false
   }
   //Only qos1 & qos0 are acceptable(will be delivered)
-	if publish.Qos == packets.QOS_2 {
+  if publish.Qos == packets.QOS_2 {
     return false  //1.make a positive acknowledgement but not going to distribute the packet
   }
   return true
@@ -216,9 +202,6 @@ Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 ## Benchmark Test
 [Documentation & Results](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
 
-# TODO
-* Improve documentation
-* Performance comparison [EMQ/Mosquito]
 
 
 
