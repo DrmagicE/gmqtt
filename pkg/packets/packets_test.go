@@ -183,7 +183,7 @@ func TestValidTopicName(t *testing.T) {
 func TestTopicMatch(t *testing.T) {
 	for _, v := range topicMatchTest {
 		if isMatch := TopicMatch([]byte(v.topic), []byte(v.subTopic)); isMatch != v.isMatch {
-			t.Fatalf("TopicMatch(%s,%s) error,want %t, but %t", string(v.topic), string(v.subTopic), v.isMatch, isMatch)
+			t.Fatalf("TopicMatch(%s,%s) error,want %t, but %t", v.topic, v.subTopic, v.isMatch, isMatch)
 		}
 	}
 }
