@@ -659,7 +659,7 @@ func (srv *Server) Subscribe(clientID string, topics []packets.Topic) {
 			srv.Monitor.subscribe(SubscriptionsInfo{
 				ClientID: clientID,
 				Qos:      v.Qos,
-				Name:     string(v.Name),
+				Name:     v.Name,
 				At:       time.Now(),
 			})
 		}

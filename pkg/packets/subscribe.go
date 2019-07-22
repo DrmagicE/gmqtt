@@ -91,7 +91,7 @@ func (p *Subscribe) Unpack(r io.Reader) (err error) {
 			return ErrInvalTopicFilter
 		}
 		restBuffer = restBuffer[size:]
-		qos := uint8(restBuffer[0])
+		qos := restBuffer[0]
 		restBuffer = restBuffer[1:]
 		if qos > QOS_2 {
 			return ErrInvalQos
