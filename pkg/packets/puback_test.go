@@ -10,8 +10,7 @@ import (
 func TestWritePubackPacket(t *testing.T) {
 	b := make([]byte, 0, 2048)
 	buf := bytes.NewBuffer(b)
-	var pid uint16
-	pid = 65535
+	pid := uint16(65535)
 	puback := &Puback{
 		PacketID: pid,
 	}

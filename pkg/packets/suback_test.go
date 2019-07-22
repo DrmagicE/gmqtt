@@ -34,8 +34,7 @@ func TestWriteSubackWithOneTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	var p *Subscribe
-	p = packet.(*Subscribe)
+	p := packet.(*Subscribe)
 	suback := p.NewSubBack()
 	buf := bytes.NewBuffer(make([]byte, 0, 2048))
 	err = NewWriter(buf).WriteAndFlush(suback)
@@ -54,8 +53,7 @@ func TestWriteSubackWith3Topics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	var p *Subscribe
-	p = packet.(*Subscribe)
+	p := packet.(*Subscribe)
 	suback := p.NewSubBack()
 	buf := bytes.NewBuffer(make([]byte, 0, 2048))
 	err = NewWriter(buf).WriteAndFlush(suback)

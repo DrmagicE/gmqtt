@@ -97,8 +97,7 @@ func TestSubscribe_NewSubBackWithOneTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err.Error())
 	}
-	var p *Subscribe
-	p = packet.(*Subscribe)
+	p := packet.(*Subscribe)
 	suback := p.NewSubBack()
 
 	if suback.FixHeader.PacketType != SUBACK {
@@ -122,8 +121,7 @@ func TestSubscribe_NewSubBackWith3Topics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err.Error())
 	}
-	var p *Subscribe
-	p = packet.(*Subscribe)
+	p := packet.(*Subscribe)
 	suback := p.NewSubBack()
 	if suback.FixHeader.PacketType != SUBACK {
 		t.Fatalf("FixHeader.PacketType error,want %d, got %d", SUBACK, suback.FixHeader.PacketType)

@@ -688,17 +688,13 @@ func (srv *Server) UnSubscribe(clientID string, topics []string) {
 // This method enables the mqtt server to serve on multiple ports.
 func (srv *Server) AddTCPListenner(ln ...net.Listener) {
 	srv.checkStatus()
-	for _, v := range ln {
-		srv.tcpListener = append(srv.tcpListener, v)
-	}
+	srv.tcpListener = append(srv.tcpListener, ln...)
 }
 
 // AddWebSocketServer adds websocket server to mqtt server.
 func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
 	srv.checkStatus()
-	for _, v := range Server {
-		srv.websocketServer = append(srv.websocketServer, v)
-	}
+	srv.websocketServer = append(srv.websocketServer, Server...)
 }
 
 func (srv *Server) serveTCP(l net.Listener) {

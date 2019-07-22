@@ -222,8 +222,7 @@ func DecodeRemainLength(length int) ([]byte, error) {
 // EncodeRemainLength reads the remain length bytes from bufio.Reader and returns length int.
 func EncodeRemainLength(r *bufio.Reader) (int, error) {
 	var i int
-	var multiplier int
-	multiplier = 1
+	multiplier := 1
 	var value int
 	buf := make([]byte, 0, 1)
 	for {
@@ -472,9 +471,8 @@ func TopicMatch(topic []byte, topicFilter []byte) bool {
 			break
 		}
 	}
-	if multilevelWildcard == false && (tpos < topiclen || spos < sublen) {
+	if !multilevelWildcard && (tpos < topiclen || spos < sublen) {
 		return false
 	}
 	return false
-
 }

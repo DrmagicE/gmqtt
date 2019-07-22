@@ -522,8 +522,7 @@ func TestSubscriptionDb(t *testing.T) {
 }
 
 func TestRandUUID(t *testing.T) {
-	var uuids map[string]struct{}
-	uuids = make(map[string]struct{})
+	uuids := make(map[string]struct{})
 	for i := 0; i < 100; i++ {
 		uuids[getRandomUUID()] = struct{}{}
 	}
