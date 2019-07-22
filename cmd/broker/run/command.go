@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/cmd/broker/restapi"
 	"log"
 	"os"
 	"runtime"
 	"runtime/pprof"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/cmd/broker/restapi"
 )
 
 // Command represents the command executed by `go run main.go`

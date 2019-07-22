@@ -9,13 +9,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 // Error

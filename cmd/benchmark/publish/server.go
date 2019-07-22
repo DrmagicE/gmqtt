@@ -2,12 +2,13 @@ package publish
 
 import (
 	"context"
-	"github.com/eclipse/paho.mqtt.golang"
 	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // Server represents the publish benchmark server.

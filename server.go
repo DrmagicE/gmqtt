@@ -3,15 +3,16 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"github.com/DrmagicE/gmqtt/logger"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/DrmagicE/gmqtt/logger"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/gorilla/websocket"
 )
 
 var (
@@ -57,13 +58,13 @@ type Server struct {
 
 	config *config
 	//hooks
-	onAccept    OnAccept
-	onConnect   OnConnect
-	onSubscribe OnSubscribe
-	onUnsubscribed  OnUnsubscribed
-	onPublish   OnPublish
-	onClose     OnClose
-	onStop      OnStop
+	onAccept       OnAccept
+	onConnect      OnConnect
+	onSubscribe    OnSubscribe
+	onUnsubscribed OnUnsubscribed
+	onPublish      OnPublish
+	onClose        OnClose
+	onStop         OnStop
 	//Monitor
 	Monitor *Monitor
 }

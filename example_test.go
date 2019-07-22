@@ -3,12 +3,13 @@ package gmqtt
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 //see /examples for more details.

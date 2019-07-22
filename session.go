@@ -2,9 +2,10 @@ package gmqtt
 
 import (
 	"container/list"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"sync"
 	"time"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 const maxInflightMessages = 65535

@@ -5,12 +5,13 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 const testRedeliveryInternal = 10 * time.Second

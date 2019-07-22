@@ -2,9 +2,10 @@ package run
 
 import (
 	"fmt"
+	"io/ioutil"
+
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v2"
-	"io/ioutil"
 )
 
 // ProtocolMQTT represents the MQTT protocol under TCP server

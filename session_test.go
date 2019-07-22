@@ -1,8 +1,9 @@
 package gmqtt
 
 import (
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"testing"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 const testMaxInflightLen = 20
