@@ -145,12 +145,10 @@ func TestRemainLengthEncodeDecode(t *testing.T) {
 			t.Fatalf("EncodeRemainLength %v error, want %d, but %d", v, k, encodedLen)
 		}
 	}
-	return
 }
 
 func TestValidUTF8(t *testing.T) {
-	var runeByte []byte
-	runeByte = make([]byte, 1)
+	runeByte := make([]byte, 1)
 	for i := 0x00; i <= 0x1f; i++ { //\u0000 - \u001f invalid
 		runeByte[0] = byte(i)
 		if ValidUTF8(runeByte) == true {

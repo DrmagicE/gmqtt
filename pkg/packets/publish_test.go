@@ -81,8 +81,7 @@ func TestReadPublishPacket(t *testing.T) {
 		116, 101, 115, 116, 32, 112, 97, 121, 108, 111, 97, 100, //"test payload"
 	})
 	topicName := []byte{116, 101, 115, 116, 32, 84, 111, 112, 105, 99, 32, 78, 97, 109, 101}
-	var pid uint16
-	pid = 10
+	pid := uint16(10)
 	payload := []byte{116, 101, 115, 116, 32, 112, 97, 121, 108, 111, 97, 100}
 
 	packet, err := NewReader(publishPacketBytes).ReadPacket()
@@ -110,8 +109,7 @@ func TestReadPublishPacket(t *testing.T) {
 }
 
 func TestPublish_NewPuback(t *testing.T) {
-	var pid uint16
-	pid = 123
+	pid := uint16(123)
 	pub := &Publish{
 		Qos:      QOS_1,
 		PacketID: pid,
@@ -123,8 +121,7 @@ func TestPublish_NewPuback(t *testing.T) {
 }
 
 func TestPublish_NewPubrec(t *testing.T) {
-	var pid uint16
-	pid = 123
+	pid := uint16(123)
 	pub := &Publish{
 		Qos:      QOS_2,
 		PacketID: pid,

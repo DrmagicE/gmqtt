@@ -197,8 +197,7 @@ func (client *Client) writePacket(packet packets.Packet) error {
 	if log != nil {
 		log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
 	}
-	var err error
-	err = client.packetWriter.WritePacket(packet)
+	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
 	}
@@ -261,7 +260,7 @@ var counter uint32
 var machineId = readMachineId()
 
 func readMachineId() []byte {
-	id := make([]byte, 3, 3)
+	id := make([]byte, 3)
 	hostname, err1 := os.Hostname()
 	if err1 != nil {
 		_, err2 := io.ReadFull(rand.Reader, id)
@@ -384,7 +383,7 @@ func (client *Client) internalClose() {
 func (client *Client) publish(publish *packets.Publish) {
 	if client.Status() == Connected { //在线消息
 		if publish.Qos >= packets.QOS_1 {
-			if publish.Dup == true {
+			if publish.Dup {
 				//redelivery on reconnect,use the original packet id
 				client.session.setPacketID(publish.PacketID)
 			} else {
@@ -485,8 +484,7 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 		srv.retainedMsgMu.Unlock()
 	}
 	if !dup {
-		var valid bool
-		valid = true
+		valid := true
 		if srv.onPublish != nil {
 			valid = client.server.onPublish(client, pub)
 		}

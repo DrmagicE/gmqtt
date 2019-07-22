@@ -13,8 +13,7 @@ func TestWriteUnSuback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err.Error())
 	}
-	var p *Unsubscribe
-	p = packet.(*Unsubscribe)
+	p := packet.(*Unsubscribe)
 	unsuback := p.NewUnSubBack()
 	buf := bytes.NewBuffer(make([]byte, 0, 2048))
 	err = NewWriter(buf).WriteAndFlush(unsuback)

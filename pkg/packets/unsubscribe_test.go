@@ -132,8 +132,7 @@ func TestUnsubscribe_NewUnSubBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err.Error())
 	}
-	var p *Unsubscribe
-	p = packet.(*Unsubscribe)
+	p := packet.(*Unsubscribe)
 	unsuback := p.NewUnSubBack()
 
 	if unsuback.FixHeader.PacketType != UNSUBACK {

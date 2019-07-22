@@ -191,13 +191,10 @@ func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
 func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn, net.Conn) {
 	srv := newTestServer()
 	ln := srv.tcpListener[0].(*testListener)
-	var cc []net.Conn
-	cc = make([]net.Conn, 2)
+	cc := make([]net.Conn, 2)
 
 	conn := make([]*packets.Connect, 2)
-	for k, v := range connect {
-		conn[k] = v
-	}
+	copy(conn, connect)
 	for i := 0; i < 2; i++ {
 		closec := make(chan struct{})
 		conn := &rwTestConn{
@@ -411,8 +408,7 @@ func TestQos2Publish(t *testing.T) {
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
-	var pid packets.PacketID
-	pid = 10
+	pid := packets.PacketID(10)
 	for i := 0; i < 2; i++ { //发送两次相同的packet id
 		pub := &packets.Publish{
 			Dup:       false,

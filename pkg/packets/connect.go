@@ -173,7 +173,7 @@ func (c *Connect) unpackPayload(restBuffer []byte) error {
 	}
 	restBuffer = restBuffer[size:]
 	c.ClientID = vh
-	if len(c.ClientID) == 0 && c.CleanSession == false { //[MQTT-3.1.3-7]
+	if len(c.ClientID) == 0 && !c.CleanSession { //[MQTT-3.1.3-7]
 		c.AckCode = CodeIdentifierRejected //[MQTT-3.1.3-8]
 	}
 
@@ -231,7 +231,7 @@ func (c *Connect) NewConnackPacket(sessionReuse bool) *Connack {
 	//b1 := buffer[0] //一定是16
 	ack := &Connack{}
 	ack.Code = c.AckCode
-	if c.CleanSession == true { //[MQTT-3.2.2-1]
+	if c.CleanSession { //[MQTT-3.2.2-1]
 		ack.SessionPresent = 0
 	} else {
 		if sessionReuse {

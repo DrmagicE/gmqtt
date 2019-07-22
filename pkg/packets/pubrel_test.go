@@ -10,8 +10,7 @@ import (
 func TestWritePubrelPacket(t *testing.T) {
 	b := make([]byte, 0, 2048)
 	buf := bytes.NewBuffer(b)
-	var pid uint16
-	pid = 65535
+	pid := uint16(65535)
 	pubrel := &Pubrel{
 		PacketID: pid,
 	}
@@ -53,8 +52,7 @@ func TestReadPubrelPacket(t *testing.T) {
 }
 
 func TestPubrel_NewPubcomp(t *testing.T) {
-	var pid uint16
-	pid = 10
+	pid := uint16(10)
 	pubrel := &Pubrel{
 		PacketID: pid,
 	}

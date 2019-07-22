@@ -11,8 +11,7 @@ func TestWritePubrecPacket(t *testing.T) {
 
 	b := make([]byte, 0, 2048)
 	buf := bytes.NewBuffer(b)
-	var pid uint16
-	pid = 65535
+	pid := uint16(65535)
 	pubrec := &Pubrec{
 		PacketID: pid,
 	}
@@ -54,8 +53,7 @@ func TestReadPubrecPacket(t *testing.T) {
 }
 
 func TestPubrec_NewPubrel(t *testing.T) {
-	var pid uint16
-	pid = 10
+	pid := uint16(10)
 	pubrec := &Pubrec{
 		PacketID: pid,
 	}
