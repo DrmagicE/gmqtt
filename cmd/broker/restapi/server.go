@@ -1,11 +1,12 @@
 package restapi
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strconv"
 )
 
 // RestServer represents the REST API server.

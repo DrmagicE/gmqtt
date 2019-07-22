@@ -2,12 +2,13 @@ package gmqtt
 
 import (
 	"context"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 func TestHooks(t *testing.T) {

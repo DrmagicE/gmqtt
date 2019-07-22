@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/DrmagicE/gmqtt/cmd/broker/run"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/DrmagicE/gmqtt/cmd/broker/run"
 )
 
 func main() {

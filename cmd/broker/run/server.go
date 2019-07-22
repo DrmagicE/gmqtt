@@ -2,13 +2,14 @@ package run
 
 import (
 	"crypto/tls"
-	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/logger"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/logger"
 )
 
 // NewServer creates a new  gmqtt.Server instance by the given Config param.

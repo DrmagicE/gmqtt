@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/DrmagicE/gmqtt/cmd/benchmark/subscribe"
 	"os"
+
+	"github.com/DrmagicE/gmqtt/cmd/benchmark/subscribe"
 )
 
 func main() {
