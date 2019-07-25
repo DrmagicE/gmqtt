@@ -360,8 +360,8 @@ func (client *Client) newSession() {
 		msgQueue:            list.New(),
 		lockedPid:           make(map[packets.PacketID]bool),
 		freePid:             1,
-		maxInflightMessages: client.server.config.maxInflightMessages,
-		maxQueueMessages:    client.server.config.maxQueueMessages,
+		maxInflightMessages: client.server.config.MaxInflightMessages,
+		maxQueueMessages:    client.server.config.MaxQueueMessages,
 	}
 	client.session = s
 }
@@ -381,7 +381,7 @@ func (client *Client) internalClose() {
 }
 
 func (client *Client) publish(publish *packets.Publish) {
-	if client.Status() == Connected { //在线消息
+	if client.IsConnected() { //在线消息
 		if publish.Qos >= packets.QOS_1 {
 			if publish.Dup {
 				//redelivery on reconnect,use the original packet id
@@ -389,8 +389,15 @@ func (client *Client) publish(publish *packets.Publish) {
 			} else {
 				publish.PacketID = client.session.getPacketID()
 			}
+			if client.server.onDeliver != nil {
+				client.server.onDeliver(client, publish)
+			}
 			if !client.setInflight(publish) {
 				return
+			}
+		} else {
+			if client.server.onDeliver != nil {
+				client.server.onDeliver(client, publish)
 			}
 		}
 		select {
@@ -399,6 +406,9 @@ func (client *Client) publish(publish *packets.Publish) {
 		case client.out <- publish:
 		}
 	} else { //离线消息
+		if client.server.onDeliver != nil {
+			client.server.onDeliver(client, publish)
+		}
 		client.msgEnQueue(publish)
 	}
 }
@@ -422,18 +432,15 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 	}
 	suback := sub.NewSubBack()
 	client.write(suback)
-	srv.subscriptionsDB.Lock()
-	defer srv.subscriptionsDB.Unlock()
-	var isNew bool
+	//	srv.subscriptionsDB.Lock()
+	//	defer srv.subscriptionsDB.Unlock()
 	for k, v := range sub.Topics {
 		if v.Qos != packets.SUBSCRIBE_FAILURE {
 			topic := packets.Topic{
 				Name: v.Name,
 				Qos:  suback.Payload[k],
 			}
-			if srv.subscribe(client.opts.ClientID, topic) {
-				isNew = true
-			}
+			srv.subscriptionsDB.subscribe(client.opts.ClientID, topic)
 			if client.server.Monitor != nil {
 				client.server.Monitor.subscribe(SubscriptionsInfo{
 					ClientID: client.opts.ClientID,
@@ -444,15 +451,13 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 			}
 		}
 	}
-	if isNew {
-		srv.retainedMsgMu.Lock()
-		for _, msg := range srv.retainedMsg {
-			msg.Retain = true
-			msgRouter := &msgRouter{forceBroadcast: false, pub: msg}
-			srv.msgRouter <- msgRouter
-		}
-		srv.retainedMsgMu.Unlock()
+	srv.retainedMsgMu.Lock()
+	for _, msg := range srv.retainedMsg {
+		msg.Retain = true
+		msgRouter := &msgRouter{pub: msg}
+		srv.msgRouter <- msgRouter
 	}
+	srv.retainedMsgMu.Unlock()
 
 }
 
@@ -490,7 +495,7 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 		}
 		if valid {
 			pub.Retain = false
-			msgRouter := &msgRouter{forceBroadcast: false, pub: pub}
+			msgRouter := &msgRouter{pub: pub}
 			select {
 			case <-client.close:
 				return
@@ -523,10 +528,10 @@ func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
-	srv.subscriptionsDB.Lock()
-	defer srv.subscriptionsDB.Unlock()
+	//	srv.subscriptionsDB.Lock()
+	//	defer srv.subscriptionsDB.Unlock()
 	for _, topicName := range unSub.Topics {
-		srv.unsubscribe(client.opts.ClientID, topicName)
+		srv.subscriptionsDB.unsubscribe(client.opts.ClientID, topicName)
 		if client.server.Monitor != nil {
 			client.server.Monitor.unSubscribe(client.opts.ClientID, topicName)
 		}
@@ -591,7 +596,7 @@ func (client *Client) redeliver() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-	retryInterval := client.server.config.deliveryRetryInterval
+	retryInterval := client.server.config.DeliveryRetryInterval
 	timer := time.NewTicker(retryInterval)
 	defer timer.Stop()
 	for {

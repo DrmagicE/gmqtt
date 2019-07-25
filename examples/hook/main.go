@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
-	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 var validUserMu sync.Mutex
@@ -45,6 +47,7 @@ func main() {
 	s.RegisterOnConnect(func(client *gmqtt.Client) (code uint8) {
 		username := client.ClientOptions().Username
 		password := client.ClientOptions().Password
+		fmt.Println("connect")
 		if validateUser(username, password) {
 			return packets.CodeAccepted
 		}
@@ -96,6 +99,14 @@ func main() {
 
 	s.RegisterOnStop(func() {
 		log.Println("server stopped...")
+	})
+
+	s.RegisterOnDeliver(func(client *gmqtt.Client, publish *packets.Publish) {
+		fmt.Println("ondeliver:", publish)
+	})
+
+	s.RegisterOnAcked(func(client *gmqtt.Client, publish *packets.Publish) {
+		fmt.Println("onAcked:", publish)
 	})
 
 	s.AddTCPListenner(ln)

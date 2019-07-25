@@ -115,11 +115,6 @@ func (client *Client) setInflight(publish *packets.Publish) (enqueue bool) {
 	s := client.session
 	s.inflightMu.Lock()
 	defer s.inflightMu.Unlock()
-	defer func() {
-		if enqueue && client.server.Monitor != nil {
-			client.server.Monitor.addInflight(client.opts.ClientID)
-		}
-	}()
 	elem := &InflightElem{
 		At:     time.Now(),
 		Pid:    publish.PacketID,
@@ -144,6 +139,7 @@ func (client *Client) setInflight(publish *packets.Publish) (enqueue bool) {
 //packet: puback(QOS1),pubrec(QOS2)  or pubcomp(QOS2)
 func (client *Client) unsetInflight(packet packets.Packet) {
 	s := client.session
+	srv := client.server
 	s.inflightMu.Lock()
 	defer s.inflightMu.Unlock()
 	var freeID bool
@@ -178,19 +174,12 @@ func (client *Client) unsetInflight(packet packets.Packet) {
 					if log != nil {
 						log.Printf("%-15s[%s],packet: %s ", "inflight msg released ", client.ClientOptions().ClientID, packet)
 					}
+					if srv.onAcked != nil {
+						srv.onAcked(client, e.Value.(*InflightElem).Packet)
+					}
 					publish := client.msgDequeue()
 					if publish != nil {
-						elem := &InflightElem{
-							At:     time.Now(),
-							Pid:    publish.PacketID,
-							Packet: publish,
-							Step:   0,
-						}
-						s.inflight.PushBack(elem)
-						client.out <- publish
-					} else if client.server.Monitor != nil {
-						client.server.Monitor.delInflight(client.opts.ClientID)
-
+						client.publish(publish)
 					}
 				} else {
 					el.Step++

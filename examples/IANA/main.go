@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +11,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 func main() {
