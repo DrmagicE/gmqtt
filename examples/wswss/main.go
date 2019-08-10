@@ -3,17 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/DrmagicE/gmqtt"
 )
 
 func main() {
-	s := gmqtt.NewServer()
+	s := gmqtt.DefaultServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -29,6 +30,7 @@ func main() {
 		KeyFile:  "../testcerts/server.key",
 	}
 	s.AddWebSocketServer(ws, wss)
+
 	s.Run()
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)

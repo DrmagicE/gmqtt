@@ -71,8 +71,72 @@ func putBufioWriter(bw *bufio.Writer) {
 	bufioWriterPool.Put(bw)
 }
 
+// Client represent
+type Client interface {
+	// Set stores a new key/value pair
+	Set(key string, value interface{})
+	// Get returns the value which set by Set() method for the given key, ie: (value, true).
+	// If the key does not exists it returns (nil, false)
+	Get(key string) (value interface{}, exists bool)
+	// OptionsReader returns ClientOptionsReader for reading options data.
+	OptionsReader() ClientOptionsReader
+	SessionStatsReader
+	// IsConnected returns whether the client is connected.
+	IsConnected() bool
+	// Status returns client's status
+	Status() int32
+	// ConnectedAt returns the connected time
+	ConnectedAt() time.Time
+	// DisconnectedAt return the disconnected time
+	DisconnectedAt() time.Time
+	// Close closes the client connection. The returned channel will be closed after unregister process has been done
+	Close() <-chan struct{}
+}
+
+// SessionStatsReader
+type SessionStatsReader interface {
+	// InflightLen returns the current length of the inflight queue.
+	InflightLen() int64
+	// InflightLen returns the current length of the message queue.
+	MsgQueueLen() int64
+	// InflightLen returns the current length of the awaitRel queue.
+	AwaitRelLen() int64
+	// SubscriptionsCount returns subscription count
+	SubscriptionsCount() int64
+	// MsgDroppedTotal returns the total number of dropped messages
+	MsgDroppedTotal() int64
+	// MsgDeliveredTotal returns the total number of delivered messages
+	MsgDeliveredTotal() int64
+}
+
+// ChainStore is used to store and retrieve key/value pair data between hooks function in call chain.
+type ChainStore interface {
+	Set(key string, value interface{})
+	Get(key string) (value interface{}, exists bool)
+}
+
+// chainStore implement the ChainStore
+type chainStore struct {
+	keys map[string]interface{}
+}
+
+// Set is used to store a new key/value pair exclusively for the hook call chain.
+func (c *chainStore) Set(key string, value interface{}) {
+	if c.keys == nil {
+		c.keys = make(map[string]interface{})
+	}
+	c.keys[key] = value
+}
+
+// Get returns the value for the given key, ie: (value, true).
+// If the value does not exists it returns (nil, false)
+func (c *chainStore) Get(key string) (value interface{}, exists bool) {
+	value, exists = c.keys[key]
+	return
+}
+
 // Client represents a MQTT client
-type Client struct {
+type client struct {
 	server        *Server
 	wg            sync.WaitGroup
 	rwc           net.Conn //raw tcp connection
@@ -82,94 +146,223 @@ type Client struct {
 	packetWriter  *packets.Writer
 	in            chan packets.Packet
 	out           chan packets.Packet
-	writeMutex    sync.Mutex
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
 	session       *session
 	error         chan error //错误
 	err           error
-	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
-	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
-	//自定义数据 user data
-	userMutex sync.Mutex
-	userData  interface{}
-
+	opts          *options //OnConnect之前填充,set up before OnConnect()
+	cleanWillFlag bool     //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
+	//自定义数据
+	keys  map[string]interface{}
 	ready chan struct{} //close after session prepared
+
+	connectedAt    int64
+	disconnectedAt int64
 }
 
-// UserData returns the user data
-func (client *Client) UserData() interface{} {
-	client.userMutex.Lock()
-	defer client.userMutex.Unlock()
-	return client.userData
+func (client *client) addSubscriptionsCount(delta int64) {
+	atomic.AddInt64(&client.session.subscriptionsCount, delta)
 }
 
-// SetUserData is used to bind user data to the client
-func (client *Client) SetUserData(data interface{}) {
-	client.userMutex.Lock()
-	defer client.userMutex.Unlock()
-	client.userData = data
+func (client *client) addMsgDroppedTotal(delta int64) {
+	atomic.AddInt64(&client.session.msgDroppedTotal, delta)
 }
 
-//ClientOptions returns the ClientOptions. This is mainly used in callback functions.
+func (client *client) addMsgDeliveredTotal(delta int64) {
+	atomic.AddInt64(&client.session.msgDeliveredTotal, delta)
+}
+
+func (client *client) setConnectedAt(time time.Time) {
+	atomic.StoreInt64(&client.connectedAt, time.Unix())
+}
+func (client *client) setDisconnectedAt(time time.Time) {
+	atomic.StoreInt64(&client.disconnectedAt, time.Unix())
+}
+
+// ConnectedAt
+func (client *client) ConnectedAt() time.Time {
+	return time.Unix(atomic.LoadInt64(&client.connectedAt), 0)
+}
+
+// DisconnectedAt
+func (client *client) DisconnectedAt() time.Time {
+	return time.Unix(atomic.LoadInt64(&client.disconnectedAt), 0)
+}
+
+// SubscriptionsCount
+func (client *client) SubscriptionsCount() int64 {
+	return atomic.LoadInt64(&client.session.subscriptionsCount)
+}
+
+// MsgDroppedTotal
+func (client *client) MsgDroppedTotal() int64 {
+	return atomic.LoadInt64(&client.session.msgDroppedTotal)
+}
+
+// MsgDeliveredTotal
+func (client *client) MsgDeliveredTotal() int64 {
+	return atomic.LoadInt64(&client.session.msgDeliveredTotal)
+}
+
+// InflightLen
+func (client *client) InflightLen() int64 {
+	return atomic.LoadInt64(&client.session.inflightLen)
+}
+
+// MsgQueueLen
+func (client *client) MsgQueueLen() int64 {
+	return atomic.LoadInt64(&client.session.msgQueueLen)
+}
+
+// AwaitRelLen
+func (client *client) AwaitRelLen() int64 {
+	return atomic.LoadInt64(&client.session.awaitRelLen)
+}
+
+// Set is used to store a new key/value pair exclusively for the client.
+// notice: Set should be used only inside OnXXXX hook function.
+func (client *client) Set(key string, value interface{}) {
+	if client.keys == nil {
+		client.keys = make(map[string]interface{})
+	}
+	client.keys[key] = value
+}
+
+// Get returns the value for the given key, ie: (value, true).
+// If the value does not exists it returns (nil, false)
+// // notice: Get should be used only inside OnXXXX hook function.
+func (client *client) Get(key string) (value interface{}, exists bool) {
+	value, exists = client.keys[key]
+	return
+}
+
+//OptionsReader returns the ClientOptionsReader. This is mainly used in callback functions.
 //See ./example/hook
-func (client *Client) ClientOptions() ClientOptions {
-	opts := *client.opts
-	opts.WillPayload = make([]byte, len(client.opts.WillPayload))
+func (client *client) OptionsReader() ClientOptionsReader {
+	return client.opts
+	/*opts.WillPayload = make([]byte, len(client.opts.WillPayload))
 	copy(opts.WillPayload, client.opts.WillPayload)
-	return opts
+	return opts*/
 }
 
-func (client *Client) setConnecting() {
+func (client *client) setConnecting() {
 	atomic.StoreInt32(&client.status, Connecting)
 }
 
-func (client *Client) setSwitching() {
+func (client *client) setSwitching() {
 	atomic.StoreInt32(&client.status, Switiching)
 }
 
-func (client *Client) setConnected() {
+func (client *client) setConnected() {
 	atomic.StoreInt32(&client.status, Connected)
 }
 
-func (client *Client) setDisConnected() {
+func (client *client) setDisConnected() {
 	atomic.StoreInt32(&client.status, Disconnected)
 }
 
 //Status returns client's status
-func (client *Client) Status() int32 {
+func (client *client) Status() int32 {
 	return atomic.LoadInt32(&client.status)
 }
 
 // IsConnected returns whether the client is connected or not.
-func (client *Client) IsConnected() bool {
+func (client *client) IsConnected() bool {
 	return client.Status() == Connected
 }
 
-//ClientOptions is mainly used in callback functions.
-//See ClientOptions()
-type ClientOptions struct {
-	ClientID     string
-	Username     string
-	Password     string
-	KeepAlive    uint16
-	CleanSession bool
-	WillFlag     bool
-	WillRetain   bool
-	WillQos      uint8
-	WillTopic    string
-	WillPayload  []byte
+//ClientOptionsReader is mainly used in callback functions.
+type ClientOptionsReader interface {
+	ClientID() string
+	Username() string
+	Password() string
+	KeepAlive() uint16
+	CleanSession() bool
+	WillFlag() bool
+	WillRetain() bool
+	WillQos() uint8
+	WillTopic() string
+	WillPayload() []byte
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
 }
 
-func (client *Client) setError(error error) {
+// options client options
+type options struct {
+	clientID     string
+	username     string
+	password     string
+	keepAlive    uint16
+	cleanSession bool
+	willFlag     bool
+	willRetain   bool
+	willQos      uint8
+	willTopic    string
+	willPayload  []byte
+	localAddr    net.Addr
+	remoteAddr   net.Addr
+}
+
+// ClientID return clientID
+func (o *options) ClientID() string {
+	return o.clientID
+}
+
+// Username return username
+func (o *options) Username() string {
+	return o.username
+}
+
+// Password return Password
+func (o *options) Password() string {
+	return o.password
+}
+
+// KeepAlive return keepalive
+func (o *options) KeepAlive() uint16 {
+	return o.keepAlive
+}
+
+// CleanSession return cleanSession
+func (o *options) CleanSession() bool {
+	return o.cleanSession
+}
+
+// WillFlag return willflag
+func (o *options) WillFlag() bool {
+	return o.willFlag
+}
+
+// WillRetain return willRetain
+func (o *options) WillRetain() bool {
+	return o.willRetain
+}
+func (o *options) WillQos() uint8 {
+	return o.willQos
+}
+func (o *options) WillTopic() string {
+	return o.willTopic
+}
+func (o *options) WillPayload() []byte {
+	return o.willPayload
+}
+func (o *options) LocalAddr() net.Addr {
+	return o.localAddr
+}
+func (o *options) RemoteAddr() net.Addr {
+	return o.remoteAddr
+}
+
+func (client *client) setError(error error) {
 	select {
 	case client.error <- error:
 	default:
 	}
 }
 
-func (client *Client) writeLoop() {
+func (client *client) writeLoop() {
 	var err error
 	defer func() {
 		if re := recover(); re != nil {
@@ -193,7 +386,7 @@ func (client *Client) writeLoop() {
 	}
 }
 
-func (client *Client) writePacket(packet packets.Packet) error {
+func (client *client) writePacket(packet packets.Packet) error {
 	if log != nil {
 		log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
 	}
@@ -205,7 +398,7 @@ func (client *Client) writePacket(packet packets.Packet) error {
 
 }
 
-func (client *Client) readLoop() {
+func (client *client) readLoop() {
 	var err error
 	defer func() {
 		if re := recover(); re != nil {
@@ -217,7 +410,7 @@ func (client *Client) readLoop() {
 	for {
 		var packet packets.Packet
 		if client.IsConnected() {
-			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
+			if keepAlive := client.opts.keepAlive; keepAlive != 0 { //KeepAlive
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
@@ -232,7 +425,7 @@ func (client *Client) readLoop() {
 	}
 }
 
-func (client *Client) errorWatch() {
+func (client *client) errorWatch() {
 	defer func() {
 		client.wg.Done()
 	}()
@@ -250,7 +443,7 @@ func (client *Client) errorWatch() {
 // Close 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
 //
 // Close closes the client connection. The returned channel will be closed after unregister process has been done
-func (client *Client) Close() <-chan struct{} {
+func (client *client) Close() <-chan struct{} {
 	client.setError(nil)
 	return client.closeComplete
 }
@@ -294,7 +487,7 @@ func getRandomUUID() string {
 	return fmt.Sprintf(`%x`, string(b[:]))
 }
 
-func (client *Client) connectWithTimeOut() (ok bool) {
+func (client *client) connectWithTimeOut() (ok bool) {
 	var err error
 	defer func() {
 		if err != nil {
@@ -318,27 +511,31 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 		err = ErrInvalStatus
 		return
 	}
-	client.opts.ClientID = string(conn.ClientID)
-	if client.opts.ClientID == "" {
-		client.opts.ClientID = getRandomUUID()
+	client.opts.clientID = string(conn.ClientID)
+	if client.opts.clientID == "" {
+		client.opts.clientID = getRandomUUID()
 	}
-	client.opts.KeepAlive = conn.KeepAlive
-	client.opts.CleanSession = conn.CleanSession
-	client.opts.Username = string(conn.Username)
-	client.opts.Password = string(conn.Password)
-	client.opts.WillFlag = conn.WillFlag
-	client.opts.WillPayload = make([]byte, len(conn.WillMsg))
-	client.opts.WillQos = conn.WillQos
-	client.opts.WillTopic = string(conn.WillTopic)
-	copy(client.opts.WillPayload, conn.WillMsg)
-	client.opts.WillRetain = conn.WillRetain
-	if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
+	client.opts.keepAlive = conn.KeepAlive
+	client.opts.cleanSession = conn.CleanSession
+	client.opts.username = string(conn.Username)
+	client.opts.password = string(conn.Password)
+	client.opts.willFlag = conn.WillFlag
+	//client.opts.WillPayload = make([]byte, len(conn.WillMsg))
+	client.opts.willPayload = conn.WillMsg
+	client.opts.willQos = conn.WillQos
+	client.opts.willTopic = string(conn.WillTopic)
+	//copy(client.opts.WillPayload, conn.WillMsg)
+	client.opts.willRetain = conn.WillRetain
+	client.opts.remoteAddr = client.rwc.RemoteAddr()
+	client.opts.localAddr = client.rwc.LocalAddr()
+	if keepAlive := client.opts.keepAlive; keepAlive != 0 { //KeepAlive
 		client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 	}
 	register := &register{
 		client:  client,
 		connect: conn,
 	}
+	// 这也是同步，也可以考虑用同步做。
 	select {
 	case client.server.register <- register:
 	case <-client.close:
@@ -353,57 +550,75 @@ func (client *Client) connectWithTimeOut() (ok bool) {
 	return
 }
 
-func (client *Client) newSession() {
+func (client *client) newSession() {
 	s := &session{
-		unackpublish:        make(map[packets.PacketID]bool),
-		inflight:            list.New(),
-		msgQueue:            list.New(),
-		lockedPid:           make(map[packets.PacketID]bool),
-		freePid:             1,
-		maxInflightMessages: client.server.config.maxInflightMessages,
-		maxQueueMessages:    client.server.config.maxQueueMessages,
+		unackpublish: make(map[packets.PacketID]bool),
+		inflight:     list.New(),
+		awaitRel:     list.New(),
+		msgQueue:     list.New(),
+		lockedPid:    make(map[packets.PacketID]bool),
+		freePid:      1,
+		config:       &client.server.config,
 	}
 	client.session = s
 }
 
-func (client *Client) internalClose() {
+func (client *client) internalClose() {
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
 		unregister := &unregister{client: client, done: make(chan struct{})}
+		// 这就是同步啊。可以用同步做
 		client.server.unregister <- unregister
 		<-unregister.done
 	}
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
+
+	// onClose hooks
 	if client.server.onClose != nil {
-		client.server.onClose(client, client.err)
+		client.server.onClose(&chainStore{}, client, client.err)
+	}
+	client.setDisconnectedAt(time.Now())
+}
+
+func (client *client) onlinePublish(publish *packets.Publish) {
+	if publish.Qos >= packets.QOS_1 {
+		if publish.Dup {
+			//redelivery on reconnect,use the original packet id
+			client.session.setPacketID(publish.PacketID)
+		} else {
+			publish.PacketID = client.session.getPacketID()
+		}
+		if !client.setInflight(publish) {
+			return
+		}
+	}
+	client.deliverMsg(publish)
+}
+
+// deliverMsg wrap the hook function and session stats
+func (client *client) deliverMsg(publish *packets.Publish) {
+	select {
+	case <-client.close:
+		return
+	case client.out <- publish:
+		client.addMsgDeliveredTotal(1)
+		// onDeliver hook
+		if client.server.onDeliver != nil {
+			client.server.onDeliver(&chainStore{}, client, messageFromPublish(publish))
+		}
 	}
 }
 
-func (client *Client) publish(publish *packets.Publish) {
-	if client.Status() == Connected { //在线消息
-		if publish.Qos >= packets.QOS_1 {
-			if publish.Dup {
-				//redelivery on reconnect,use the original packet id
-				client.session.setPacketID(publish.PacketID)
-			} else {
-				publish.PacketID = client.session.getPacketID()
-			}
-			if !client.setInflight(publish) {
-				return
-			}
-		}
-		select {
-		case <-client.close:
-			return
-		case client.out <- publish:
-		}
+func (client *client) publish(publish *packets.Publish) {
+	if client.IsConnected() { //在线消息
+		client.onlinePublish(publish)
 	} else { //离线消息
 		client.msgEnQueue(publish)
 	}
 }
 
-func (client *Client) write(packets packets.Packet) {
+func (client *client) write(packets packets.Packet) {
 	select {
 	case <-client.close:
 		return
@@ -413,51 +628,42 @@ func (client *Client) write(packets packets.Packet) {
 }
 
 //Subscribe handler
-func (client *Client) subscribeHandler(sub *packets.Subscribe) {
+func (client *client) subscribeHandler(sub *packets.Subscribe) {
 	srv := client.server
 	if srv.onSubscribe != nil {
 		for k, v := range sub.Topics {
-			sub.Topics[k].Qos = client.server.onSubscribe(client, v)
+			qos := srv.onSubscribe(&chainStore{}, client, v)
+			sub.Topics[k].Qos = qos
 		}
 	}
 	suback := sub.NewSubBack()
-	client.write(suback)
-	srv.subscriptionsDB.Lock()
-	defer srv.subscriptionsDB.Unlock()
-	var isNew bool
 	for k, v := range sub.Topics {
 		if v.Qos != packets.SUBSCRIBE_FAILURE {
 			topic := packets.Topic{
 				Name: v.Name,
 				Qos:  suback.Payload[k],
 			}
-			if srv.subscribe(client.opts.ClientID, topic) {
-				isNew = true
-			}
-			if client.server.Monitor != nil {
-				client.server.Monitor.subscribe(SubscriptionsInfo{
-					ClientID: client.opts.ClientID,
-					Qos:      suback.Payload[k],
-					Name:     v.Name,
-					At:       time.Now(),
-				})
+			srv.subscriptionsDB.subscribe(client.opts.clientID, topic)
+			client.addSubscriptionsCount(1)
+			if srv.onSubscribed != nil {
+				srv.onSubscribed(&chainStore{}, client, topic)
 			}
 		}
 	}
-	if isNew {
-		srv.retainedMsgMu.Lock()
-		for _, msg := range srv.retainedMsg {
-			msg.Retain = true
-			msgRouter := &msgRouter{forceBroadcast: false, pub: msg}
-			srv.msgRouter <- msgRouter
-		}
-		srv.retainedMsgMu.Unlock()
+	client.write(suback)
+	srv.retainedMsgMu.Lock()
+	for _, msg := range srv.retainedMsg {
+		pub := msg.CopyPublish()
+		pub.Retain = true
+		msgRouter := &msgRouter{pub: pub}
+		srv.msgRouter <- msgRouter
 	}
+	srv.retainedMsgMu.Unlock()
 
 }
 
 //Publish handler
-func (client *Client) publishHandler(pub *packets.Publish) {
+func (client *client) publishHandler(pub *packets.Publish) {
 	s := client.session
 	srv := client.server
 	var dup bool
@@ -484,13 +690,13 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 		srv.retainedMsgMu.Unlock()
 	}
 	if !dup {
-		valid := true
-		if srv.onPublish != nil {
-			valid = client.server.onPublish(client, pub)
+		var valid = true
+		if srv.onMsgArrived != nil {
+			valid = srv.onMsgArrived(&chainStore{}, client, messageFromPublish(pub))
 		}
 		if valid {
 			pub.Retain = false
-			msgRouter := &msgRouter{forceBroadcast: false, pub: pub}
+			msgRouter := &msgRouter{pub: pub}
 			select {
 			case <-client.close:
 				return
@@ -499,45 +705,46 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 		}
 	}
 }
-func (client *Client) pubackHandler(puback *packets.Puback) {
+func (client *client) pubackHandler(puback *packets.Puback) {
 	client.unsetInflight(puback)
 }
-func (client *Client) pubrelHandler(pubrel *packets.Pubrel) {
+func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
 	delete(client.session.unackpublish, pubrel.PacketID)
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
 }
-func (client *Client) pubrecHandler(pubrec *packets.Pubrec) {
+func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	client.unsetInflight(pubrec)
+	client.setAwaitRel(pubrec.PacketID)
 	pubrel := pubrec.NewPubrel()
 	client.write(pubrel)
 }
-func (client *Client) pubcompHandler(pubcomp *packets.Pubcomp) {
-	client.unsetInflight(pubcomp)
+func (client *client) pubcompHandler(pubcomp *packets.Pubcomp) {
+	client.unsetAwaitRel(pubcomp.PacketID)
 }
-func (client *Client) pingreqHandler(pingreq *packets.Pingreq) {
+func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
 	resp := pingreq.NewPingresp()
 	client.write(resp)
 }
-func (client *Client) unsubscribeHandler(unSub *packets.Unsubscribe) {
+func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
-	srv.subscriptionsDB.Lock()
-	defer srv.subscriptionsDB.Unlock()
+	//	srv.subscriptionsDB.Lock()
+	//	defer srv.subscriptionsDB.Unlock()
 	for _, topicName := range unSub.Topics {
-		srv.unsubscribe(client.opts.ClientID, topicName)
-		if client.server.Monitor != nil {
-			client.server.Monitor.unSubscribe(client.opts.ClientID, topicName)
-		}
+		srv.subscriptionsDB.unsubscribe(client.opts.clientID, topicName)
+		client.addSubscriptionsCount(-1)
 		if srv.onUnsubscribed != nil {
-			client.server.onUnsubscribed(client, topicName)
+			srv.onUnsubscribed(&chainStore{}, client, topicName)
 		}
+
 	}
+
 }
 
 //读处理
-func (client *Client) readHandle() {
+func (client *client) readHandle() {
 	var err error
 	defer func() {
 		if re := recover(); re != nil {
@@ -580,8 +787,8 @@ func (client *Client) readHandle() {
 	}
 }
 
-//重传处理
-func (client *Client) redeliver() {
+//重传处理, 除了重传递publish之外，pubrel也要重传
+func (client *client) redeliver() {
 	var err error
 	s := client.session
 	defer func() {
@@ -591,38 +798,52 @@ func (client *Client) redeliver() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-	retryInterval := client.server.config.deliveryRetryInterval
-	timer := time.NewTicker(retryInterval)
+	retryCheckInterval := client.server.config.RetryCheckInterval
+	retryInterval := client.server.config.RetryInterval
+	timer := time.NewTicker(retryCheckInterval)
 	defer timer.Stop()
 	for {
 		select {
 		case <-client.close: //关闭广播
 			return
 		case <-timer.C: //重发ticker
+			now := time.Now()
 			s.inflightMu.Lock()
 			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
-				if inflight, ok := inflight.Value.(*InflightElem); ok {
-					if time.Now().Unix()-inflight.At.Unix() >= int64(retryInterval.Seconds()) {
-						pub := inflight.Packet
+				if inflight, ok := inflight.Value.(*inflightElem); ok {
+					if now.Sub(inflight.at) >= retryInterval {
+						pub := inflight.packet
 						p := pub.CopyPublish()
 						p.Dup = true
-						if inflight.Step == 0 {
-							client.write(p)
-						}
-						if inflight.Step == 1 { //pubrel
-							pubrel := pub.NewPubrec().NewPubrel()
-							client.write(pubrel)
-						}
+						client.write(p)
 					}
 				}
 			}
 			s.inflightMu.Unlock()
+
+			s.awaitRelMu.Lock()
+			for awaitRel := s.awaitRel.Front(); awaitRel != nil; awaitRel = awaitRel.Next() {
+				if awaitRel, ok := awaitRel.Value.(*awaitRelElem); ok {
+					if now.Sub(awaitRel.at) >= retryInterval {
+						pubrel := &packets.Pubrel{
+							FixHeader: &packets.FixHeader{
+								PacketType:   packets.PUBREL,
+								Flags:        packets.FLAG_PUBREL,
+								RemainLength: 2,
+							},
+							PacketID: awaitRel.pid,
+						}
+						client.write(pubrel)
+					}
+				}
+			}
+			s.awaitRelMu.Unlock()
 		}
 	}
 }
 
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
-func (client *Client) serve() {
+func (client *client) serve() {
 	defer client.internalClose()
 	client.wg.Add(3)
 	go client.errorWatch()

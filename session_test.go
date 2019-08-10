@@ -7,22 +7,22 @@ import (
 )
 
 const testMaxInflightLen = 20
+const testMaxAwaitRelLen = 20
 const testMaxMsgQueueLen = 20
 
 //mock client,only for session_test.go
-func mockClient() *Client {
-	b := &Server{
-		config: &config{
-			maxInflightMessages: testMaxInflightLen,
-			maxQueueMessages:    testMaxMsgQueueLen,
-		},
-	}
+func mockClient() *client {
+	config := DefaultConfig
+	config.MaxInflight = testMaxInflightLen
+	config.MaxMsgQueue = testMaxMsgQueueLen
+	config.MaxAwaitRel = testMaxAwaitRelLen
+	b := NewServer(config)
 	c := b.newClient(nil)
-	c.opts.CleanSession = true
+	c.opts.cleanSession = true
 	c.newSession()
 	return c
 }
-func fullInflightSessionQos1() *Client {
+func fullInflightSessionQos1() *client {
 	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
 		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.QOS_1}
@@ -38,7 +38,7 @@ func TestQos1Inflight(t *testing.T) {
 			t.Fatalf("setInflight error, want true, but false")
 		}
 		if c.session.msgQueue.Len() != 0 {
-			t.Fatalf("msgQueue.Len() error, want 00, but %d", c.session.msgQueue.Len())
+			t.Fatalf("msgQueue.Len() error, want 0, but %d", c.session.msgQueue.Len())
 		}
 	}
 	for i := 1; i <= testMaxInflightLen/2; i++ {
@@ -48,23 +48,10 @@ func TestQos1Inflight(t *testing.T) {
 			t.Fatalf("msgQueue.Len() error, want %d, but %d", testMaxInflightLen-i, c.session.inflight.Len())
 		}
 		if c.session.msgQueue.Len() != 0 {
-			t.Fatalf("msgQueue.Len() error, want 00, but %d", c.session.msgQueue.Len())
+			t.Fatalf("msgQueue.Len() error, want 0, but %d", c.session.msgQueue.Len())
 		}
 	}
 
-	//test pubrel & pubcomp
-	for i := testMaxInflightLen/2 + 1; i <= testMaxInflightLen; i++ {
-		pubrel := &packets.Pubrel{PacketID: packets.PacketID(i)}
-		pubcomp := &packets.Pubcomp{PacketID: packets.PacketID(i)}
-		c.unsetInflight(pubrel)
-		c.unsetInflight(pubcomp)
-		if c.session.inflight.Len() != testMaxInflightLen/2 {
-			t.Fatalf("inflight.Len() error, want %d, but %d", testMaxInflightLen/2, c.session.inflight.Len())
-		}
-		if c.session.msgQueue.Len() != 0 {
-			t.Fatalf("msgQueue.Len() error, want 00, but %d", c.session.msgQueue.Len())
-		}
-	}
 	//test incompatible pid
 	for i := testMaxInflightLen * 2; i <= testMaxInflightLen*3; i++ {
 		puback := &packets.Puback{PacketID: packets.PacketID(i)}
@@ -87,6 +74,7 @@ func TestQos1Inflight(t *testing.T) {
 		t.Fatalf("inflight.Len() error, want %d, but %d", 0, c.session.inflight.Len())
 	}
 }
+
 func TestQos2Inflight(t *testing.T) {
 	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
@@ -101,33 +89,41 @@ func TestQos2Inflight(t *testing.T) {
 	for i := 1; i <= testMaxInflightLen; i++ {
 		pubrec := &packets.Pubrec{PacketID: packets.PacketID(i)}
 		c.unsetInflight(pubrec)
-		puback := &packets.Puback{PacketID: packets.PacketID(i)}
-		c.unsetInflight(puback)
-		if c.session.inflight.Len() != testMaxInflightLen {
-			t.Fatalf("inflight.Len() error, want %d, but %d", testMaxInflightLen, c.session.inflight.Len())
-		}
 		if c.session.msgQueue.Len() != 0 {
 			t.Fatalf("msgQueue.Len() error, want 0, but %d", c.session.msgQueue.Len())
 		}
 	}
-	for e := c.session.inflight.Front(); e != nil; e = e.Next() {
-		elem := e.Value.(*InflightElem)
-		if elem.Step != 1 {
-			t.Fatalf("InflightElem.Step error, want 1, but %d", elem.Step)
-		}
+	if c.session.inflight.Len() != 0 {
+		t.Fatalf("inflight.Len() error, want 0, but %d", c.session.inflight.Len())
 	}
 
+	/*	for i := 1; i <= testMaxInflightLen; i++ {
+			pubcomp := &packets.Pubcomp{PacketID: packets.PacketID(i)}
+			c.unsetInflight(pubcomp)
+		}
+		if c.session.inflight.Len() != 0 {
+			t.Fatalf("inflight.Len() error, want %d, but %d", 0, c.session.inflight.Len())
+		}
+		if c.session.msgQueue.Len() != 0 {
+			t.Fatalf("msgQueue.Len() error, want 0, but %d", c.session.msgQueue.Len())
+		}*/
+}
+func TestQos2AwaitRel(t *testing.T) {
+	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
-		pubcomp := &packets.Pubcomp{PacketID: packets.PacketID(i)}
-		c.unsetInflight(pubcomp)
+		c.setAwaitRel(packets.PacketID(i))
 	}
-	if c.session.inflight.Len() != 0 {
-		t.Fatalf("inflight.Len() error, want %d, but %d", 0, c.session.inflight.Len())
+	if c.session.awaitRel.Len() != testMaxAwaitRelLen {
+		t.Fatalf("awaitRel.Len() error, want %d, but %d", testMaxAwaitRelLen, c.session.awaitRel.Len())
 	}
-	if c.session.msgQueue.Len() != 0 {
-		t.Fatalf("msgQueue.Len() error, want 0, but %d", c.session.msgQueue.Len())
+	for i := 1; i <= testMaxInflightLen; i++ {
+		c.unsetAwaitRel(packets.PacketID(i))
+	}
+	if c.session.awaitRel.Len() != 0 {
+		t.Fatalf("awaitRel.Len() error, want %d, but %d", 0, c.session.awaitRel.Len())
 	}
 }
+
 func TestMsgQueue(t *testing.T) {
 	c := fullInflightSessionQos1()
 	beginPid := testMaxInflightLen + 1
@@ -138,38 +134,21 @@ func TestMsgQueue(t *testing.T) {
 		if c.setInflight(pub) {
 			t.Fatalf("setInflight error, want fase, but true")
 		}
-
 		if c.session.msgQueue.Len() != j {
 			t.Fatalf("msgQueue.Len() error, want %d, but %d", j, c.session.msgQueue.Len())
 		}
 	}
-	msgQueueLen := c.session.msgQueue.Len()
 	for i := 1; i <= testMaxInflightLen; i++ {
-		pubrec := &packets.Pubrec{PacketID: packets.PacketID(i)}
-		c.unsetInflight(pubrec)
-		if c.session.msgQueue.Len() != msgQueueLen {
-			t.Fatalf("msgQueue.Len() error, want %d, but %d", msgQueueLen, c.session.msgQueue.Len())
-		}
-	}
-
-	for i := 1; i <= testMaxInflightLen; i++ {
-		pubcomp := &packets.Pubcomp{PacketID: packets.PacketID(i)}
-		c.unsetInflight(pubcomp)
-		if c.session.msgQueue.Len() != msgQueueLen-i {
-			t.Fatalf("msgQueue.Len() error, want %d, but %d", msgQueueLen, c.session.msgQueue.Len())
-		}
-		if c.session.inflight.Len() != testMaxInflightLen {
-			t.Fatalf("inflight.Len() error, want %d, but %d", testMaxInflightLen, c.session.inflight.Len())
-		}
+		puback := &packets.Puback{PacketID: packets.PacketID(i)}
+		c.unsetInflight(puback)
 	}
 	if c.session.msgQueue.Len() != 0 {
 		t.Fatalf("msgQueue.Len() error, want %d, but %d", 0, c.session.msgQueue.Len())
 	}
-
 	for e := c.session.inflight.Front(); e != nil; e = e.Next() {
-		elem := e.Value.(*InflightElem)
-		if elem.Pid != packets.PacketID(beginPid) {
-			t.Fatalf("InflightElem.Pid error, want %d, but %d", beginPid, elem.Pid)
+		elem := e.Value.(*inflightElem)
+		if elem.pid != packets.PacketID(beginPid) {
+			t.Fatalf("inflightElem.pid error, want %d, but %d", beginPid, elem.pid)
 		}
 		beginPid++
 	}
@@ -183,7 +162,7 @@ func TestMsgQueue(t *testing.T) {
 func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	//case 1: removing qos0 message in msgQueue
 	c := fullInflightSessionQos1()
-	c.session.maxQueueMessages = 3
+	c.session.config.MaxMsgQueue = 3
 	pub1 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
 	c.msgEnQueue(pub1)
 	pub2 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}
@@ -216,7 +195,7 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 
 	//case 2: dropping current qos0 message
 	c2 := fullInflightSessionQos1()
-	c2.session.maxQueueMessages = 3
+	c2.session.config.MaxMsgQueue = 3
 	pub21 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
 	c2.msgEnQueue(pub21)
 	pub22 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}
@@ -249,7 +228,7 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 
 	//case 3:removing the front message of msgQueue
 	c3 := fullInflightSessionQos1()
-	c3.session.maxQueueMessages = 3
+	c3.session.config.MaxMsgQueue = 3
 	pub31 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
 	c3.msgEnQueue(pub31)
 	pub32 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}

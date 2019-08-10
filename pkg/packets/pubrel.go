@@ -11,7 +11,7 @@ type Pubrel struct {
 	FixHeader *FixHeader
 	PacketID  PacketID
 
-	Dup bool //是否重发标记，不属于协议包内容
+	//Dup bool //是否重发标记，不属于协议包内容
 }
 
 func (p *Pubrel) String() string {
