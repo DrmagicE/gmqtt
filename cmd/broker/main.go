@@ -28,10 +28,7 @@ func main() {
 	ws := &gmqtt.WsServer{
 		Server: &http.Server{Addr: ":8080"},
 	}
-	wss := &gmqtt.WsServer{
-		Server: &http.Server{Addr: ":8081"},
-	}
-	s.AddWebSocketServer(ws, wss)
+	s.AddWebSocketServer(ws)
 
 	// plugin
 	s.AddPlugins(management.New(":9090", nil))
