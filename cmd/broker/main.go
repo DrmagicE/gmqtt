@@ -1,32 +1,47 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/DrmagicE/gmqtt/cmd/broker/run"
+	"context"
+	"net"
+	"net/http"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/plugin/management"
 )
 
 func main() {
 
-	cmd := &run.Command{}
-	if err := cmd.Run(os.Args[1:]...); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	s := gmqtt.DefaultServer()
+
+	// listener
+	ln, err := net.Listen("tcp", ":1883")
+	if err != nil {
+		log.Fatalln(err.Error())
+		return
 	}
-	log.Println("running...")
+	s.AddTCPListenner(ln)
+	ws := &gmqtt.WsServer{
+		Server: &http.Server{Addr: ":8080"},
+	}
+	wss := &gmqtt.WsServer{
+		Server: &http.Server{Addr: ":8081"},
+	}
+	s.AddWebSocketServer(ws, wss)
+
+	// plugin
+	s.AddPlugins(management.New(":9090", nil))
+
+	log.Println("started...")
+	s.Run()
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
-	// Block until one of the signals above is received
 	<-signalCh
-	err := cmd.Close()
-	if err != nil {
-		log.Println("stop error:", err)
-	} else {
-		log.Println("stopped")
-	}
+	s.Stop(context.Background())
+	log.Println("stopped")
 
 }

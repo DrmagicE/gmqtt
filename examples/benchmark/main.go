@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt"
 	"log"
 	"net"
+
+	"github.com/DrmagicE/gmqtt"
+
 	//_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -16,11 +18,13 @@ func main() {
 	/*	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()*/
-	s := gmqtt.NewServer()
-	s.SetMaxInflightMessages(65535)
+	config := gmqtt.DefaultConfig
+	config.MaxInflight = 65535
+	config.MaxMsgQueue = 0 //unlimited
+	config.MaxAwaitRel = 0 //unlimited
+	s := gmqtt.NewServer(config)
 	s.SetRegisterLen(10000)
 	s.SetUnregisterLen(10000)
-	s.SetMaxQueueMessages(0) //unlimited
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())

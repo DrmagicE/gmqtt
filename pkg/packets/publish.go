@@ -28,15 +28,17 @@ func (p *Publish) String() string {
 // CopyPublish returns the copied publish struct for distribution
 func (p *Publish) CopyPublish() *Publish {
 	pub := &Publish{
-		Dup:      p.Dup,
-		Qos:      p.Qos,
-		Retain:   p.Retain,
-		PacketID: p.PacketID,
+		Dup:       p.Dup,
+		Qos:       p.Qos,
+		Retain:    p.Retain,
+		PacketID:  p.PacketID,
+		TopicName: p.TopicName,
+		Payload:   p.Payload,
 	}
-	pub.Payload = make([]byte, len(p.Payload))
-	pub.TopicName = make([]byte, len(p.TopicName))
-	copy(pub.TopicName, p.TopicName)
-	copy(pub.Payload, p.Payload)
+	/*	pub.Payload = make([]byte, len(p.Payload))
+		pub.TopicName = make([]byte, len(p.TopicName))
+		copy(pub.TopicName, p.TopicName)
+		copy(pub.Payload, p.Payload)*/
 	return pub
 }
 

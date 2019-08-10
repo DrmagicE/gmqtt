@@ -94,7 +94,7 @@ type OnAccept func(conn net.Conn) bool
 该方法返回CONNACK报文当中的code值。
 ```
 //return the code of connack packet
-type OnConnect func(client *Client) (code uint8)
+type OnConnect func(client *client) (code uint8)
 ```
 该方法可以用作鉴权实现，比如：
 ```
@@ -119,7 +119,7 @@ server.RegisterOnConnect(func(client *server.Client) (code uint8) {
 //0x01 - 成功 - 最大 QoS 1
 //0x02 - 成功 - 最大 QoS 2
 //0x80 - 订阅失败
-type OnSubscribe func(client *Client, topic packets.Topic) uint8
+type OnSubscribe func(client *client, topic packets.Topic) uint8
 ```
 该方法可以用作实现ACL访问控制，比如：
 ```
@@ -139,14 +139,14 @@ server.RegisterOnSubscribe(func(client *server.Client, topic packets.Topic) uint
 取消订阅之后调用。
 ```
 // OnUnsubscribed will be called after the topic has been unsubscribed
-type OnUnsubscribed func(client *Client, topicName string)
+type OnUnsubscribed func(client *client, topicName string)
 ```
 
 ### OnPublish()
 接收到PUBLISH报文之后调用。
 ```
 //返回该报文是否会被继续分发下去
-type OnPublish func(client *Client, publish *packets.Publish) bool
+type OnPublish func(client *client, publish *packets.Publish) bool
 ```
 比如：
 ```
@@ -169,7 +169,7 @@ server.RegisterOnPublish(func(client *server.Client, publish *packets.Publish)  
 当网络连接关闭之后调用
 ```
 //This is called after Network Connection close
-type OnClose func(client *Client, err error)
+type OnClose func(client *client, err error)
 ```
 
 ### OnStop()

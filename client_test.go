@@ -121,8 +121,9 @@ func newTestServer() *Server {
 	if srv != nil {
 		s = srv
 	} else {
-		s = NewServer()
-		s.SetDeliveryRetryInterval(testRedeliveryInternal)
+		s = DefaultServer()
+		s.config.RetryInterval = testRedeliveryInternal
+		s.config.RetryCheckInterval = testRedeliveryInternal
 	}
 	/*SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))*/
 	ln := &testListener{acceptReady: make(chan struct{})}
@@ -235,9 +236,10 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 func TestClient_UserData(t *testing.T) {
 	c := mockClient()
 	data := "userdata"
-	c.SetUserData("userdata")
-	if c.UserData().(string) != data {
-		t.Fatalf("UserData() error, want %s, but %s", data, c.UserData())
+	c.Set("userKey", "userdata")
+	d, ok := c.Get("userKey")
+	if d.(string) != data || !ok {
+		t.Fatalf("Get() error, want %s, but %s", data, d)
 	}
 }
 
@@ -270,50 +272,50 @@ func TestConnect(t *testing.T) {
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), packet)
 	}
-	if se := srv.Client("MQTT"); se != nil {
+	if se := srv.Client("MQTT").(*client); se != nil {
 		if !se.IsConnected() {
 			t.Fatalf("IsConnected() error, want true, got false")
 		}
 		opts := se.opts
 		usernameWant := string([]byte{116, 101, 115, 116, 117, 115, 101, 114})
-		if opts.Username != usernameWant {
-			t.Fatalf("Username error,want %s, got %s", usernameWant, opts.Username)
+		if opts.username != usernameWant {
+			t.Fatalf("Username error,want %s, got %s", usernameWant, opts.username)
 		}
 		passwordWant := string([]byte{116, 101, 115, 116, 112, 97, 115, 115})
-		if opts.Password != passwordWant {
-			t.Fatalf("Password error,want %s, got %s", passwordWant, opts.Password)
+		if opts.password != passwordWant {
+			t.Fatalf("Password error,want %s, got %s", passwordWant, opts.password)
 		}
 
-		if opts.CleanSession != true {
-			t.Fatalf("CleanSession error,want true, got %v", opts.CleanSession)
+		if opts.cleanSession != true {
+			t.Fatalf("CleanSession error,want true, got %v", opts.cleanSession)
 		}
 
-		if opts.ClientID != "MQTT" {
-			t.Fatalf("ClientID error,want MQTT, got %s", opts.ClientID)
+		if opts.clientID != "MQTT" {
+			t.Fatalf("ClientID error,want MQTT, got %s", opts.clientID)
 		}
 
-		if opts.KeepAlive != 30 {
-			t.Fatalf("KeepAlive error,want 30, got %d", opts.KeepAlive)
+		if opts.keepAlive != 30 {
+			t.Fatalf("KeepAlive error,want 30, got %d", opts.keepAlive)
 		}
 
-		if opts.WillRetain != false {
-			t.Fatalf("WillRetain error,want false, got %v", opts.WillRetain)
+		if opts.willRetain != false {
+			t.Fatalf("WillRetain error,want false, got %v", opts.willRetain)
 		}
 
 		willPayloadWant := []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100}
-		if !bytes.Equal(opts.WillPayload, willPayloadWant) {
-			t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.WillPayload)
+		if !bytes.Equal(opts.willPayload, willPayloadWant) {
+			t.Fatalf("WillPayload error,want %v, got %v", willPayloadWant, opts.willPayload)
 		}
 
 		willTopicWant := string([]byte{116, 101, 115, 116})
-		if opts.WillTopic != willTopicWant {
-			t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.WillTopic)
+		if opts.willTopic != willTopicWant {
+			t.Fatalf("WillTopic error,want %s, got %s", willTopicWant, opts.willTopic)
 		}
-		if opts.WillQos != 1 {
-			t.Fatalf("WillQos error,want 1, got %d", opts.WillQos)
+		if opts.willQos != 1 {
+			t.Fatalf("WillQos error,want 1, got %d", opts.willQos)
 		}
-		if opts.WillFlag != true {
-			t.Fatalf("WillFlag error,want true, got %t", opts.WillFlag)
+		if opts.willFlag != true {
+			t.Fatalf("WillFlag error,want true, got %t", opts.willFlag)
 		}
 	} else {
 		t.Fatalf("session not found")
@@ -566,33 +568,7 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 		{Qos: packets.QOS_1, Name: "t1"},
 		{Qos: packets.QOS_2, Name: "t2"},
 	}
-
 	srv.Subscribe("MQTT", tt)
-	srv.subscriptionsDB.Lock()
-	for _, topic := range tt {
-		if srvTopic, ok := srv.subscriptionsDB.topicsByName[topic.Name]["MQTT"]; ok {
-			if topic != srvTopic {
-				srv.subscriptionsDB.Unlock()
-				t.Fatalf("Subscribe error, want %v, got %v", topic, srvTopic)
-			}
-		} else {
-			srv.subscriptionsDB.Unlock()
-			t.Fatalf("Subscription missing, want %v", topic)
-		}
-
-		if srvTopic, ok := srv.subscriptionsDB.topicsByID["MQTT"][topic.Name]; ok {
-			if topic != srvTopic {
-				srv.subscriptionsDB.Unlock()
-				t.Fatalf("Subscribe error, want %v, got %v", topic, srvTopic)
-			}
-		} else {
-			srv.subscriptionsDB.Unlock()
-			t.Fatalf("Subscription missing, want %v", topic)
-		}
-
-	}
-	srv.subscriptionsDB.Unlock()
-
 	pub := &packets.Publish{
 		Dup:       false,
 		Qos:       packets.QOS_0,
@@ -627,16 +603,12 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 
 	srv.UnSubscribe("MQTT", []string{"t0", "t1", "t2"})
 
-	srv.subscriptionsDB.Lock()
 	for _, topic := range tt {
-		if srvTopic, ok := srv.subscriptionsDB.topicsByName[topic.Name]["MQTT"]; ok {
-			t.Fatalf("UnSubscribe error, want nil, got %v", srvTopic)
+		m := srv.subscriptionsDB.getMatchedTopicFilter(topic.Name)
+		if len(m) != 0 {
+			t.Fatalf("UnSubscribe error,  got %v", m)
 		}
 	}
-	if len(srv.subscriptionsDB.topicsByName) != 0 {
-		t.Fatalf("len(srv.topics) error ,want 0, got %d", len(srv.subscriptionsDB.topicsByName))
-	}
-	srv.subscriptionsDB.Unlock()
 }
 
 func TestServer_Publish(t *testing.T) {
@@ -657,7 +629,7 @@ func TestServer_Publish(t *testing.T) {
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
 	}
-	srv.Publish(pub)
+	srv.Publish(string(pub.TopicName), pub.Payload, pub.Qos, pub.Retain)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -681,68 +653,7 @@ func TestServer_Publish(t *testing.T) {
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
 	}
-	pub = &packets.Publish{
-		Dup:       false,
-		Qos:       packets.QOS_0,
-		Retain:    false,
-		TopicName: []byte("t0"),
-		Payload:   []byte("payload"),
-	}
-	srv.Publish(pub, "MQTT1")
-	_, err = readPacketWithTimeOut(c, 1*time.Second)
-	if err == nil {
-		t.Fatalf("delivering message to invalid client")
-	}
-}
 
-func TestServer_Broadcast(t *testing.T) {
-	srv, conn := connectedServer(nil)
-	defer srv.Stop(context.Background())
-	var err error
-	c := conn.(*rwTestConn)
-	pub := &packets.Publish{
-		Dup:       false,
-		Qos:       packets.QOS_0,
-		Retain:    false,
-		TopicName: []byte("t0"),
-		Payload:   []byte("payload"),
-	}
-	srv.Broadcast(pub)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	packet, err := readPacket(c)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	if p, ok := packet.(*packets.Publish); ok {
-		if p.Dup != false {
-			t.Fatalf("Dup error, want false,got %t", p.Dup)
-		}
-		if p.Qos != packets.QOS_0 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
-		}
-		if !bytes.Equal(p.Payload, pub.Payload) {
-			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
-		}
-		if p.Retain {
-			t.Fatalf("Retain error, want false,got %t", p.Retain)
-		}
-	} else {
-		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
-	}
-	pub = &packets.Publish{
-		Dup:       false,
-		Qos:       packets.QOS_0,
-		Retain:    false,
-		TopicName: []byte("t0"),
-		Payload:   []byte("payload"),
-	}
-	srv.Broadcast(pub, "MQTT1")
-	_, err = readPacketWithTimeOut(c, 1*time.Second)
-	if err == nil {
-		t.Fatalf("delivering message to invalid client")
-	}
 }
 
 func TestUnsubscribe(t *testing.T) {
@@ -782,14 +693,6 @@ func TestUnsubscribe(t *testing.T) {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Unsuback{}), reflect.TypeOf(p))
 	}
 
-	srv.mu.RLock()
-	srv.mu.RUnlock()
-	srv.subscriptionsDB.RLock()
-	if _, ok := srv.subscriptionsDB.topicsByID["MQTT"]["/a/b/+"]; ok {
-		t.Fatalf("subTopics error,the topic dose not delete from map")
-	}
-	srv.subscriptionsDB.RUnlock()
-
 	pub := &packets.Publish{
 		Dup:       false,
 		Qos:       packets.QOS_0,
@@ -809,9 +712,8 @@ func TestUnsubscribe(t *testing.T) {
 }
 
 func TestOnSubscribe(t *testing.T) {
-
 	srv := newTestServer()
-	srv.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
+	srv.RegisterOnSubscribe(func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
 		if topic.Qos == packets.QOS_0 {
 			return packets.QOS_1
 		}
@@ -832,12 +734,12 @@ func TestOnSubscribe(t *testing.T) {
 		},
 	}
 	err := writePacket(c, sub)
+
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	packet, _ := readPacket(c)
 	if p, ok := packet.(*packets.Suback); ok {
-
 		if p.PacketID != sub.PacketID {
 			t.Fatalf("PacketID error, want %d, got %d", sub.PacketID, p.PacketID)
 		}
@@ -845,21 +747,15 @@ func TestOnSubscribe(t *testing.T) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
 		}
 
-		srv.mu.RLock()
-		srv.subscriptionsDB.Lock()
-		defer srv.mu.RUnlock()
-		defer srv.subscriptionsDB.Unlock()
-		if topic0, ok := srv.subscriptionsDB.topicsByName["/a/b/c"]["MQTT"]; ok {
-			want := packets.Topic{Name: "/a/b/c", Qos: packets.QOS_1}
-			if topic0 != want {
-				t.Fatalf("onSubscribe error, want %v, got %v", want, topic0)
-			}
-		} else {
-			t.Fatalf("onSubscribe error")
+		m := srv.subscriptionsDB.getMatchedTopicFilter("/a/b/+")
+		if len(m) != 0 {
+			t.Fatalf("onSubscribe error, got %v", m)
 		}
-
-		if topic1, ok := srv.subscriptionsDB.topicsByName["/a/b/+"]; ok {
-			t.Fatalf("onSubscribe error, want nil, got %v", topic1)
+		m = srv.subscriptionsDB.getMatchedTopicFilter("/a/b/c")
+		if ts, ok := m["MQTT"]; ok {
+			if ts[0].Qos != packets.QOS_1 {
+				t.Fatalf("onSubscribe error, got %v", ts)
+			}
 		}
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Suback{}), reflect.TypeOf(packet))
@@ -1250,11 +1146,12 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 }
 
 func TestOfflineMessageQueueing(t *testing.T) {
-	srv = NewServer()
+	c := DefaultConfig
+	c.MaxMsgQueue = 5
+	srv = NewServer(c)
 	defer func() {
 		srv = nil
 	}()
-	srv.SetMaxQueueMessages(5)
 
 	conn1 := defaultConnectPacket()
 	conn1.CleanSession = false
@@ -1309,12 +1206,9 @@ func TestOfflineMessageQueueing(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	sinfo, ok := srv.Monitor.GetSession(string(conn2.ClientID))
-	if !ok {
-		t.Fatalf("GetSession() error,want true,but false")
-	}
-	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 5 {
-		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d", sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
+	cl := srv.Client(string(conn2.ClientID))
+	if cl.MsgDroppedTotal() != 1 || cl.MsgQueueLen() != 5 {
+		t.Fatalf("want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d", cl.MsgDroppedTotal(), cl.MsgQueueLen())
 	}
 
 	err = writePacket(reConn, conn2)
@@ -1345,15 +1239,10 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(p))
 		}
 	}
-
-	sinfo, ok = srv.Monitor.GetSession(string(conn2.ClientID))
-	if !ok {
-		t.Fatalf("GetSession() error,want true,but false")
+	cl = srv.Client(string(conn2.ClientID))
+	if cl.MsgDroppedTotal() != 1 || cl.MsgQueueLen() != 0 {
+		t.Fatalf("want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d", cl.MsgDroppedTotal(), cl.MsgQueueLen())
 	}
-	if sinfo.MsgQueueDropped != 1 || sinfo.MsgQueueLen != 0 {
-		t.Fatalf("Monitor.GetSession() error, want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d", sinfo.MsgQueueDropped, sinfo.MsgQueueLen)
-	}
-
 }
 
 func TestWillMsg(t *testing.T) {

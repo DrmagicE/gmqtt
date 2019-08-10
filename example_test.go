@@ -14,7 +14,7 @@ import (
 
 //see /examples for more details.
 func Example() {
-	s := NewServer()
+	s := DefaultServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		fmt.Println(err.Error())
@@ -26,10 +26,10 @@ func Example() {
 	}
 	s.AddWebSocketServer(ws)
 
-	s.RegisterOnConnect(func(client *Client) (code uint8) {
+	s.RegisterOnConnect(func(cs ChainStore, client Client) (code uint8) {
 		return packets.CodeAccepted
 	})
-	s.RegisterOnSubscribe(func(client *Client, topic packets.Topic) uint8 {
+	s.RegisterOnSubscribe(func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
 		fmt.Println("register onSubscribe callback")
 		return packets.QOS_1
 	})

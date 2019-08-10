@@ -94,7 +94,7 @@ This hook may be used to block some invalid connections.(blacklist, rate-limitin
 ```
 // OnConnect will be called when a valid connect packet is received.
 // It returns the code of the connack packet.
-type OnConnect func(client *Client) (code uint8)
+type OnConnect func(client *client) (code uint8)
 ```
 This hook may be used to implement  Authentication process.For example:
 ```
@@ -121,7 +121,7 @@ OnSubscribe returns the maximum available QoS for the topic:
  0x02 - Success - Maximum QoS 2
  0x80 - Failure
 */
-type OnSubscribe func(client *Client, topic packets.Topic) uint8
+type OnSubscribe func(client *client, topic packets.Topic) uint8
 ```
 This hook may be used to implement  ACL(Access Control List) process.For example:
 ```
@@ -140,7 +140,7 @@ server.RegisterOnSubscribe(func(client *server.Client, topic packets.Topic) uint
 ### OnUnsubscribed()
 ```
 // OnUnsubscribed will be called after the topic has been unsubscribed
-type OnUnsubscribed func(client *Client, topicName string)
+type OnUnsubscribed func(client *client, topicName string)
 ```
 
 
@@ -149,7 +149,7 @@ This method will be called after receiving a MQTT PUBLISH packet.
 ```
 // OnPublish returns whether the publish packet will be delivered or not.
 // If returns false, the packet will not be delivered to any clients.
-type OnPublish func(client *Client, publish *packets.Publish) bool
+type OnPublish func(client *client, publish *packets.Publish) bool
 ```
 For example:
 ```
@@ -171,7 +171,7 @@ server.RegisterOnPublish(func(client *server.Client, publish *packets.Publish)  
 ### OnClose()
 ```
 // OnClose will be called after the tcp connection of the client has been closed
-type OnClose func(client *Client, err error)
+type OnClose func(client *client, err error)
 ```
 
 ### OnStop()

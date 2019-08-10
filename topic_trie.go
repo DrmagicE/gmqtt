@@ -138,3 +138,7 @@ func (t *topicTrie) getMatchedTopicFilter(topicName string) map[string][]packets
 	t.matchTopic(topicLv, qos)
 	return qos
 }
+
+func isSystemTopic(topicName string) bool {
+	return len(topicName) >= 1 && topicName[0] == '$'
+}
