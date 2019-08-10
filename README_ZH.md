@@ -1,5 +1,5 @@
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
-
+本项目受[EMQ](https://github.com/emqx/emqx)启发，参考了其中的许多设计。
 # 本库的内容有：
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
