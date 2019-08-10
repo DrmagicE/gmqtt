@@ -3,14 +3,14 @@ package gmqtt
 import (
 	"context"
 	"errors"
+	"fmt"
+	log2 "log"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"fmt"
 
 	"github.com/DrmagicE/gmqtt/logger"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -696,6 +696,16 @@ func (srv *Server) Publish(topic string, payload []byte, qos uint8, retain bool)
 		Payload:   payload,
 		Retain:    retain,
 	}
+	if pub.Retain {
+		//保留消息，处理保留
+		srv.retainedMsgMu.Lock()
+		srv.retainedMsg[string(pub.TopicName)] = pub
+		if len(pub.Payload) == 0 {
+			delete(srv.retainedMsg, string(pub.TopicName))
+		}
+		srv.retainedMsgMu.Unlock()
+	}
+
 	srv.msgRouter <- &msgRouter{pub}
 }
 
@@ -1080,7 +1090,7 @@ func (srv *Server) Run() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			c, err := defaultUpgrader.Upgrade(w, r, nil)
 			if err != nil {
-				log.Println("upgrade:", err)
+				log2.Println("upgrade:", err)
 				return
 			}
 			defer c.Close()

@@ -5,9 +5,9 @@ import (
 
 	"net/http"
 
-	"log"
-
 	"errors"
+
+	"fmt"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -71,7 +71,6 @@ func (m *Management) OnSessionResumedWrapper(resumed gmqtt.OnSessionResumed) gmq
 // OnSessionTerminated remove the client when session terminated
 func (m *Management) OnSessionTerminatedWrapper(terminated gmqtt.OnSessionTerminated) gmqtt.OnSessionTerminated {
 	return func(cs gmqtt.ChainStore, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
-		log.Println("terminated")
 		m.monitor.deleteClient(client.OptionsReader().ClientID())
 		m.monitor.deleteClientSubscriptions(client.OptionsReader().ClientID())
 		terminated(cs, client, reason)
@@ -270,6 +269,7 @@ func (m *Management) Publish(c *gin.Context) {
 	if retainFlag != "" {
 		retain = true
 	}
+	fmt.Println(retain)
 	qos, err := strconv.Atoi(qosParam)
 	if err != nil || qos < 0 || qos > 2 {
 		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalQos))

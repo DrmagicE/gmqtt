@@ -15,9 +15,7 @@ import (
 )
 
 func main() {
-
 	s := gmqtt.DefaultServer()
-
 	// listener
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {

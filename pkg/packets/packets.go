@@ -55,10 +55,10 @@ const (
 
 // QoS levels & Subscribe failure
 const (
-	QOS_0             = 0x00
-	QOS_1             = 0x01
-	QOS_2             = 0x02
-	SUBSCRIBE_FAILURE = 0x80
+	QOS_0             uint8 = 0x00
+	QOS_1             uint8 = 0x01
+	QOS_2             uint8 = 0x02
+	SUBSCRIBE_FAILURE       = 0x80
 )
 
 //PacketID is the type of packet identifier
