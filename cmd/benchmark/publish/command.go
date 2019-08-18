@@ -41,7 +41,7 @@ func (cmd *Command) ParseFlags(args ...string) (Options, error) {
 	fs.IntVar(&options.Qos, "qos", 1, "qos")
 	fs.StringVar(&options.Topic, "topic", "topic_name", "topic name")
 	fs.IntVar(&options.ConnectionInterval, "ci", 100, "connection interval (ms)")
-	fs.IntVar(&options.PublishInterval, "i", 100, "publishing interval (ms)")
+	fs.IntVar(&options.PublishInterval, "i", 1000, "publishing interval (ms)")
 	fs.IntVar(&options.Count, "c", 1000, "number of clients")
 	fs.IntVar(&options.Size, "s", 256, "payload size (bytes)")
 	fs.IntVar(&options.SubCount, "sub", 0, "number of clients which subscribe topic #")

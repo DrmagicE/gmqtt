@@ -84,7 +84,7 @@ loop:
 				defer srv.wg.Done()
 				_, err := srv.connect(strconv.Itoa(i))
 				if err != nil {
-					log.Println("connect error:", err)
+					log.Println("connect error:", err.Error())
 					return
 				}
 			}(i)
