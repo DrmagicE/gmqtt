@@ -4,6 +4,7 @@ package gmqtt
 import (
 	"bufio"
 	"container/list"
+	"context"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -109,13 +112,7 @@ type SessionStatsReader interface {
 	MsgDeliveredTotal() int64
 }
 
-// ChainStore is used to store and retrieve key/value pair data between hooks function in call chain.
-type ChainStore interface {
-	Set(key string, value interface{})
-	Get(key string) (value interface{}, exists bool)
-}
-
-// chainStore implement the ChainStore
+// chainStore implement the context.Context
 type chainStore struct {
 	keys map[string]interface{}
 }
@@ -355,9 +352,12 @@ func (o *options) RemoteAddr() net.Addr {
 	return o.remoteAddr
 }
 
-func (client *client) setError(error error) {
+func (client *client) setError(err error) {
 	select {
-	case client.error <- error:
+	case client.error <- err:
+		if err != nil {
+			zaplog.Error("connection lost", zap.String("errorMsg", err.Error()))
+		}
 	default:
 	}
 }
@@ -387,9 +387,9 @@ func (client *client) writeLoop() {
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-	if log != nil {
-		log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
-	}
+	zaplog.Debug("sending packet",
+		zap.String("packet", packet.String()),
+		zap.String("remote", client.rwc.RemoteAddr().String()))
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
@@ -418,9 +418,11 @@ func (client *client) readLoop() {
 		if err != nil {
 			return
 		}
-		if log != nil {
-			log.Printf("%-15s %v: %s ", "received from", client.rwc.RemoteAddr(), packet)
-		}
+		zaplog.Debug("packet received",
+			zap.String("packet", packet.String()),
+			zap.String("remote", client.rwc.RemoteAddr().String()),
+			zap.String("clientID", client.opts.clientID),
+		)
 		client.in <- packet
 	}
 }
@@ -497,12 +499,14 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			ok = true
 		}
 	}()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
 	var p packets.Packet
 	select {
 	case <-client.close:
 		return
 	case p = <-client.in: //first packet
-	case <-time.After(5 * time.Second):
+	case <-timeout.C:
 		err = ErrConnectTimeOut
 		return
 	}
@@ -575,8 +579,8 @@ func (client *client) internalClose() {
 	putBufioWriter(client.bufw)
 
 	// onClose hooks
-	if client.server.onClose != nil {
-		client.server.onClose(&chainStore{}, client, client.err)
+	if client.server.hooks.OnClose != nil {
+		client.server.hooks.OnClose(context.Background(), client, client.err)
 	}
 	client.setDisconnectedAt(time.Now())
 }
@@ -604,8 +608,8 @@ func (client *client) deliverMsg(publish *packets.Publish) {
 	case client.out <- publish:
 		client.addMsgDeliveredTotal(1)
 		// onDeliver hook
-		if client.server.onDeliver != nil {
-			client.server.onDeliver(&chainStore{}, client, messageFromPublish(publish))
+		if client.server.hooks.OnDeliver != nil {
+			client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(publish))
 		}
 	}
 }
@@ -630,9 +634,9 @@ func (client *client) write(packets packets.Packet) {
 //Subscribe handler
 func (client *client) subscribeHandler(sub *packets.Subscribe) {
 	srv := client.server
-	if srv.onSubscribe != nil {
+	if srv.hooks.OnSubscribe != nil {
 		for k, v := range sub.Topics {
-			qos := srv.onSubscribe(&chainStore{}, client, v)
+			qos := srv.hooks.OnSubscribe(context.Background(), client, v)
 			sub.Topics[k].Qos = qos
 		}
 	}
@@ -645,8 +649,8 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 			}
 			srv.subscriptionsDB.subscribe(client.opts.clientID, topic)
 			client.addSubscriptionsCount(1)
-			if srv.onSubscribed != nil {
-				srv.onSubscribed(&chainStore{}, client, topic)
+			if srv.hooks.OnSubscribed != nil {
+				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
 		}
 	}
@@ -691,8 +695,8 @@ func (client *client) publishHandler(pub *packets.Publish) {
 	}
 	if !dup {
 		var valid = true
-		if srv.onMsgArrived != nil {
-			valid = srv.onMsgArrived(&chainStore{}, client, messageFromPublish(pub))
+		if srv.hooks.OnMsgArrived != nil {
+			valid = srv.hooks.OnMsgArrived(context.Background(), client, messageFromPublish(pub))
 		}
 		if valid {
 			pub.Retain = false
@@ -735,8 +739,8 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	for _, topicName := range unSub.Topics {
 		srv.subscriptionsDB.unsubscribe(client.opts.clientID, topicName)
 		client.addSubscriptionsCount(-1)
-		if srv.onUnsubscribed != nil {
-			srv.onUnsubscribed(&chainStore{}, client, topicName)
+		if srv.hooks.OnUnsubscribed != nil {
+			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
 
 	}

@@ -2,10 +2,12 @@ package gmqtt
 
 import (
 	"container/list"
+	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"sync/atomic"
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -70,15 +72,15 @@ func (client *client) setAwaitRel(pid packets.PacketID) {
 	if s.awaitRel.Len() >= s.config.MaxAwaitRel && s.config.MaxAwaitRel != 0 { //加入缓存队列
 		removeMsg := s.awaitRel.Front()
 		s.awaitRel.Remove(removeMsg)
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "awaitRel window is overflow, removing the front elem ", client.OptionsReader().ClientID(), removeMsg.Value)
-		}
+		zaplog.Info("awaitRel window is full, removing the front elem",
+			zap.String("clientID", client.opts.clientID),
+			zap.Int16("pid", int16(pid)))
 	}
 	s.awaitRel.PushBack(elem)
 	atomic.AddInt64(&s.awaitRelLen, 1)
 }
 
-//awaitRelAck
+//unsetAwaitRel
 func (client *client) unsetAwaitRel(pid packets.PacketID) {
 	s := client.session
 	s.awaitRelMu.Lock()
@@ -112,18 +114,15 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 	defer s.msgQueueMu.Unlock()
 	if s.msgQueue.Len() >= s.config.MaxMsgQueue && s.config.MaxMsgQueue != 0 {
 		client.addMsgDroppedTotal(1)
-		if log != nil {
-			log.Printf("%-15s[%s]", "msg queue is overflow, removing msg. ", client.OptionsReader().ClientID())
-		}
 		var removeMsg *list.Element
 		// onMessageDropped hook
-		if srv.onMsgDropped != nil {
+		if srv.hooks.OnMsgDropped != nil {
 			defer func() {
-				cs := &chainStore{}
+				cs := context.Background()
 				if removeMsg != nil {
-					srv.onMsgDropped(cs, client, messageFromPublish(removeMsg.Value.(*packets.Publish)))
+					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(removeMsg.Value.(*packets.Publish)))
 				} else {
-					srv.onMsgDropped(cs, client, messageFromPublish(publish))
+					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(publish))
 				}
 			}()
 		}
@@ -136,19 +135,27 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			}
 		}
 		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
-			s.msgQueue.Remove(removeMsg)
-			if log != nil {
-				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.OptionsReader().ClientID(), removeMsg.Value.(packets.Packet))
-			}
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "QOS_0 in queue"),
+				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+			)
 		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "QOS_0 enqueue"),
+				zap.String("packet", publish.String()),
+			)
 			return
-		} else if publish.Qos != packets.QOS_0 { //case3: removing the front message of msgQueue
+		} else { //case3: removing the front message of msgQueue
 			removeMsg = s.msgQueue.Front()
 			s.msgQueue.Remove(removeMsg)
-			if log != nil {
-				p := removeMsg.Value.(packets.Packet)
-				log.Printf("%-15s[%s],packet: %s ", "first msg removed", client.OptionsReader().ClientID(), p)
-			}
+
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "front"),
+				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+			)
 		}
 	} else {
 		atomic.AddInt64(&s.msgQueueLen, 1)
@@ -163,9 +170,9 @@ func (client *client) msgDequeue() *packets.Publish {
 
 	if s.msgQueue.Len() > 0 {
 		queueElem := s.msgQueue.Front()
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "sending queued msg ", client.OptionsReader().ClientID(), queueElem.Value.(*packets.Publish))
-		}
+		zaplog.Debug("msg dequeued",
+			zap.String("clientID", client.opts.clientID),
+			zap.String("packet", queueElem.Value.(*packets.Publish).String()))
 		s.msgQueue.Remove(queueElem)
 		atomic.AddInt64(&s.msgQueueLen, -1)
 		return queueElem.Value.(*packets.Publish)
@@ -185,13 +192,15 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 		packet: publish,
 	}
 	if s.inflight.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 { //加入缓存队列
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "inflight window is overflow, saving msg into msgQueue", client.OptionsReader().ClientID(), elem.packet)
-		}
+		zaplog.Info("inflight window full, saving msg into msgQueue",
+			zap.String("clientID", client.opts.clientID),
+			zap.String("packet", elem.packet.String()),
+		)
 		client.msgEnQueue(publish)
 		enqueue = false
 		return
 	}
+	zaplog.Debug("set inflight", zap.String("clientID", client.opts.clientID), zap.String("packet", elem.packet.String()))
 	atomic.AddInt64(&s.inflightLen, 1)
 	s.inflight.PushBack(elem)
 	enqueue = true
@@ -225,15 +234,17 @@ func (client *client) unsetInflight(packet packets.Packet) {
 			if el.pid == pid {
 				s.inflight.Remove(e)
 				atomic.AddInt64(&s.inflightLen, -1)
-				if log != nil {
-					log.Printf("%-15s[%s],packet: %s ", "inflight msg released ", client.OptionsReader().ClientID(), packet)
-				}
+
+				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.clientID),
+					zap.String("packet", packet.String()),
+				)
+
 				if freeID {
 					s.freePacketID(pid)
 				}
 				// onAcked hook
-				if srv.onAcked != nil {
-					srv.onAcked(&chainStore{}, client, messageFromPublish(e.Value.(*inflightElem).packet))
+				if srv.hooks.OnAcked != nil {
+					srv.hooks.OnAcked(context.Background(), client, messageFromPublish(e.Value.(*inflightElem).packet))
 				}
 				publish := client.msgDequeue()
 				if publish != nil {

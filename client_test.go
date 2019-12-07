@@ -121,13 +121,13 @@ func newTestServer() *Server {
 	if srv != nil {
 		s = srv
 	} else {
-		s = DefaultServer()
+		s = NewServer()
 		s.config.RetryInterval = testRedeliveryInternal
 		s.config.RetryCheckInterval = testRedeliveryInternal
 	}
 	/*SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))*/
 	ln := &testListener{acceptReady: make(chan struct{})}
-	s.AddTCPListenner(ln)
+	s.tcpListener = append(s.tcpListener, ln)
 	return s
 }
 
@@ -713,7 +713,7 @@ func TestUnsubscribe(t *testing.T) {
 
 func TestOnSubscribe(t *testing.T) {
 	srv := newTestServer()
-	srv.RegisterOnSubscribe(func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
+	srv.hooks.OnSubscribe = func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 		if topic.Qos == packets.QOS_0 {
 			return packets.QOS_1
 		}
@@ -721,7 +721,7 @@ func TestOnSubscribe(t *testing.T) {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	})
+	}
 	conn := doconnect(srv, nil)
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
@@ -1148,7 +1148,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 func TestOfflineMessageQueueing(t *testing.T) {
 	c := DefaultConfig
 	c.MaxMsgQueue = 5
-	srv = NewServer(c)
+	srv = NewServer(Configure(c))
 	defer func() {
 		srv = nil
 	}()

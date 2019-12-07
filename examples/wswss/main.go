@@ -14,13 +14,12 @@ import (
 )
 
 func main() {
-	s := gmqtt.DefaultServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
 	}
-	s.AddTCPListenner(ln)
+
 	ws := &gmqtt.WsServer{
 		Server: &http.Server{Addr: ":8080"},
 	}
@@ -29,8 +28,10 @@ func main() {
 		CertFile: "../testcerts/server.crt",
 		KeyFile:  "../testcerts/server.key",
 	}
-	s.AddWebSocketServer(ws, wss)
-
+	s := gmqtt.NewServer(
+		gmqtt.TCPListener(ln),
+		gmqtt.WebsocketServer(ws, wss),
+	)
 	s.Run()
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)

@@ -1,13 +1,10 @@
 package management
 
 import (
-	"strconv"
-
-	"net/http"
-
+	"context"
 	"errors"
-
-	"fmt"
+	"net/http"
+	"strconv"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -54,42 +51,42 @@ type Management struct {
 
 // OnSessionCreatedWrapper store the client when session created
 func (m *Management) OnSessionCreatedWrapper(created gmqtt.OnSessionCreated) gmqtt.OnSessionCreated {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client) {
+	return func(ctx context.Context, client gmqtt.Client) {
 		m.monitor.addClient(client)
-		created(cs, client)
+		created(ctx, client)
 	}
 }
 
 // OnSessionResumedWrapper refresh the client when session resumed
 func (m *Management) OnSessionResumedWrapper(resumed gmqtt.OnSessionResumed) gmqtt.OnSessionResumed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client) {
+	return func(ctx context.Context, client gmqtt.Client) {
 		m.monitor.addClient(client)
-		resumed(cs, client)
+		resumed(ctx, client)
 	}
 }
 
 // OnSessionTerminated remove the client when session terminated
 func (m *Management) OnSessionTerminatedWrapper(terminated gmqtt.OnSessionTerminated) gmqtt.OnSessionTerminated {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
+	return func(ctx context.Context, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
 		m.monitor.deleteClient(client.OptionsReader().ClientID())
 		m.monitor.deleteClientSubscriptions(client.OptionsReader().ClientID())
-		terminated(cs, client, reason)
+		terminated(ctx, client, reason)
 	}
 }
 
 // OnSubscribedWrapper store the subscription
 func (m *Management) OnSubscribedWrapper(subscribed gmqtt.OnSubscribed) gmqtt.OnSubscribed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) {
+	return func(ctx context.Context, client gmqtt.Client, topic packets.Topic) {
 		m.monitor.addSubscription(client.OptionsReader().ClientID(), topic)
-		subscribed(cs, client, topic)
+		subscribed(ctx, client, topic)
 	}
 }
 
 // OnUnsubscribedWrapper remove the subscription
 func (m *Management) OnUnsubscribedWrapper(unsubscribe gmqtt.OnUnsubscribed) gmqtt.OnUnsubscribed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, topicName string) {
+	return func(ctx context.Context, client gmqtt.Client, topicName string) {
 		m.monitor.deleteSubscription(client.OptionsReader().ClientID(), topicName)
-		unsubscribe(cs, client, topicName)
+		unsubscribe(ctx, client, topicName)
 	}
 }
 
@@ -269,7 +266,6 @@ func (m *Management) Publish(c *gin.Context) {
 	if retainFlag != "" {
 		retain = true
 	}
-	fmt.Println(retain)
 	qos, err := strconv.Atoi(qosParam)
 	if err != nil || qos < 0 || qos > 2 {
 		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalQos))

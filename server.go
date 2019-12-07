@@ -3,8 +3,6 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"fmt"
-	log2 "log"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,9 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/DrmagicE/gmqtt/logger"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 var (
@@ -22,6 +21,9 @@ var (
 	ErrInvalWsMsgType = errors.New("invalid websocket message type")
 	statusPanic       = "invalid server status"
 )
+
+type Logger interface {
+}
 
 // Default configration
 const (
@@ -35,6 +37,68 @@ const (
 	serverStatusInit = iota
 	serverStatusStarted
 )
+
+// default mode
+var mode = "debug"
+
+// zaplog
+var zaplog *zap.Logger
+
+const (
+	DebugMode   = "debug"
+	ReleaseMode = "release"
+)
+
+type Options func(srv *Server)
+
+// Configure set the config of the server
+func Configure(config Config) Options {
+	return func(srv *Server) {
+		srv.config = config
+	}
+}
+
+// TCPListener set  tcpListener(s) of the server. Default listen on  :1883.
+func TCPListener(lns ...net.Listener) Options {
+	return func(srv *Server) {
+		srv.tcpListener = append(srv.tcpListener, lns...)
+	}
+}
+
+// WebsocketServer set  websocketServer(s) of the server.
+func WebsocketServer(ws ...*WsServer) Options {
+	return func(srv *Server) {
+		srv.websocketServer = ws
+	}
+}
+
+// Plugin set plugin(s) of the server.
+func Plugin(plugin ...Plugable) Options {
+	return func(srv *Server) {
+		srv.plugins = append(srv.plugins, plugin...)
+	}
+}
+
+// Hook set hooks of the server. Notice: Plugin() will overwrite hooks.
+func Hook(hooks Hooks) Options {
+	return func(srv *Server) {
+		srv.hooks = hooks
+	}
+}
+
+// Mode set mode of the server.
+func Mode(m string) Options {
+	return func(srv *Server) {
+		switch m {
+		case DebugMode:
+			mode = m
+		case ReleaseMode:
+			mode = m
+		default:
+			panic("invalid mode")
+		}
+	}
+}
 
 // Message represent a publish packet
 type Message interface {
@@ -104,150 +168,34 @@ type ServerService interface {
 }
 
 // Server represents a mqtt server instance.
-// Create a Server by using NewServer() or DefaultServer()
+// Create a Server by using NewServer()
 type Server struct {
 	wg      sync.WaitGroup
 	mu      sync.RWMutex //gard clients & offlineClients map
 	status  int32        //server status
 	clients map[string]*client
-	// offlineClients store the disconnected time of all disconnected clients with valid session(not expired). Key by clientID
+	// offlineClients store the disconnected time of all disconnected clients
+	// with valid session(not expired). Key by clientID
 	offlineClients  map[string]time.Time
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket server
 	exitChan        chan struct{}
 	retainedMsgMu   sync.Mutex
-	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
-
-	subscriptionsDB *trieDB //store subscriptions
+	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name=
+	subscriptionsDB *trieDB                     //store subscriptions
 
 	msgRouter  chan *msgRouter
 	register   chan *register   //register session
 	unregister chan *unregister //unregister session
-
-	config Config
-	//hooks
-	onAccept            OnAccept
-	onConnect           OnConnect
-	onConnected         OnConnected
-	onSessionCreated    OnSessionCreated
-	onSessionResumed    OnSessionResumed
-	onSessionTerminated OnSessionTerminated
-	onSubscribe         OnSubscribe
-	onSubscribed        OnSubscribed
-	onUnsubscribed      OnUnsubscribed
-	onMsgArrived        OnMsgArrived
-	onDeliver           OnDeliver
-	onAcked             OnAcked
-	onMsgDropped        OnMsgDropped
-	onClose             OnClose
-	onStop              OnStop
-
-	// 所有的插件
-	plugins []Plugable
+	config     Config
+	hooks      Hooks
+	plugins    []Plugable
 }
 
 func (srv *Server) checkStatus() {
 	if srv.Status() != serverStatusInit {
 		panic(statusPanic)
 	}
-}
-
-// RegisterOnAccept registers a onAccept callback.
-// A panic will cause if any RegisterOnXXX is called after server.Run()
-func (srv *Server) RegisterOnAccept(callback OnAccept) {
-	srv.checkStatus()
-	srv.onAccept = callback
-}
-
-// RegisterOnConnect registers a onConnect callback.
-func (srv *Server) RegisterOnConnect(callback OnConnect) {
-	srv.checkStatus()
-	srv.onConnect = callback
-}
-
-// RegisterOnConnect registers a onConnected callback.
-func (srv *Server) RegisterOnConnected(callback OnConnected) {
-	srv.checkStatus()
-	srv.onConnected = callback
-}
-
-// RegisterOnSessionCreated registers a OnSessionCreated callback.
-func (srv *Server) RegisterOnSessionCreated(callback OnSessionCreated) {
-	srv.checkStatus()
-	srv.onSessionCreated = callback
-}
-
-// RegisterOnSessionResumed registers a OnSessionResumed callback.
-func (srv *Server) RegisterOnSessionResumed(callback OnSessionResumed) {
-	srv.checkStatus()
-	srv.onSessionResumed = callback
-}
-
-// RegisterOnConnect registers a OnSessionTerminated callback.
-func (srv *Server) RegisterOnSessionTerminated(callback OnSessionTerminated) {
-	srv.checkStatus()
-	srv.onSessionTerminated = callback
-}
-
-// RegisterOnSubscribe registers a onSubscribe callback.
-func (srv *Server) RegisterOnSubscribe(callback OnSubscribe) {
-	srv.checkStatus()
-	srv.onSubscribe = callback
-}
-
-// RegisterOnSubscribe registers a onSubscribed callback.
-func (srv *Server) RegisterOnSubscribed(callback OnSubscribed) {
-	srv.checkStatus()
-	srv.onSubscribed = callback
-}
-
-// RegisterOnUnsubscribed registers a onUnsubscribed callback.
-func (srv *Server) RegisterOnUnsubscribed(callback OnUnsubscribed) {
-	srv.checkStatus()
-	srv.onUnsubscribed = callback
-}
-
-// RegisterOnMsgArrived registers a onMsgArrived callback.
-func (srv *Server) RegisterOnMsgArrived(callback OnMsgArrived) {
-	srv.checkStatus()
-	srv.onMsgArrived = callback
-}
-
-// RegisterOnMsgDropped registers a onAcked callback.
-func (srv *Server) RegisterOnMsgDropped(callback OnMsgDropped) {
-	srv.checkStatus()
-	srv.onMsgDropped = callback
-}
-
-// RegisterOnDeliver registers a onDeliver callback.
-func (srv *Server) RegisterOnDeliver(callback OnDeliver) {
-	srv.checkStatus()
-	srv.onDeliver = callback
-}
-
-// RegisterOnAcked registers a onAcked callback.
-func (srv *Server) RegisterOnAcked(callback OnAcked) {
-	srv.checkStatus()
-	srv.onAcked = callback
-}
-
-// RegisterOnClose registers a onClose callback.
-func (srv *Server) RegisterOnClose(callback OnClose) {
-	srv.checkStatus()
-	srv.onClose = callback
-}
-
-// RegisterOnStop registers a onStop callback.
-func (srv *Server) RegisterOnStop(callback OnStop) {
-	srv.checkStatus()
-	srv.onStop = callback
-}
-
-var log *logger.Logger
-
-// SetLogger sets the logger. It is used in DEBUG mode.
-func SetLogger(l *logger.Logger) {
-	log = l
 }
 
 type DeliverMode int
@@ -267,6 +215,9 @@ type Config struct {
 	MaxAwaitRel                int
 	MaxMsgQueue                int
 	DeliverMode                DeliverMode
+	MsgRouterLen               int
+	RegisterLen                int
+	UnregisterLen              int
 }
 
 // DefaultConfig default config used by NewServer()
@@ -280,6 +231,9 @@ var DefaultConfig = Config{
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
 	DeliverMode:                OnlyOnce,
+	MsgRouterLen:               DefaultMsgRouterLen,
+	RegisterLen:                DefaultRegisterLen,
+	UnregisterLen:              DefaultUnRegisterLen,
 }
 
 // GetConfig returns the config of the server
@@ -310,6 +264,7 @@ func (srv *Server) Status() int32 {
 }
 
 func (srv *Server) registerHandler(register *register) {
+
 	// ack code set in Connack Packet
 	var code uint8
 	client := register.client
@@ -324,8 +279,8 @@ func (srv *Server) registerHandler(register *register) {
 		register.error = err
 		return
 	}
-	if srv.onConnect != nil {
-		code = srv.onConnect(&chainStore{}, client)
+	if srv.hooks.OnConnect != nil {
+		code = srv.hooks.OnConnect(context.Background(), client)
 	}
 	connect.AckCode = code
 	if code != packets.CodeAccepted {
@@ -337,8 +292,8 @@ func (srv *Server) registerHandler(register *register) {
 		register.error = err
 		return
 	}
-	if srv.onConnected != nil {
-		srv.onConnected(&chainStore{}, client)
+	if srv.hooks.OnConnect != nil {
+		srv.hooks.OnConnected(context.Background(), client)
 	}
 	client.setConnectedAt(time.Now())
 	srv.mu.Lock()
@@ -349,9 +304,10 @@ func (srv *Server) registerHandler(register *register) {
 	if oldExist {
 		oldSession = oldClient.session
 		if oldClient.IsConnected() {
-			if log != nil {
-				log.Printf("%-15s %v: logging with duplicate ClientID: %s", "", client.rwc.RemoteAddr(), client.OptionsReader().ClientID())
-			}
+			zaplog.Debug("logging with duplicate ClientID",
+				zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
+				zap.String("clientID", client.OptionsReader().ClientID()),
+			)
 			oldClient.setSwitching()
 			<-oldClient.Close()
 			if oldClient.opts.willFlag {
@@ -384,11 +340,11 @@ func (srv *Server) registerHandler(register *register) {
 		} else if oldClient.Status() == Disconnected {
 			if !client.opts.cleanSession {
 				sessionReuse = true
-			} else if srv.onSessionTerminated != nil {
-				srv.onSessionTerminated(&chainStore{}, oldClient, ConflictTermination)
+			} else if srv.hooks.OnSessionTerminated != nil {
+				srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 			}
-		} else if srv.onSessionTerminated != nil {
-			srv.onSessionTerminated(&chainStore{}, oldClient, ConflictTermination)
+		} else if srv.hooks.OnSessionTerminated != nil {
+			srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 		}
 	}
 	ack := connect.NewConnackPacket(sessionReuse)
@@ -437,24 +393,27 @@ func (srv *Server) registerHandler(register *register) {
 			}
 		}
 		oldSession.msgQueueMu.Unlock()
-		if log != nil {
-			log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
-		}
+
+		zaplog.Debug("logged in with session reuse",
+			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
+			zap.String("connect", connect.String()),
+		)
 	} else {
 		if oldExist {
 			srv.subscriptionsDB.deleteAll(client.opts.clientID)
 		}
-		if log != nil {
-			log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Debug("logged in with new session",
+			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
+			zap.String("connect", connect.String()),
+		)
 	}
 	if sessionReuse {
-		if srv.onSessionResumed != nil {
-			srv.onSessionResumed(&chainStore{}, client)
+		if srv.hooks.OnSessionResumed != nil {
+			srv.hooks.OnSessionResumed(context.Background(), client)
 		}
 	} else {
-		if srv.onSessionCreated != nil {
-			srv.onSessionCreated(&chainStore{}, client)
+		if srv.hooks.OnSessionCreated != nil {
+			srv.hooks.OnSessionCreated(context.Background(), client)
 		}
 	}
 	delete(srv.offlineClients, client.opts.clientID)
@@ -497,23 +456,25 @@ clearIn:
 		}()
 	}
 	if client.opts.cleanSession {
-		if log != nil {
-			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Debug("logged out and cleaning session",
+			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
+			zap.String("clientID", client.OptionsReader().ClientID()),
+		)
 		srv.mu.Lock()
 		srv.removeSession(client.opts.clientID)
 		srv.mu.Unlock()
-		if srv.onSessionTerminated != nil {
-			srv.onSessionTerminated(&chainStore{}, client, NormalTermination)
+		if srv.hooks.OnSessionTerminated != nil {
+			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
 
 	} else { //store session 保持session
 		srv.mu.Lock()
 		srv.offlineClients[client.opts.clientID] = time.Now()
 		srv.mu.Unlock()
-		if log != nil {
-			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Debug("logged out and storing session",
+			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
+			zap.String("clientID", client.OptionsReader().ClientID()),
+		)
 		//clear  out
 	clearOut:
 		for {
@@ -586,8 +547,8 @@ func (srv *Server) sessionExpireCheck() {
 		if now.Sub(disconnectedAt) >= expire {
 			if client, _ := srv.clients[id]; client != nil {
 				srv.removeSession(id)
-				if srv.onSessionTerminated != nil {
-					srv.onSessionTerminated(&chainStore{}, client, ExpiredTermination)
+				if srv.hooks.OnSessionTerminated != nil {
+					srv.hooks.OnSessionTerminated(context.Background(), client, ExpiredTermination)
 				}
 			}
 		}
@@ -631,58 +592,65 @@ func (srv *Server) eventLoop() {
 // WsServer is used to build websocket server
 type WsServer struct {
 	Server   *http.Server
+	Path     string // Url path
 	CertFile string //TLS configration
 	KeyFile  string //TLS configration
 }
 
-// DefaultServer returns a default gmqtt server instance
-func DefaultServer() *Server {
-	return &Server{
+// NewServer returns a gmqtt server instance with the given options
+func NewServer(opts ...Options) *Server {
+	srv := &Server{
 		status:          serverStatusInit,
 		exitChan:        make(chan struct{}),
 		clients:         make(map[string]*client),
 		offlineClients:  make(map[string]time.Time),
-		msgRouter:       make(chan *msgRouter, DefaultMsgRouterLen),
-		register:        make(chan *register, DefaultRegisterLen),
-		unregister:      make(chan *unregister, DefaultUnRegisterLen),
 		retainedMsg:     make(map[string]*packets.Publish),
 		subscriptionsDB: newTrieDB(),
 		config:          DefaultConfig,
 	}
-}
-
-// NewServer returns a gmqtt server instance with the given config
-func NewServer(c Config) *Server {
-	return &Server{
-		status:          serverStatusInit,
-		exitChan:        make(chan struct{}),
-		clients:         make(map[string]*client),
-		offlineClients:  make(map[string]time.Time),
-		msgRouter:       make(chan *msgRouter, DefaultMsgRouterLen),
-		register:        make(chan *register, DefaultRegisterLen),
-		unregister:      make(chan *unregister, DefaultUnRegisterLen),
-		retainedMsg:     make(map[string]*packets.Publish),
-		subscriptionsDB: newTrieDB(),
-		config:          c,
+	for _, fn := range opts {
+		fn(srv)
 	}
-}
 
-// SetMsgRouterLen sets the length of msgRouter channel.
-func (srv *Server) SetMsgRouterLen(i int) {
-	srv.checkStatus()
-	srv.msgRouter = make(chan *msgRouter, i)
-}
+	// init zap logger
+	var logConfig *zap.Config
+	if mode == ReleaseMode {
+		logConfig = &zap.Config{
+			Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
+			Development: false,
+			Sampling: &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			},
+			Encoding:         "json",
+			EncoderConfig:    zap.NewProductionEncoderConfig(),
+			OutputPaths:      []string{"stderr"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
+	} else {
+		logConfig = &zap.Config{
+			Level:       zap.NewAtomicLevelAt(zap.DebugLevel),
+			Development: false,
+			Sampling: &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			},
+			Encoding:         "json",
+			EncoderConfig:    zap.NewDevelopmentEncoderConfig(),
+			OutputPaths:      []string{"stderr"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
+	}
 
-// SetRegisterLen sets the length of register channel.
-func (srv *Server) SetRegisterLen(i int) {
-	srv.checkStatus()
-	srv.register = make(chan *register, i)
-}
-
-// SetUnregisterLen sets the length of unregister channel.
-func (srv *Server) SetUnregisterLen(i int) {
-	srv.checkStatus()
-	srv.unregister = make(chan *unregister, i)
+	var err error
+	zaplog, err = logConfig.Build()
+	if err != nil {
+		panic(err)
+	}
+	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
+	srv.register = make(chan *register, srv.config.RegisterLen)
+	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
+	return srv
 }
 
 // Publish 主动发布一个主题
@@ -739,19 +707,6 @@ func (srv *Server) Client(clientID string) Client {
 	return srv.clients[clientID]
 }
 
-// AddTCPListenner adds tcp listeners to mqtt server.
-// This method enables the mqtt server to serve on multiple ports.
-func (srv *Server) AddTCPListenner(ln ...net.Listener) {
-	srv.checkStatus()
-	srv.tcpListener = append(srv.tcpListener, ln...)
-}
-
-// AddWebSocketServer adds websocket server to mqtt server.
-func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
-	srv.checkStatus()
-	srv.websocketServer = append(srv.websocketServer, Server...)
-}
-
 func (srv *Server) serveTCP(l net.Listener) {
 	defer func() {
 		l.Close()
@@ -776,8 +731,8 @@ func (srv *Server) serveTCP(l net.Listener) {
 		}
 
 		// onAccept hooks
-		if srv.onAccept != nil {
-			if !srv.onAccept(&chainStore{}, rw) {
+		if srv.hooks.OnAccept != nil {
+			if !srv.hooks.OnAccept(context.Background(), rw) {
 				rw.Close()
 				continue
 			}
@@ -862,11 +817,6 @@ func (srv *Server) newClient(c net.Conn) *client {
 	return client
 }
 
-// AddPlugins 添加插件
-func (srv *Server) AddPlugins(plugin ...Plugable) {
-	srv.plugins = append(srv.plugins, plugin...)
-}
-
 func (srv *Server) loadPlugins() error {
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
@@ -886,6 +836,7 @@ func (srv *Server) loadPlugins() error {
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
 	for _, p := range srv.plugins {
+		zaplog.Info("load plugin", zap.String("name", p.Name()))
 		err := p.Load(srv)
 		if err != nil {
 			return err
@@ -940,166 +891,180 @@ func (srv *Server) loadPlugins() error {
 	}
 	// onAccept
 	if onAckedWrappers != nil {
-		onAccept := func(cs ChainStore, conn net.Conn) bool {
+		onAccept := func(ctx context.Context, conn net.Conn) bool {
 			return true
 		}
 		for i := len(onAcceptWrappers); i > 0; i-- {
 			onAccept = onAcceptWrappers[i-1](onAccept)
 		}
-		srv.onAccept = onAccept
+		srv.hooks.OnAccept = onAccept
 	}
 	// onConnect
 	if onConnectWrappers != nil {
-		onConnect := func(cs ChainStore, client Client) (code uint8) {
+		onConnect := func(ctx context.Context, client Client) (code uint8) {
 			return packets.CodeAccepted
 		}
 		for i := len(onConnectWrappers); i > 0; i-- {
 			onConnect = onConnectWrappers[i-1](onConnect)
 		}
-		srv.onConnect = onConnect
+		srv.hooks.OnConnect = onConnect
 	}
 	// onConnected
 	if onConnectedWrappers != nil {
-		onConnected := func(cs ChainStore, client Client) {}
+		onConnected := func(ctx context.Context, client Client) {}
 		for i := len(onConnectedWrappers); i > 0; i-- {
 			onConnected = onConnectedWrappers[i-1](onConnected)
 		}
-		srv.onConnected = onConnected
+		srv.hooks.OnConnected = onConnected
 	}
 	// onSessionCreated
 	if onSessionCreatedWrapper != nil {
-		onSessionCreated := func(cs ChainStore, client Client) {}
+		onSessionCreated := func(ctx context.Context, client Client) {}
 		for i := len(onSessionCreatedWrapper); i > 0; i-- {
 			onSessionCreated = onSessionCreatedWrapper[i-1](onSessionCreated)
 		}
-		srv.onSessionCreated = onSessionCreated
+		srv.hooks.OnSessionCreated = onSessionCreated
 	}
 
 	// onSessionResumed
 	if onSessionResumedWrapper != nil {
-		onSessionResumed := func(cs ChainStore, client Client) {}
+		onSessionResumed := func(ctx context.Context, client Client) {}
 		for i := len(onSessionResumedWrapper); i > 0; i-- {
 			onSessionResumed = onSessionResumedWrapper[i-1](onSessionResumed)
 		}
-		srv.onSessionResumed = onSessionResumed
+		srv.hooks.OnSessionResumed = onSessionResumed
 	}
 
 	// onSessionTerminated
 	if onSessionTerminatedWrapper != nil {
-		onSessionTerminated := func(cs ChainStore, client Client, reason SessionTerminatedReason) {}
+		onSessionTerminated := func(ctx context.Context, client Client, reason SessionTerminatedReason) {}
 		for i := len(onSessionTerminatedWrapper); i > 0; i-- {
 			onSessionTerminated = onSessionTerminatedWrapper[i-1](onSessionTerminated)
 		}
-		srv.onSessionTerminated = onSessionTerminated
+		srv.hooks.OnSessionTerminated = onSessionTerminated
 	}
 
 	// onSubscribe
 	if onSubscribeWrappers != nil {
-		onSubscribe := func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
+		onSubscribe := func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 			return topic.Qos
 		}
 		for i := len(onSubscribeWrappers); i > 0; i-- {
 			onSubscribe = onSubscribeWrappers[i-1](onSubscribe)
 		}
-		srv.onSubscribe = onSubscribe
+		srv.hooks.OnSubscribe = onSubscribe
 	}
 	// onSubscribed
 	if onSubscribedWrappers != nil {
-		onSubscribed := func(cs ChainStore, client Client, topic packets.Topic) {}
+		onSubscribed := func(ctx context.Context, client Client, topic packets.Topic) {}
 		for i := len(onSubscribedWrappers); i > 0; i-- {
 			onSubscribed = onSubscribedWrappers[i-1](onSubscribed)
 		}
-		srv.onSubscribed = onSubscribed
+		srv.hooks.OnSubscribed = onSubscribed
 	}
 	//onUnsubscribed
 	if onUnsubscribedWrappers != nil {
-		onUnsubscribed := func(cs ChainStore, client Client, topicName string) {}
+		onUnsubscribed := func(ctx context.Context, client Client, topicName string) {}
 		for i := len(onUnsubscribedWrappers); i > 0; i-- {
 			onUnsubscribed = onUnsubscribedWrappers[i-1](onUnsubscribed)
 		}
-		srv.onUnsubscribed = onUnsubscribed
+		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
 	// onMsgArrived
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(cs ChainStore, client Client, msg Message) (valid bool) {
+		onMsgArrived := func(ctx context.Context, client Client, msg Message) (valid bool) {
 			return true
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
 			onMsgArrived = onMsgArrivedWrappers[i-1](onMsgArrived)
 		}
-		srv.onMsgArrived = onMsgArrived
+		srv.hooks.OnMsgArrived = onMsgArrived
 	}
 	// onDeliver
 	if onDeliverWrappers != nil {
-		onDeliver := func(cs ChainStore, client Client, msg Message) {}
+		onDeliver := func(ctx context.Context, client Client, msg Message) {}
 		for i := len(onDeliverWrappers); i > 0; i-- {
 			onDeliver = onDeliverWrappers[i-1](onDeliver)
 		}
-		srv.onDeliver = onDeliver
+		srv.hooks.OnDeliver = onDeliver
 	}
 	// onAcked
 	if onAckedWrappers != nil {
-		onAcked := func(cs ChainStore, client Client, msg Message) {}
+		onAcked := func(ctx context.Context, client Client, msg Message) {}
 		for i := len(onAckedWrappers); i > 0; i-- {
 			onAcked = onAckedWrappers[i-1](onAcked)
 		}
-		srv.onAcked = onAcked
+		srv.hooks.OnAcked = onAcked
 	}
 	// onClose hooks
 	if onCloseWrappers != nil {
-		onClose := func(cs ChainStore, client Client, err error) {}
+		onClose := func(ctx context.Context, client Client, err error) {}
 		for i := len(onCloseWrappers); i > 0; i-- {
 			onClose = onCloseWrappers[i-1](onClose)
 		}
-		srv.onClose = onClose
+		srv.hooks.OnClose = onClose
 	}
 	// onStop
 	if onStopWrappers != nil {
-		onStop := func(cs ChainStore) {}
+		onStop := func(ctx context.Context) {}
 		for i := len(onStopWrappers); i > 0; i-- {
 			onStop = onStopWrappers[i-1](onStop)
 		}
-		srv.onStop = onStop
+		srv.hooks.OnStop = onStop
 	}
 
 	// onMsgDropped
 	if onMsgDroppedWrappers != nil {
-		onMsgDropped := func(cs ChainStore, client Client, msg Message) {}
+		onMsgDropped := func(ctx context.Context, client Client, msg Message) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}
-		srv.onMsgDropped = onMsgDropped
+		srv.hooks.OnMsgDropped = onMsgDropped
 	}
 
 	return nil
 }
 
+func (srv *Server) wsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := defaultUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			zaplog.Warn("websocket upgrade error", zap.String("msg", err.Error()))
+			return
+		}
+		defer c.Close()
+		conn := &wsConn{c.UnderlyingConn(), c}
+		client := srv.newClient(conn)
+		client.serve()
+	}
+}
+
 // Run starts the mqtt server. This method is non-blocking
 func (srv *Server) Run() {
+	// log
+	var tcps []string
+	var ws []string
+	for _, v := range srv.tcpListener {
+		tcps = append(tcps, v.Addr().String())
+	}
+	for _, v := range srv.websocketServer {
+		ws = append(ws, v.Server.Addr)
+	}
+	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
+
 	err := srv.loadPlugins()
 	if err != nil {
 		panic(err)
 	}
-
 	srv.status = serverStatusStarted
 	go srv.eventLoop()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
 	}
-	if len(srv.websocketServer) != 0 {
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			c, err := defaultUpgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log2.Println("upgrade:", err)
-				return
-			}
-			defer c.Close()
-			conn := &wsConn{c.UnderlyingConn(), c}
-			client := srv.newClient(conn)
-			client.serve()
-		})
-	}
 	for _, server := range srv.websocketServer {
+		mux := http.NewServeMux()
+		mux.Handle(server.Path, srv.wsHandler())
+		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
 }
@@ -1110,6 +1075,11 @@ func (srv *Server) Run() {
 //  3. Waiting for all connections have been closed
 //  4. Triggering OnStop()
 func (srv *Server) Stop(ctx context.Context) error {
+	zaplog.Info("stopping gmqtt server")
+	defer func() {
+		zaplog.Info("server stopped")
+		zaplog.Sync()
+	}()
 	select {
 	case <-srv.exitChan:
 		return nil
@@ -1122,6 +1092,7 @@ func (srv *Server) Stop(ctx context.Context) error {
 	for _, ws := range srv.websocketServer {
 		ws.Server.Shutdown(ctx)
 	}
+
 	//关闭所有的client
 	//closing all idle clients
 	srv.mu.Lock()
@@ -1143,13 +1114,14 @@ func (srv *Server) Stop(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
+		zaplog.Warn("server stop timeout, forced exit", zap.String("error", ctx.Err().Error()))
 		return ctx.Err()
 	case <-done:
 		for _, v := range srv.plugins {
-			fmt.Println("unload", v.Unload())
+			v.Unload()
 		}
-		if srv.onStop != nil {
-			srv.onStop(&chainStore{})
+		if srv.hooks.OnStop != nil {
+			srv.hooks.OnStop(context.Background())
 		}
 		return nil
 	}

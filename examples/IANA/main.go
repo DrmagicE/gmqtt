@@ -20,7 +20,7 @@ func main() {
 	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()
-	s := gmqtt.DefaultServer()
+
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -39,15 +39,17 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-	s.AddTCPListenner(ln)
-	s.AddTCPListenner(tlsln)
-
-	s.RegisterOnSubscribe(func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) (qos uint8) {
-		if topic.Name == "test/nosubscribe" {
-			return packets.SUBSCRIBE_FAILURE
-		}
-		return topic.Qos
-	})
+	s := gmqtt.NewServer(
+		gmqtt.TCPListener(ln, tlsln),
+		gmqtt.Hook(gmqtt.Hooks{
+			OnSubscribe: func(ctx context.Context, client gmqtt.Client, topic packets.Topic) (qos uint8) {
+				if topic.Name == "test/nosubscribe" {
+					return packets.SUBSCRIBE_FAILURE
+				}
+				return topic.Qos
+			},
+		}),
+	)
 
 	//server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	s.Run()

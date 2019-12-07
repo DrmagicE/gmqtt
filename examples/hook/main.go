@@ -11,7 +11,6 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/plugin/management"
 )
 
 var validUserMu sync.Mutex
@@ -36,26 +35,24 @@ func validateUser(username string, password string) bool {
 }
 
 func main() {
-	s := gmqtt.DefaultServer()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
 	}
 
-	s.AddPlugins(management.New(":8080", nil))
-
 	//authentication
-	s.RegisterOnConnect(func(cs gmqtt.ChainStore, client gmqtt.Client) (code uint8) {
+	onConnect := func(ctx context.Context, client gmqtt.Client) (code uint8) {
 		username := client.OptionsReader().Username()
 		password := client.OptionsReader().Password()
 		if validateUser(username, password) {
 			return packets.CodeAccepted
 		}
 		return packets.CodeBadUsernameorPsw
-	})
-	//acl
-	s.RegisterOnSubscribe(func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) (qos uint8) {
+	}
+
+	// acl
+	onSubscribe := func(ctx context.Context, client gmqtt.Client, topic packets.Topic) (qos uint8) {
 		if client.OptionsReader().Username() == "root" {
 			return topic.Qos
 		}
@@ -75,9 +72,8 @@ func main() {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	})
-
-	s.RegisterOnMsgArrived(func(cs gmqtt.ChainStore, client gmqtt.Client, msg gmqtt.Message) (valid bool) {
+	}
+	onMsgArrived := func(ctx context.Context, client gmqtt.Client, msg gmqtt.Message) (valid bool) {
 		if client.OptionsReader().Username() == "subscribeonly" {
 			client.Close()
 			return false
@@ -87,19 +83,30 @@ func main() {
 			return false
 		}
 		return true
-	})
-	s.RegisterOnClose(func(cs gmqtt.ChainStore, client gmqtt.Client, err error) {
+	}
+	onClose := func(ctx context.Context, client gmqtt.Client, err error) {
 		log.Println("client id:"+client.OptionsReader().ClientID()+"is closed with error:", err)
-	})
-
-	s.RegisterOnStop(func(cs gmqtt.ChainStore) {
+	}
+	onStop := func(ctx context.Context) {
 		log.Println("stop")
-	})
-	s.RegisterOnDeliver(func(cs gmqtt.ChainStore, client gmqtt.Client, msg gmqtt.Message) {
+	}
+	onDeliver := func(ctx context.Context, client gmqtt.Client, msg gmqtt.Message) {
 		log.Printf("delivering message %s to client %s", msg.Payload(), client.OptionsReader().ClientID())
-	})
+	}
+	hooks := gmqtt.Hooks{
+		OnConnect:    onConnect,
+		OnSubscribe:  onSubscribe,
+		OnMsgArrived: onMsgArrived,
+		OnClose:      onClose,
+		OnStop:       onStop,
+		OnDeliver:    onDeliver,
+	}
 
-	s.AddTCPListenner(ln)
+	s := gmqtt.NewServer(
+		gmqtt.TCPListener(ln),
+		gmqtt.Hook(hooks),
+	)
+
 	log.Println("started...")
 	s.Run()
 	signalCh := make(chan os.Signal, 1)

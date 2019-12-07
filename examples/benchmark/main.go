@@ -22,15 +22,18 @@ func main() {
 	config.MaxInflight = 65535
 	config.MaxMsgQueue = 0 //unlimited
 	config.MaxAwaitRel = 0 //unlimited
-	s := gmqtt.NewServer(config)
-	s.SetRegisterLen(10000)
-	s.SetUnregisterLen(10000)
+	config.RegisterLen = 10000
+	config.UnregisterLen = 10000
+
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
 	}
-	s.AddTCPListenner(ln)
+	s := gmqtt.NewServer(
+		gmqtt.Configure(config),
+		gmqtt.TCPListener(ln),
+	)
 	s.Run()
 	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)

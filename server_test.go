@@ -14,53 +14,48 @@ import (
 )
 
 func TestHooks(t *testing.T) {
-	srv := DefaultServer()
-	defer srv.Stop(context.Background())
 	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.AddTCPListenner(ln)
-	var hooks string
-	srv.RegisterOnAccept(func(cs ChainStore, conn net.Conn) bool {
-		hooks += "Accept"
-		return true
-	})
 
-	srv.RegisterOnConnect(func(cs ChainStore, client Client) (code uint8) {
-		hooks += "OnConnect"
-		return packets.CodeAccepted
-	})
-
-	srv.RegisterOnConnected(func(cs ChainStore, client Client) {
-		hooks += "OnConnected"
-	})
-
-	srv.RegisterOnSessionCreated(func(cs ChainStore, client Client) {
-		hooks += "OnSessionCreated"
-	})
-
-	srv.RegisterOnSubscribe(func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
-		hooks += "OnSubscribe"
-		return packets.QOS_1
-	})
-
-	srv.RegisterOnMsgArrived(func(cs ChainStore, client Client, msg Message) (valid bool) {
-		hooks += "OnMsgArrived"
-		return true
-	})
-
-	srv.RegisterOnSessionTerminated(func(cs ChainStore, client Client, reason SessionTerminatedReason) {
-		hooks += "OnSessionTerminated"
-	})
-
-	srv.RegisterOnClose(func(cs ChainStore, client Client, err error) {
-		hooks += "OnClose"
-	})
-	srv.RegisterOnStop(func(cs ChainStore) {
-		hooks += "OnStop"
-	})
-
+	var hooksStr string
+	hooks := Hooks{
+		OnAccept: func(ctx context.Context, conn net.Conn) bool {
+			hooksStr += "Accept"
+			return true
+		},
+		OnConnect: func(ctx context.Context, client Client) (code uint8) {
+			hooksStr += "OnConnect"
+			return packets.CodeAccepted
+		},
+		OnConnected: func(ctx context.Context, client Client) {
+			hooksStr += "OnConnected"
+		},
+		OnSessionCreated: func(ctx context.Context, client Client) {
+			hooksStr += "OnSessionCreated"
+		},
+		OnSubscribe: func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
+			hooksStr += "OnSubscribe"
+			return packets.QOS_1
+		},
+		OnMsgArrived: func(ctx context.Context, client Client, msg Message) (valid bool) {
+			hooksStr += "OnMsgArrived"
+			return true
+		},
+		OnSessionTerminated: func(ctx context.Context, client Client, reason SessionTerminatedReason) {
+			hooksStr += "OnSessionTerminated"
+		},
+		OnClose: func(ctx context.Context, client Client, err error) {
+			hooksStr += "OnClose"
+		},
+		OnStop: func(ctx context.Context) {
+			hooksStr += "OnStop"
+		},
+	}
+	srv := NewServer(
+		TCPListener(ln),
+		Hook(hooks))
 	srv.Run()
 
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
@@ -94,19 +89,19 @@ func TestHooks(t *testing.T) {
 	r.ReadPacket() //puback
 	srv.Stop(context.Background())
 	want := "AcceptOnConnectOnConnectedOnSessionCreatedOnSubscribeOnMsgArrivedOnSessionTerminatedOnCloseOnStop"
-	if hooks != want {
-		t.Fatalf("hooks error, want %s, got %s", want, hooks)
+	if hooksStr != want {
+		t.Fatalf("hooksStr error, want %s, got %s", want, hooksStr)
 	}
 }
 
 func TestConnackInvalidCode(t *testing.T) {
-	srv := DefaultServer()
-	defer srv.Stop(context.Background())
+
 	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.AddTCPListenner(ln)
+	srv := NewServer(TCPListener(ln))
+	defer srv.Stop(context.Background())
 	srv.Run()
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
 	if err != nil {
@@ -136,17 +131,20 @@ func TestConnackInvalidCode(t *testing.T) {
 
 }
 
-func TestConnackInvalidCodeInHooks(t *testing.T) {
-	srv := DefaultServer()
-	defer srv.Stop(context.Background())
+func TestConnackInvalidCodeInhooksStr(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.AddTCPListenner(ln)
-	srv.RegisterOnConnect(func(cs ChainStore, client Client) (code uint8) {
-		return packets.CodeBadUsernameorPsw
-	})
+	srv := NewServer(
+		TCPListener(ln),
+		Hook(Hooks{
+			OnConnect: func(ctx context.Context, client Client) (code uint8) {
+				return packets.CodeBadUsernameorPsw
+			},
+		}),
+	)
+	defer srv.Stop(context.Background())
 	srv.Run()
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
 	if err != nil {
@@ -175,13 +173,12 @@ func TestConnackInvalidCodeInHooks(t *testing.T) {
 }
 
 func TestZeroBytesClientId(t *testing.T) {
-	srv := DefaultServer()
-	defer srv.Stop(context.Background())
 	ln, err := net.Listen("tcp", "127.0.0.1:1883")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv.AddTCPListenner(ln)
+	srv := NewServer(TCPListener(ln))
+	defer srv.Stop(context.Background())
 	srv.Run()
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
 	if err != nil {
@@ -225,72 +222,6 @@ func TestZeroBytesClientId(t *testing.T) {
 	} else {
 		t.Fatalf("invalid type, want %v, got %v", reflect.TypeOf(&packets.Connack{}), reflect.TypeOf(p))
 	}
-}
-
-func TestServer_RegisterOnAccept(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnAccept error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnAccept(nil)
-}
-
-func TestServer_RegisterOnSubscribe(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnSubscribe error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnSubscribe(nil)
-}
-
-func TestServer_RegisterOnConnect(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnConnect error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnConnect(nil)
-}
-
-func TestServer_RegisterOnMsgArrived(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnMsgArrived error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnMsgArrived(nil)
-}
-
-func TestServer_RegisterOnClose(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnClose error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnClose(nil)
-}
-
-func TestServer_RegisterOnStop(t *testing.T) {
-	defer func() {
-		if err := recover(); err == nil {
-			t.Fatalf("RegisterOnClose error, want panic")
-		}
-	}()
-	srv := DefaultServer()
-	srv.Run()
-	srv.RegisterOnStop(nil)
 }
 
 func TestRandUUID(t *testing.T) {
