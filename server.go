@@ -22,9 +22,6 @@ var (
 	statusPanic       = "invalid server status"
 )
 
-type Logger interface {
-}
-
 // Default configration
 const (
 	DefaultMsgRouterLen  = 4096
@@ -38,69 +35,74 @@ const (
 	serverStatusStarted
 )
 
-// default mode
-var mode = "debug"
+//// default mode
+////var mode = "debug"
 
-// zaplog
-var zaplog *zap.Logger
+var zaplog *zap.Logger = zap.NewNop()
 
-const (
-	DebugMode   = "debug"
-	ReleaseMode = "release"
-)
+//const (
+//	DebugMode   = "debug"
+//	ReleaseMode = "release"
+//)
 
-type Options func(srv *Server)
+type Options func(srv *server)
 
-// Configure set the config of the server
-func Configure(config Config) Options {
-	return func(srv *Server) {
+// WithConfig set the config of the server
+func WithConfig(config Config) Options {
+	return func(srv *server) {
 		srv.config = config
 	}
 }
 
-// TCPListener set  tcpListener(s) of the server. Default listen on  :1883.
-func TCPListener(lns ...net.Listener) Options {
-	return func(srv *Server) {
+// WithTCPListener set  tcp listener(s) of the server. Default listen on  :1883.
+func WithTCPListener(lns ...net.Listener) Options {
+	return func(srv *server) {
 		srv.tcpListener = append(srv.tcpListener, lns...)
 	}
 }
 
-// WebsocketServer set  websocketServer(s) of the server.
-func WebsocketServer(ws ...*WsServer) Options {
-	return func(srv *Server) {
+// WithWebsocketServer set  websocket server(s) of the server.
+func WithWebsocketServer(ws ...*WsServer) Options {
+	return func(srv *server) {
 		srv.websocketServer = ws
 	}
 }
 
-// Plugin set plugin(s) of the server.
-func Plugin(plugin ...Plugable) Options {
-	return func(srv *Server) {
+// WithPlugin set plugin(s) of the server.
+func WithPlugin(plugin ...Plugable) Options {
+	return func(srv *server) {
 		srv.plugins = append(srv.plugins, plugin...)
 	}
 }
 
-// Hook set hooks of the server. Notice: Plugin() will overwrite hooks.
-func Hook(hooks Hooks) Options {
-	return func(srv *Server) {
+// WithHook set hooks of the server. Notice: WithPlugin() will overwrite hooks.
+func WithHook(hooks Hooks) Options {
+	return func(srv *server) {
 		srv.hooks = hooks
 	}
 }
 
-// Mode set mode of the server.
-func Mode(m string) Options {
-	return func(srv *Server) {
-		switch m {
-		case DebugMode:
-			mode = m
-		case ReleaseMode:
-			mode = m
-		default:
-			panic("invalid mode")
-		}
+func WithLogger(logger *zap.Logger) Options {
+	return func(srv *server) {
+		zaplog = logger
 	}
 }
 
-// Message represent a publish packet
+//// Mode set mode of the server.
+//func Mode(m string) Options {
+//	return func(srv *server) {
+//		switch m {
+//		case DebugMode:
+//			mode = m
+//		case ReleaseMode:
+//			mode = m
+//		default:
+//			panic("invalid mode")
+//		}
+//	}
+//}
+
+// Message represent a PUBLISH packet
 type Message interface {
 	Dup() bool
 	Qos() uint8
@@ -109,6 +111,8 @@ type Message interface {
 	PacketID() packets.PacketID
 	Payload() []byte
 }
+
+// msg is the implementation of Message interface
 type msg struct {
 	dup      bool
 	qos      uint8
@@ -153,8 +157,8 @@ func messageFromPublish(p *packets.Publish) *msg {
 	}
 }
 
-// ServerService is mainly used by plugin to interact with Server
-type ServerService interface {
+// Server interface represents a mqtt server instance.
+type Server interface {
 	// Publish publishes a message to the broker.
 	Publish(topic string, payload []byte, qos uint8, retain bool)
 	// Subscribe subscribes topics for the client specified by clientID.
@@ -165,11 +169,13 @@ type ServerService interface {
 	Client(clientID string) Client
 	// GetConfig returns the config of the server
 	GetConfig() Config
+	// GetStatsManager returns StatsManager
+	GetStatsManager() StatsManager
 }
 
-// Server represents a mqtt server instance.
-// Create a Server by using NewServer()
-type Server struct {
+// server represents a mqtt server instance.
+// Create a server by using NewServer()
+type server struct {
 	wg      sync.WaitGroup
 	mu      sync.RWMutex //gard clients & offlineClients map
 	status  int32        //server status
@@ -178,7 +184,7 @@ type Server struct {
 	// with valid session(not expired). Key by clientID
 	offlineClients  map[string]time.Time
 	tcpListener     []net.Listener //tcp listeners
-	websocketServer []*WsServer    //websocket server
+	websocketServer []*WsServer    //websocket serverStop
 	exitChan        chan struct{}
 	retainedMsgMu   sync.Mutex
 	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name=
@@ -190,9 +196,11 @@ type Server struct {
 	config     Config
 	hooks      Hooks
 	plugins    []Plugable
+
+	statsManager StatsManager
 }
 
-func (srv *Server) checkStatus() {
+func (srv *server) checkStatus() {
 	if srv.Status() != serverStatusInit {
 		panic(statusPanic)
 	}
@@ -224,8 +232,8 @@ type Config struct {
 var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
-	SessionExpiryInterval:      0,
-	SessionExpireCheckInterval: 0,
+	SessionExpiryInterval:      0 * time.Second,
+	SessionExpireCheckInterval: 0 * time.Second,
 	QueueQos0Messages:          true,
 	MaxInflight:                32,
 	MaxAwaitRel:                100,
@@ -237,8 +245,13 @@ var DefaultConfig = Config{
 }
 
 // GetConfig returns the config of the server
-func (srv *Server) GetConfig() Config {
+func (srv *server) GetConfig() Config {
 	return srv.config
+}
+
+// GetStatsManager returns StatsManager
+func (srv *server) GetStatsManager() StatsManager {
+	return srv.statsManager
 }
 
 //session register
@@ -259,12 +272,11 @@ type msgRouter struct {
 }
 
 // Status returns the server status
-func (srv *Server) Status() int32 {
+func (srv *server) Status() int32 {
 	return atomic.LoadInt32(&srv.status)
 }
 
-func (srv *Server) registerHandler(register *register) {
-
+func (srv *server) registerHandler(register *register) {
 	// ack code set in Connack Packet
 	var code uint8
 	client := register.client
@@ -274,7 +286,6 @@ func (srv *Server) registerHandler(register *register) {
 	if connect.AckCode != packets.CodeAccepted {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
 		ack := connect.NewConnackPacket(false)
-		//client.out <- ack
 		client.writePacket(ack)
 		register.error = err
 		return
@@ -286,7 +297,6 @@ func (srv *Server) registerHandler(register *register) {
 	if code != packets.CodeAccepted {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
 		ack := connect.NewConnackPacket(false)
-		//client.out <- ack
 		client.writePacket(ack)
 		client.setError(err)
 		register.error = err
@@ -295,6 +305,9 @@ func (srv *Server) registerHandler(register *register) {
 	if srv.hooks.OnConnect != nil {
 		srv.hooks.OnConnected(context.Background(), client)
 	}
+	srv.statsManager.addClientConnected()
+	srv.statsManager.addSessionActive()
+
 	client.setConnectedAt(time.Now())
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
@@ -304,9 +317,9 @@ func (srv *Server) registerHandler(register *register) {
 	if oldExist {
 		oldSession = oldClient.session
 		if oldClient.IsConnected() {
-			zaplog.Debug("logging with duplicate ClientID",
-				zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
-				zap.String("clientID", client.OptionsReader().ClientID()),
+			zaplog.Info("logging with duplicate ClientID",
+				zap.String("remote", client.rwc.RemoteAddr().String()),
+				zap.String("client_id", client.OptionsReader().ClientID()),
 			)
 			oldClient.setSwitching()
 			<-oldClient.Close()
@@ -325,19 +338,8 @@ func (srv *Server) registerHandler(register *register) {
 			}
 			if !client.opts.cleanSession && !oldClient.opts.cleanSession { //reuse old session
 				sessionReuse = true
-				/*			clearOut:
-							for {
-								select {
-								case p := <-oldClient.out:
-									if p, ok := p.(*packets.Publish); ok {
-										oldClient.msgEnQueue(p)
-									}
-								default:
-									break clearOut
-								}
-							}*/
 			}
-		} else if oldClient.Status() == Disconnected {
+		} else if oldClient.IsDisConnected() {
 			if !client.opts.cleanSession {
 				sessionReuse = true
 			} else if srv.hooks.OnSessionTerminated != nil {
@@ -350,7 +352,7 @@ func (srv *Server) registerHandler(register *register) {
 	ack := connect.NewConnackPacket(sessionReuse)
 	client.out <- ack
 	client.setConnected()
-	if sessionReuse { //发送还未确认的消息和离线消息队列 inflight & msgQueue
+	if sessionReuse { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
 		client.session.unackpublish = oldSession.unackpublish
 		client.addMsgDeliveredTotal(oldClient.MsgDeliveredTotal())
 		client.addMsgDroppedTotal(oldClient.MsgDroppedTotal())
@@ -394,17 +396,16 @@ func (srv *Server) registerHandler(register *register) {
 		}
 		oldSession.msgQueueMu.Unlock()
 
-		zaplog.Debug("logged in with session reuse",
-			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
-			zap.String("connect", connect.String()),
-		)
+		zaplog.Info("logged in with session reuse",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.clientID))
 	} else {
 		if oldExist {
 			srv.subscriptionsDB.deleteAll(client.opts.clientID)
 		}
-		zaplog.Debug("logged in with new session",
-			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
-			zap.String("connect", connect.String()),
+		zaplog.Info("logged in with new session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.clientID),
 		)
 	}
 	if sessionReuse {
@@ -417,9 +418,8 @@ func (srv *Server) registerHandler(register *register) {
 		}
 	}
 	delete(srv.offlineClients, client.opts.clientID)
-
 }
-func (srv *Server) unregisterHandler(unregister *unregister) {
+func (srv *server) unregisterHandler(unregister *unregister) {
 	defer close(unregister.done)
 	client := unregister.client
 	client.setDisConnected()
@@ -456,9 +456,9 @@ clearIn:
 		}()
 	}
 	if client.opts.cleanSession {
-		zaplog.Debug("logged out and cleaning session",
-			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
-			zap.String("clientID", client.OptionsReader().ClientID()),
+		zaplog.Info("logged out and cleaning session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.OptionsReader().ClientID()),
 		)
 		srv.mu.Lock()
 		srv.removeSession(client.opts.clientID)
@@ -466,14 +466,14 @@ clearIn:
 		if srv.hooks.OnSessionTerminated != nil {
 			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
-
+		srv.statsManager.messageDequeue(uint64(client.MsgQueueLen()))
 	} else { //store session 保持session
 		srv.mu.Lock()
 		srv.offlineClients[client.opts.clientID] = time.Now()
 		srv.mu.Unlock()
-		zaplog.Debug("logged out and storing session",
-			zap.String("remoteAddr", client.rwc.RemoteAddr().String()),
-			zap.String("clientID", client.OptionsReader().ClientID()),
+		zaplog.Info("logged out and storing session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.OptionsReader().ClientID()),
 		)
 		//clear  out
 	clearOut:
@@ -487,9 +487,11 @@ clearIn:
 				break clearOut
 			}
 		}
+		srv.statsManager.addSessionInactive()
 	}
 }
-func (srv *Server) msgRouterHandler(msg *msgRouter) {
+func (srv *server) msgRouterHandler(msg *msgRouter) {
+	srv.statsManager.messageReceived(msg.pub.Qos)
 	pub := msg.pub
 	rs := srv.subscriptionsDB.getMatchedTopicFilter(string(pub.TopicName))
 	srv.mu.RLock()
@@ -528,7 +530,7 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 		}
 	}
 }
-func (srv *Server) removeSession(clientID string) {
+func (srv *server) removeSession(clientID string) {
 	delete(srv.clients, clientID)
 	delete(srv.offlineClients, clientID)
 	srv.subscriptionsDB.deleteAll(clientID)
@@ -536,7 +538,7 @@ func (srv *Server) removeSession(clientID string) {
 
 // sessionExpireCheck 判断是否超时
 // sessionExpireCheck check and terminate expired sessions
-func (srv *Server) sessionExpireCheck() {
+func (srv *server) sessionExpireCheck() {
 	expire := srv.config.SessionExpireCheckInterval
 	if expire == 0 {
 		return
@@ -550,6 +552,8 @@ func (srv *Server) sessionExpireCheck() {
 				if srv.hooks.OnSessionTerminated != nil {
 					srv.hooks.OnSessionTerminated(context.Background(), client, ExpiredTermination)
 				}
+				srv.statsManager.addSessionExpired()
+				srv.statsManager.decSessionInactive()
 			}
 		}
 	}
@@ -558,7 +562,7 @@ func (srv *Server) sessionExpireCheck() {
 }
 
 // server event loop
-func (srv *Server) eventLoop() {
+func (srv *server) eventLoop() {
 	if srv.config.SessionExpiryInterval != 0 {
 		sessionExpireTimer := time.NewTicker(srv.config.SessionExpireCheckInterval)
 		defer sessionExpireTimer.Stop()
@@ -598,54 +602,22 @@ type WsServer struct {
 }
 
 // NewServer returns a gmqtt server instance with the given options
-func NewServer(opts ...Options) *Server {
-	srv := &Server{
+func NewServer(opts ...Options) *server {
+
+	// statistics
+	statsMgr := newStatsManager()
+	srv := &server{
 		status:          serverStatusInit,
 		exitChan:        make(chan struct{}),
 		clients:         make(map[string]*client),
 		offlineClients:  make(map[string]time.Time),
 		retainedMsg:     make(map[string]*packets.Publish),
-		subscriptionsDB: newTrieDB(),
+		subscriptionsDB: newTrieDB(statsMgr),
 		config:          DefaultConfig,
+		statsManager:    statsMgr,
 	}
 	for _, fn := range opts {
 		fn(srv)
-	}
-
-	// init zap logger
-	var logConfig *zap.Config
-	if mode == ReleaseMode {
-		logConfig = &zap.Config{
-			Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
-			Development: false,
-			Sampling: &zap.SamplingConfig{
-				Initial:    100,
-				Thereafter: 100,
-			},
-			Encoding:         "json",
-			EncoderConfig:    zap.NewProductionEncoderConfig(),
-			OutputPaths:      []string{"stderr"},
-			ErrorOutputPaths: []string{"stderr"},
-		}
-	} else {
-		logConfig = &zap.Config{
-			Level:       zap.NewAtomicLevelAt(zap.DebugLevel),
-			Development: false,
-			Sampling: &zap.SamplingConfig{
-				Initial:    100,
-				Thereafter: 100,
-			},
-			Encoding:         "json",
-			EncoderConfig:    zap.NewDevelopmentEncoderConfig(),
-			OutputPaths:      []string{"stderr"},
-			ErrorOutputPaths: []string{"stderr"},
-		}
-	}
-
-	var err error
-	zaplog, err = logConfig.Build()
-	if err != nil {
-		panic(err)
 	}
 	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
 	srv.register = make(chan *register, srv.config.RegisterLen)
@@ -657,7 +629,7 @@ func NewServer(opts ...Options) *Server {
 //
 // Publish publishs a message to the broker.
 // 	Notice: This method will not trigger the onPublish callback
-func (srv *Server) Publish(topic string, payload []byte, qos uint8, retain bool) {
+func (srv *server) Publish(topic string, payload []byte, qos uint8, retain bool) {
 	pub := &packets.Publish{
 		Qos:       qos,
 		TopicName: []byte(topic),
@@ -681,7 +653,7 @@ func (srv *Server) Publish(topic string, payload []byte, qos uint8, retain bool)
 //
 // Subscribe subscribes topics for the client specified by clientID.
 // 	Notice: This method will not trigger the onSubscribe callback
-func (srv *Server) Subscribe(clientID string, topics []packets.Topic) {
+func (srv *server) Subscribe(clientID string, topics []packets.Topic) {
 	for _, v := range topics {
 		srv.subscriptionsDB.subscribe(clientID, v)
 	}
@@ -690,7 +662,7 @@ func (srv *Server) Subscribe(clientID string, topics []packets.Topic) {
 // UnSubscribe 为某一个客户端取消订阅某个主题
 //
 // UnSubscribe unsubscribes topics for the client specified by clientID.
-func (srv *Server) UnSubscribe(clientID string, topics []string) {
+func (srv *server) UnSubscribe(clientID string, topics []string) {
 	//client := srv.Client(clientID)
 	//if client == nil {
 	//	return
@@ -701,13 +673,13 @@ func (srv *Server) UnSubscribe(clientID string, topics []string) {
 }
 
 // Client returns the client for given clientID
-func (srv *Server) Client(clientID string) Client {
+func (srv *server) Client(clientID string) Client {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	return srv.clients[clientID]
 }
 
-func (srv *Server) serveTCP(l net.Listener) {
+func (srv *server) serveTCP(l net.Listener) {
 	defer func() {
 		l.Close()
 	}()
@@ -782,7 +754,7 @@ func (ws *wsConn) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
-func (srv *Server) serveWebSocket(ws *WsServer) {
+func (srv *server) serveWebSocket(ws *WsServer) {
 	var err error
 	if ws.CertFile != "" && ws.KeyFile != "" {
 		err = ws.Server.ListenAndServeTLS(ws.CertFile, ws.KeyFile)
@@ -794,7 +766,7 @@ func (srv *Server) serveWebSocket(ws *WsServer) {
 	}
 }
 
-func (srv *Server) newClient(c net.Conn) *client {
+func (srv *server) newClient(c net.Conn) *client {
 	client := &client{
 		server:        srv,
 		rwc:           c,
@@ -817,7 +789,7 @@ func (srv *Server) newClient(c net.Conn) *client {
 	return client
 }
 
-func (srv *Server) loadPlugins() error {
+func (srv *server) loadPlugins() error {
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
 		onConnectWrappers          []OnConnectWrapper
@@ -836,7 +808,7 @@ func (srv *Server) loadPlugins() error {
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
 	for _, p := range srv.plugins {
-		zaplog.Info("load plugin", zap.String("name", p.Name()))
+		zaplog.Info("loading plugin", zap.String("name", p.Name()))
 		err := p.Load(srv)
 		if err != nil {
 			return err
@@ -1025,7 +997,7 @@ func (srv *Server) loadPlugins() error {
 	return nil
 }
 
-func (srv *Server) wsHandler() http.HandlerFunc {
+func (srv *server) wsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := defaultUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1040,8 +1012,7 @@ func (srv *Server) wsHandler() http.HandlerFunc {
 }
 
 // Run starts the mqtt server. This method is non-blocking
-func (srv *Server) Run() {
-	// log
+func (srv *server) Run() {
 	var tcps []string
 	var ws []string
 	for _, v := range srv.tcpListener {
@@ -1074,11 +1045,11 @@ func (srv *Server) Run() {
 //  2. Closing all idle connections
 //  3. Waiting for all connections have been closed
 //  4. Triggering OnStop()
-func (srv *Server) Stop(ctx context.Context) error {
+func (srv *server) Stop(ctx context.Context) error {
 	zaplog.Info("stopping gmqtt server")
 	defer func() {
 		zaplog.Info("server stopped")
-		zaplog.Sync()
+		//zaplog.Sync()
 	}()
 	select {
 	case <-srv.exitChan:
@@ -1118,7 +1089,10 @@ func (srv *Server) Stop(ctx context.Context) error {
 		return ctx.Err()
 	case <-done:
 		for _, v := range srv.plugins {
-			v.Unload()
+			err := v.Unload()
+			if err != nil {
+				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
+			}
 		}
 		if srv.hooks.OnStop != nil {
 			srv.hooks.OnStop(context.Background())

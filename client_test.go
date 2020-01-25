@@ -23,7 +23,7 @@ type testListener struct {
 	acceptReady chan struct{}
 }
 
-var srv *Server
+var srv *server
 
 func (l *testListener) Accept() (c net.Conn, err error) {
 	<-l.acceptReady
@@ -116,8 +116,8 @@ func (c *rwTestConn) Close() error {
 	return nil
 }
 
-func newTestServer() *Server {
-	var s *Server
+func newTestServer() *server {
+	var s *server
 	if srv != nil {
 		s = srv
 	} else {
@@ -150,7 +150,7 @@ func defaultConnectPacket() *packets.Connect {
 	}
 }
 
-func doconnect(srv *Server, connect *packets.Connect) net.Conn {
+func doconnect(srv *server, connect *packets.Connect) net.Conn {
 	ln := srv.tcpListener[0].(*testListener)
 	if connect == nil {
 		connect = defaultConnectPacket()
@@ -169,7 +169,7 @@ func doconnect(srv *Server, connect *packets.Connect) net.Conn {
 	return conn
 }
 
-func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
+func connectedServer(connect *packets.Connect) (*server, net.Conn) {
 	srv := newTestServer()
 	ln := srv.tcpListener[0].(*testListener)
 	if connect == nil {
@@ -189,7 +189,7 @@ func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
 	return srv, conn
 }
 
-func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn, net.Conn) {
+func connectedServerWith2Client(connect ...*packets.Connect) (*server, net.Conn, net.Conn) {
 	srv := newTestServer()
 	ln := srv.tcpListener[0].(*testListener)
 	cc := make([]net.Conn, 2)
@@ -1148,7 +1148,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 func TestOfflineMessageQueueing(t *testing.T) {
 	c := DefaultConfig
 	c.MaxMsgQueue = 5
-	srv = NewServer(Configure(c))
+	srv = NewServer(WithConfigure(c))
 	defer func() {
 		srv = nil
 	}()

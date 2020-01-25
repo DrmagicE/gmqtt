@@ -54,8 +54,8 @@ func TestHooks(t *testing.T) {
 		},
 	}
 	srv := NewServer(
-		TCPListener(ln),
-		Hook(hooks))
+		WithTCPListener(ln),
+		WithHook(hooks))
 	srv.Run()
 
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
@@ -100,7 +100,7 @@ func TestConnackInvalidCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv := NewServer(TCPListener(ln))
+	srv := NewServer(WithTCPListener(ln))
 	defer srv.Stop(context.Background())
 	srv.Run()
 	c, err := net.Dial("tcp", "127.0.0.1:1883")
@@ -137,8 +137,8 @@ func TestConnackInvalidCodeInhooksStr(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	srv := NewServer(
-		TCPListener(ln),
-		Hook(Hooks{
+		WithTCPListener(ln),
+		WithHook(Hooks{
 			OnConnect: func(ctx context.Context, client Client) (code uint8) {
 				return packets.CodeBadUsernameorPsw
 			},
@@ -177,7 +177,7 @@ func TestZeroBytesClientId(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	srv := NewServer(TCPListener(ln))
+	srv := NewServer(WithTCPListener(ln))
 	defer srv.Stop(context.Background())
 	srv.Run()
 	c, err := net.Dial("tcp", "127.0.0.1:1883")

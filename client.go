@@ -134,7 +134,7 @@ func (c *chainStore) Get(key string) (value interface{}, exists bool) {
 
 // Client represents a MQTT client
 type client struct {
-	server        *Server
+	server        *server
 	wg            sync.WaitGroup
 	rwc           net.Conn //raw tcp connection
 	bufr          *bufio.Reader
@@ -270,6 +270,11 @@ func (client *client) IsConnected() bool {
 	return client.Status() == Connected
 }
 
+// IsDisConnected returns whether the client is connected or not.
+func (client *client) IsDisConnected() bool {
+	return client.Status() == Disconnected
+}
+
 //ClientOptionsReader is mainly used in callback functions.
 type ClientOptionsReader interface {
 	ClientID() string
@@ -355,7 +360,7 @@ func (o *options) RemoteAddr() net.Addr {
 func (client *client) setError(err error) {
 	select {
 	case client.error <- err:
-		if err != nil {
+		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost", zap.String("errorMsg", err.Error()))
 		}
 	default:
@@ -376,26 +381,30 @@ func (client *client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
+			zaplog.Debug("sending packet",
+				zap.String("packet", packet.String()),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
 			err = client.writePacket(packet)
 			if err != nil {
 				return
 			}
-
+			client.server.statsManager.packetSent(packet)
+			if pub, ok := packet.(*packets.Publish); ok {
+				client.server.statsManager.messageSent(pub.Qos)
+			}
 		}
 
 	}
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-	zaplog.Debug("sending packet",
-		zap.String("packet", packet.String()),
-		zap.String("remote", client.rwc.RemoteAddr().String()))
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
 	}
 	return client.packetWriter.Flush()
-
 }
 
 func (client *client) readLoop() {
@@ -418,11 +427,12 @@ func (client *client) readLoop() {
 		if err != nil {
 			return
 		}
-		zaplog.Debug("packet received",
+		zaplog.Debug("received packet",
 			zap.String("packet", packet.String()),
 			zap.String("remote", client.rwc.RemoteAddr().String()),
-			zap.String("clientID", client.opts.clientID),
+			zap.String("client_id", client.opts.clientID),
 		)
+		client.server.statsManager.packetReceived(packet)
 		client.in <- packet
 	}
 }
@@ -539,7 +549,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 		client:  client,
 		connect: conn,
 	}
-	// 这也是同步，也可以考虑用同步做。
 	select {
 	case client.server.register <- register:
 	case <-client.close:
@@ -571,7 +580,6 @@ func (client *client) internalClose() {
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
 		unregister := &unregister{client: client, done: make(chan struct{})}
-		// 这就是同步啊。可以用同步做
 		client.server.unregister <- unregister
 		<-unregister.done
 	}
@@ -583,6 +591,9 @@ func (client *client) internalClose() {
 		client.server.hooks.OnClose(context.Background(), client, client.err)
 	}
 	client.setDisconnectedAt(time.Now())
+
+	client.server.statsManager.addClientDisconnected()
+	client.server.statsManager.decSessionActive()
 }
 
 func (client *client) onlinePublish(publish *packets.Publish) {
@@ -628,7 +639,6 @@ func (client *client) write(packets packets.Packet) {
 		return
 	case client.out <- packets:
 	}
-
 }
 
 //Subscribe handler
@@ -652,6 +662,19 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
+			zaplog.Info("subscribe succeeded",
+				zap.String("topic", v.Name),
+				zap.Uint8("qos", suback.Payload[k]),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
+		} else {
+			zaplog.Info("subscribe failed",
+				zap.String("topic", v.Name),
+				zap.Uint8("qos", suback.Payload[k]),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
 		}
 	}
 	client.write(suback)
@@ -663,7 +686,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 		srv.msgRouter <- msgRouter
 	}
 	srv.retainedMsgMu.Unlock()
-
 }
 
 //Publish handler
@@ -734,15 +756,17 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
-	//	srv.subscriptionsDB.Lock()
-	//	defer srv.subscriptionsDB.Unlock()
 	for _, topicName := range unSub.Topics {
 		srv.subscriptionsDB.unsubscribe(client.opts.clientID, topicName)
 		client.addSubscriptionsCount(-1)
 		if srv.hooks.OnUnsubscribed != nil {
 			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
-
+		zaplog.Info("unsubscribed",
+			zap.String("topic", topicName),
+			zap.String("client_id", client.opts.clientID),
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+		)
 	}
 
 }

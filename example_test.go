@@ -25,9 +25,9 @@ func Example() {
 		Path:   "/",
 	}
 	srv := NewServer(
-		TCPListener(ln),
-		WebsocketServer(ws),
-		Hook(Hooks{
+		WithTCPListener(ln),
+		WithWebsocketServer(ws),
+		WithHook(Hooks{
 			OnConnect: func(ctx context.Context, client Client) (code uint8) {
 				return packets.CodeAccepted
 			},

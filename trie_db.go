@@ -16,16 +16,18 @@ type trieDB struct {
 	// system topic which begin with "$"
 	systemIndex map[string]map[string]*topicNode // [clientID][topicName]
 	systemTrie  *topicTrie
+	stats       subscriptionStatsManager
 }
 
 // newTrieDB create a new trieDB instance
-func newTrieDB() *trieDB {
+func newTrieDB(stats subscriptionStatsManager) *trieDB {
 	return &trieDB{
 		topicIndex: make(map[string]map[string]*topicNode),
 		topicTrie:  newTopicTrie(),
 
 		systemIndex: make(map[string]map[string]*topicNode),
 		systemTrie:  newTopicTrie(),
+		stats:       stats,
 	}
 }
 
@@ -33,16 +35,23 @@ func newTrieDB() *trieDB {
 func (db *trieDB) subscribe(clientID string, topic packets.Topic) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	db.stats.addSubscriptionTotal(1)
 	if isSystemTopic(topic.Name) {
 		node := db.systemTrie.subscribe(clientID, topic)
 		if db.systemIndex[clientID] == nil {
 			db.systemIndex[clientID] = make(map[string]*topicNode)
+		}
+		if _, ok := db.systemIndex[clientID][topic.Name]; !ok {
+			db.stats.addSubscriptionCurrent(1)
 		}
 		db.systemIndex[clientID][topic.Name] = node
 	} else {
 		node := db.topicTrie.subscribe(clientID, topic)
 		if db.topicIndex[clientID] == nil {
 			db.topicIndex[clientID] = make(map[string]*topicNode)
+		}
+		if _, ok := db.topicIndex[clientID][topic.Name]; !ok {
+			db.stats.addSubscriptionCurrent(1)
 		}
 		db.topicIndex[clientID][topic.Name] = node
 	}
@@ -56,11 +65,13 @@ func (db *trieDB) unsubscribe(clientID string, topicName string) {
 	if isSystemTopic(topicName) {
 		if _, ok := db.systemIndex[clientID]; ok {
 			delete(db.systemIndex[clientID], topicName)
+			db.stats.addSubscriptionCurrent(-1)
 		}
 		db.systemTrie.unsubscribe(clientID, topicName)
 	} else {
 		if _, ok := db.topicIndex[clientID]; ok {
 			delete(db.topicIndex[clientID], topicName)
+			db.stats.addSubscriptionCurrent(-1)
 		}
 		db.topicTrie.unsubscribe(clientID, topicName)
 	}
@@ -72,6 +83,7 @@ func (db *trieDB) deleteAll(clientID string) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	// user topics
+	db.stats.addSubscriptionCurrent(-len(db.topicIndex[clientID]))
 	for topicName, node := range db.topicIndex[clientID] {
 		delete(node.clients, clientID)
 		if len(node.clients) == 0 && len(node.children) == 0 {
@@ -81,6 +93,7 @@ func (db *trieDB) deleteAll(clientID string) {
 	}
 	delete(db.topicIndex, clientID)
 	// system topics
+	db.stats.addSubscriptionCurrent(-len(db.systemIndex[clientID]))
 	for topicName, node := range db.systemIndex[clientID] {
 		delete(node.clients, clientID)
 		if len(node.clients) == 0 && len(node.children) == 0 {

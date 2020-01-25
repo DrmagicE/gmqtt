@@ -44,7 +44,7 @@ func newResponse(result interface{}, pager *Pager, err error) *Response {
 
 type Management struct {
 	monitor *monitor
-	service gmqtt.ServerService
+	service gmqtt.Server
 	addr    string
 	user    gin.Accounts //BasicAuth user info,username => password
 }
@@ -90,11 +90,13 @@ func (m *Management) OnUnsubscribedWrapper(unsubscribe gmqtt.OnUnsubscribed) gmq
 	}
 }
 
-func (m *Management) Load(service gmqtt.ServerService) error {
+func (m *Management) Load(service gmqtt.Server) error {
 	m.service = service
 	m.monitor.config = service.GetConfig()
 	var router gin.IRouter
+	gin.SetMode(gin.ReleaseMode)
 	e := gin.Default()
+
 	if m.user != nil {
 		router = e.Group("/", gin.BasicAuth(m.user))
 	} else {

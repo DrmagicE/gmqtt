@@ -31,8 +31,8 @@ func main() {
 		return
 	}
 	s := gmqtt.NewServer(
-		gmqtt.Configure(config),
-		gmqtt.TCPListener(ln),
+		gmqtt.WithConfigure(config),
+		gmqtt.WithTCPListener(ln),
 	)
 	s.Run()
 	fmt.Println("started...")

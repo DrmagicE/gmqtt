@@ -9,7 +9,7 @@ import (
 
 func TestTrieDB_deleteAll(t *testing.T) {
 	a := assert.New(t)
-	db := newTrieDB()
+	db := newTrieDB(&subscriptionStats{})
 	tt := []struct {
 		clientID string
 		topic    packets.Topic
@@ -44,7 +44,7 @@ func TestTrieDB_deleteAll(t *testing.T) {
 
 func TestTrieDB_subscribe_unsubscribe(t *testing.T) {
 	a := assert.New(t)
-	db := newTrieDB()
+	db := newTrieDB(&subscriptionStats{})
 	stt := []struct {
 		clientID string
 		topic    packets.Topic

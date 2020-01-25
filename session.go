@@ -140,25 +140,29 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 				zap.String("type", "QOS_0 in queue"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
+			s.msgQueue.Remove(removeMsg)
+			client.server.statsManager.messageDropped(0)
 		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
 			zaplog.Info("message queue is full, removing msg",
 				zap.String("clientID", client.opts.clientID),
 				zap.String("type", "QOS_0 enqueue"),
 				zap.String("packet", publish.String()),
 			)
+			client.server.statsManager.messageDropped(0)
 			return
 		} else { //case3: removing the front message of msgQueue
 			removeMsg = s.msgQueue.Front()
 			s.msgQueue.Remove(removeMsg)
-
 			zaplog.Info("message queue is full, removing msg",
 				zap.String("clientID", client.opts.clientID),
 				zap.String("type", "front"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
+			client.server.statsManager.messageDropped(removeMsg.Value.(*packets.Publish).Qos)
 		}
 	} else {
 		atomic.AddInt64(&s.msgQueueLen, 1)
+		client.server.statsManager.messageEnqueue(1)
 	}
 	s.msgQueue.PushBack(publish)
 }
@@ -173,8 +177,10 @@ func (client *client) msgDequeue() *packets.Publish {
 		zaplog.Debug("msg dequeued",
 			zap.String("clientID", client.opts.clientID),
 			zap.String("packet", queueElem.Value.(*packets.Publish).String()))
+
 		s.msgQueue.Remove(queueElem)
 		atomic.AddInt64(&s.msgQueueLen, -1)
+		client.server.statsManager.messageDequeue(1)
 		return queueElem.Value.(*packets.Publish)
 	}
 	return nil
