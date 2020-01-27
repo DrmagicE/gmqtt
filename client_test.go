@@ -1148,7 +1148,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 func TestOfflineMessageQueueing(t *testing.T) {
 	c := DefaultConfig
 	c.MaxMsgQueue = 5
-	srv = NewServer(WithConfigure(c))
+	srv = NewServer(WithConfig(c))
 	defer func() {
 		srv = nil
 	}()

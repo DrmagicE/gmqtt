@@ -1,9 +1,10 @@
-package gmqtt
+package trie
 
 import (
 	"strings"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 // topicTrie
@@ -57,10 +58,10 @@ func (t *topicTrie) subscribe(clientID string, topic packets.Topic) *topicNode {
 	return pNode
 }
 
-// find walk through the tire and return the node that represent the topicName
+// find walk through the tire and return the node that represent the topicFilter
 // return nil if not found
-func (t *topicTrie) find(topicName string) *topicNode {
-	topicSlice := strings.Split(topicName, "/")
+func (t *topicTrie) find(topicFilter string) *topicNode {
+	topicSlice := strings.Split(topicFilter, "/")
 	var pNode = t
 	for _, lv := range topicSlice {
 		if _, ok := pNode.children[lv]; ok {
@@ -69,7 +70,10 @@ func (t *topicTrie) find(topicName string) *topicNode {
 			return nil
 		}
 	}
-	return pNode
+	if pNode.topicName == topicFilter {
+		return pNode
+	}
+	return nil
 }
 
 // unsubscribe
@@ -91,8 +95,9 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string) {
 }
 
 // setRs set the node into rs
-func setRs(node *topicNode, rs map[string][]packets.Topic) {
+func setRs(node *topicNode, rs subscription.ClientTopics) {
 	for cid, qos := range node.clients {
+
 		if _, ok := rs[cid]; !ok {
 			rs[cid] = make([]packets.Topic, 0)
 		}
@@ -104,7 +109,7 @@ func setRs(node *topicNode, rs map[string][]packets.Topic) {
 }
 
 // matchTopic get all matched topic for given topicSlice, and set into rs
-func (t *topicTrie) matchTopic(topicSlice []string, rs map[string][]packets.Topic) {
+func (t *topicTrie) matchTopic(topicSlice []string, rs subscription.ClientTopics) {
 	endFlag := len(topicSlice) == 1
 	if cnode := t.children["#"]; cnode != nil {
 		setRs(cnode, rs)
@@ -141,4 +146,26 @@ func (t *topicTrie) getMatchedTopicFilter(topicName string) map[string][]packets
 
 func isSystemTopic(topicName string) bool {
 	return len(topicName) >= 1 && topicName[0] == '$'
+}
+
+func (t *topicTrie) preOrderTraverse(fn subscription.IterateFn) bool {
+	if t == nil {
+		return false
+	}
+	if t.topicName != "" {
+		for clientID, qos := range t.clients {
+			if !fn(clientID, packets.Topic{
+				Qos:  qos,
+				Name: t.topicName,
+			}) {
+				return false
+			}
+		}
+	}
+	for _, c := range t.children {
+		if !c.preOrderTraverse(fn) {
+			return false
+		}
+	}
+	return true
 }

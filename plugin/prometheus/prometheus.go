@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 const metricPrefix = "gmqtt_"
@@ -346,7 +347,7 @@ func collectMessageStatsSent(ms *gmqtt.MessageStats, m chan<- prometheus.Metric)
 	)
 }
 
-func collectSubscriptionStats(s *gmqtt.SubscriptionStats, m chan<- prometheus.Metric) {
+func collectSubscriptionStats(s *subscription.Stats, m chan<- prometheus.Metric) {
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"subscriptions_total", "", nil, nil),
 		prometheus.CounterValue,

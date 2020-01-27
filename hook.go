@@ -64,7 +64,7 @@ type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 //
 // OnMsgArrived returns whether the publish packet will be delivered or not.
 // If returns false, the packet will not be delivered to any clients.
-type OnMsgArrived func(ctx context.Context, client Client, msg Message) (valid bool)
+type OnMsgArrived func(ctx context.Context, client Client, msg packets.Message) (valid bool)
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
 
@@ -122,20 +122,20 @@ type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 // OnDeliver 分发消息时触发
 //
 //  OnDeliver will be called when publishing a message to a client.
-type OnDeliver func(ctx context.Context, client Client, msg Message)
+type OnDeliver func(ctx context.Context, client Client, msg packets.Message)
 
 type OnDeliverWrapper func(OnDeliver) OnDeliver
 
 // OnAcked 当客户端对qos1或qos2返回确认的时候调用
 //
 // OnAcked  will be called when receiving the ack packet for a published qos1 or qos2 message.
-type OnAcked func(ctx context.Context, client Client, msg Message)
+type OnAcked func(ctx context.Context, client Client, msg packets.Message)
 
 type OnAckedWrapper func(OnAcked) OnAcked
 
 // OnMessageDropped 丢弃报文后触发
 //
 // OnMsgDropped will be called after the msg dropped
-type OnMsgDropped func(ctx context.Context, client Client, msg Message)
+type OnMsgDropped func(ctx context.Context, client Client, msg packets.Message)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped

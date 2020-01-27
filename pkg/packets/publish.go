@@ -7,6 +7,15 @@ import (
 	"fmt"
 )
 
+type Message interface {
+	Dup() bool
+	Qos() uint8
+	Retained() bool
+	Topic() string
+	PacketID() PacketID
+	Payload() []byte
+}
+
 // Publish represents the MQTT Publish  packet
 type Publish struct {
 	FixHeader *FixHeader

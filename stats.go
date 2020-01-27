@@ -4,25 +4,50 @@ import (
 	"sync/atomic"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
-const metricPrefix = "gmqtt_"
-
+// StatsManager interface provides the ability to access the statistics of the server
 type StatsManager interface {
 	packetStatsManager
-	subscriptionStatsManager
 	clientStatsManager
 	messageStatsManager
+	// GetStats return the server statistics
 	GetStats() *ServerStats
 }
+
+// SessionStatsManager interface provides the ability to access the statistics of the session
+type SessionStatsManager interface {
+	messageStatsManager
+	addInflightCurrent(delta uint64)
+	decInflightCurrent(delta uint64)
+	addAwaitCurrent(delta uint64)
+	decAwaitCurrent(delta uint64)
+	GetStats() *SessionStats
+}
+
+type SessionStats struct {
+	// InflightCurrent, the current length of the inflight queue.
+	InflightCurrent uint64
+	// AwaitRelCurrent, the current length of the awaitRel queue.
+	AwaitRelCurrent uint64
+
+	MessageStats
+}
+
+func (s *SessionStats) copy() *SessionStats {
+	return &SessionStats{
+		InflightCurrent: atomic.LoadUint64(&s.InflightCurrent),
+		AwaitRelCurrent: atomic.LoadUint64(&s.AwaitRelCurrent),
+		MessageStats:    *s.MessageStats.copy(),
+	}
+}
+
 type packetStatsManager interface {
 	packetReceived(packet packets.Packet)
 	packetSent(packet packets.Packet)
 }
-type subscriptionStatsManager interface {
-	addSubscriptionTotal(delta int)
-	addSubscriptionCurrent(delta int)
-}
+
 type clientStatsManager interface {
 	addClientConnected()
 	addClientDisconnected()
@@ -40,6 +65,7 @@ type messageStatsManager interface {
 	messageDequeue(delta uint64)
 }
 
+// PacketStats represents  the statistics of MQTT Packet.
 type PacketStats struct {
 	BytesReceived *PacketBytes
 	ReceivedTotal *PacketCount
@@ -112,6 +138,7 @@ func (p *PacketStats) copy() *PacketStats {
 	}
 }
 
+// PacketBytes represents total bytes of each packet type have been received or sent.
 type PacketBytes struct {
 	Connect     uint64
 	Connack     uint64
@@ -148,6 +175,7 @@ func (p *PacketBytes) copy() *PacketBytes {
 	}
 }
 
+// PacketCount represents total number of each packet type have been received or sent.
 type PacketCount struct {
 	Connect     uint64
 	Connack     uint64
@@ -184,13 +212,16 @@ func (p *PacketCount) copy() *PacketCount {
 	}
 }
 
-// ClientStats provides the  statistics for  clients.
+// ClientStats provides the statistics of connections.
 type ClientStats struct {
 	ConnectedTotal    uint64
 	DisconnectedTotal uint64
-	ActiveCurrent     uint64
-	InactiveCurrent   uint64
-	ExpiredTotal      uint64
+	// ActiveCurrent is the number of current active session.
+	ActiveCurrent uint64
+	// InactiveCurrent is the number of current inactive session.
+	InactiveCurrent uint64
+	// ExpiredTotal is the number of expired session.
+	ExpiredTotal uint64
 }
 
 func (c *ClientStats) copy() *ClientStats {
@@ -203,6 +234,7 @@ func (c *ClientStats) copy() *ClientStats {
 	}
 }
 
+// MessageStats represents the statistics of PUBLISH packet, separated by QOS.
 type MessageStats struct {
 	Qos0 struct {
 		DroppedTotal  uint64
@@ -255,38 +287,29 @@ func (m *MessageStats) copy() *MessageStats {
 	}
 }
 
-type SubscriptionStats struct {
-	SubscriptionsTotal   uint64
-	SubscriptionsCurrent uint64
-}
-
-func (s *SubscriptionStats) copy() *SubscriptionStats {
-	return &SubscriptionStats{
-		SubscriptionsTotal:   atomic.LoadUint64(&s.SubscriptionsTotal),
-		SubscriptionsCurrent: atomic.LoadUint64(&s.SubscriptionsCurrent),
-	}
-}
-
+// ServerStats is the collection of all statistics.
 type ServerStats struct {
 	PacketStats       *PacketStats
 	ClientStats       *ClientStats
 	MessageStats      *MessageStats
-	SubscriptionStats *SubscriptionStats
+	SubscriptionStats *subscription.Stats
 }
 
 type statsManager struct {
+	subStatsReader    subscription.StatsReader
 	packetStats       PacketStats
 	clientStats       ClientStats
 	messageStats      MessageStats
-	subscriptionStats SubscriptionStats
+	subscriptionStats subscription.Stats
 }
 
 func (s *statsManager) GetStats() *ServerStats {
+	substats := s.subStatsReader.GetStats()
 	return &ServerStats{
 		PacketStats:       s.packetStats.copy(),
 		ClientStats:       s.clientStats.copy(),
 		MessageStats:      s.messageStats.copy(),
-		SubscriptionStats: s.subscriptionStats.copy(),
+		SubscriptionStats: &substats,
 	}
 }
 func (s *statsManager) packetReceived(p packets.Packet) {
@@ -366,8 +389,9 @@ func (s *statsManager) messageDequeue(delta uint64) {
 	atomic.AddUint64(&s.messageStats.QueuedCurrent, ^uint64(delta-1))
 }
 
-func newStatsManager() *statsManager {
+func newStatsManager(subStatsReader subscription.StatsReader) *statsManager {
 	return &statsManager{
+		subStatsReader: subStatsReader,
 		packetStats: PacketStats{
 			BytesReceived: &PacketBytes{},
 			ReceivedTotal: &PacketCount{},
@@ -376,41 +400,70 @@ func newStatsManager() *statsManager {
 		},
 		clientStats:       ClientStats{},
 		messageStats:      MessageStats{},
-		subscriptionStats: SubscriptionStats{},
+		subscriptionStats: subscription.Stats{},
 	}
 }
 
-func GetPacketsTypeString(t byte) string {
-	switch t {
-	case packets.CONNECT:
-		return "CONNECT"
-	case packets.CONNACK:
-		return "CONNACK"
-	case packets.DISCONNECT:
-		return "DISCONNECT"
-	case packets.PINGREQ:
-		return "PINGREQ"
-	case packets.PINGRESP:
-		return "PINGRESP"
-	case packets.PUBACK:
-		return "PUBACK"
-	case packets.PUBCOMP:
-		return "PUBCOMP"
-	case packets.PUBLISH:
-		return "PUBLISH"
-	case packets.PUBREC:
-		return "PUBREC"
-	case packets.PUBREL:
-		return "PUBREL"
-	case packets.SUBACK:
-		return "SUBACK"
-	case packets.SUBSCRIBE:
-		return "SUBSCRIBE"
-	case packets.UNSUBSCRIBE:
-		return "UNSUBSCRIBE"
-	case packets.UNSUBACK:
-		return "UNSUBACK"
-	default:
-		return ""
+type sessionStatsManager struct {
+	SessionStats
+}
+
+func (s *sessionStatsManager) messageDropped(qos uint8) {
+	switch qos {
+	case packets.QOS_0:
+		atomic.AddUint64(&s.Qos0.DroppedTotal, 1)
+	case packets.QOS_1:
+		atomic.AddUint64(&s.Qos1.DroppedTotal, 1)
+	case packets.QOS_2:
+		atomic.AddUint64(&s.Qos2.DroppedTotal, 1)
 	}
+}
+func (s *sessionStatsManager) messageReceived(qos uint8) {
+	switch qos {
+	case packets.QOS_0:
+		atomic.AddUint64(&s.Qos0.ReceivedTotal, 1)
+	case packets.QOS_1:
+		atomic.AddUint64(&s.Qos1.ReceivedTotal, 1)
+	case packets.QOS_2:
+		atomic.AddUint64(&s.Qos2.ReceivedTotal, 1)
+	}
+}
+func (s *sessionStatsManager) messageSent(qos uint8) {
+	switch qos {
+	case packets.QOS_0:
+		atomic.AddUint64(&s.Qos0.SentTotal, 1)
+	case packets.QOS_1:
+		atomic.AddUint64(&s.Qos1.SentTotal, 1)
+	case packets.QOS_2:
+		atomic.AddUint64(&s.Qos2.SentTotal, 1)
+	}
+}
+func (s *sessionStatsManager) messageEnqueue(delta uint64) {
+	atomic.AddUint64(&s.QueuedCurrent, delta)
+}
+func (s *sessionStatsManager) messageDequeue(delta uint64) {
+	atomic.AddUint64(&s.QueuedCurrent, ^uint64(delta-1))
+}
+func (s *sessionStatsManager) addInflightCurrent(delta uint64) {
+	atomic.AddUint64(&s.InflightCurrent, delta)
+}
+
+func (s *sessionStatsManager) decInflightCurrent(delta uint64) {
+	atomic.AddUint64(&s.InflightCurrent, ^uint64(delta-1))
+}
+
+func (s *sessionStatsManager) addAwaitCurrent(delta uint64) {
+	atomic.AddUint64(&s.AwaitRelCurrent, delta)
+}
+
+func (s *sessionStatsManager) decAwaitCurrent(delta uint64) {
+	atomic.AddUint64(&s.AwaitRelCurrent, ^uint64(delta-1))
+}
+
+func (s *sessionStatsManager) GetStats() *SessionStats {
+	return s.copy()
+}
+
+func newSessionStatsManager() *sessionStatsManager {
+	return &sessionStatsManager{}
 }

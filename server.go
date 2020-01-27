@@ -3,6 +3,7 @@ package gmqtt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -13,7 +14,12 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
+	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
+	subscription_trie "github.com/DrmagicE/gmqtt/subscription/trie"
+
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/retained"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 var (
@@ -54,6 +60,12 @@ func WithConfig(config Config) Options {
 	}
 }
 
+func WithSubscriptionStore(store subscription.Store) Options {
+	return func(srv *server) {
+		srv.subscriptionsDB = store
+	}
+}
+
 // WithTCPListener set  tcp listener(s) of the server. Default listen on  :1883.
 func WithTCPListener(lns ...net.Listener) Options {
 	return func(srv *server) {
@@ -86,30 +98,6 @@ func WithLogger(logger *zap.Logger) Options {
 	return func(srv *server) {
 		zaplog = logger
 	}
-}
-
-//// Mode set mode of the server.
-//func Mode(m string) Options {
-//	return func(srv *server) {
-//		switch m {
-//		case DebugMode:
-//			mode = m
-//		case ReleaseMode:
-//			mode = m
-//		default:
-//			panic("invalid mode")
-//		}
-//	}
-//}
-
-// Message represent a PUBLISH packet
-type Message interface {
-	Dup() bool
-	Qos() uint8
-	Retained() bool
-	Topic() string
-	PacketID() packets.PacketID
-	Payload() []byte
 }
 
 // msg is the implementation of Message interface
@@ -157,14 +145,22 @@ func messageFromPublish(p *packets.Publish) *msg {
 	}
 }
 
+func messageToPublish(msg packets.Message) *packets.Publish {
+	return &packets.Publish{
+		Dup:       msg.Dup(),
+		Qos:       msg.Qos(),
+		Retain:    msg.Retained(),
+		TopicName: []byte(msg.Topic()),
+		PacketID:  msg.PacketID(),
+		Payload:   msg.Payload(),
+	}
+}
+
 // Server interface represents a mqtt server instance.
 type Server interface {
-	// Publish publishes a message to the broker.
-	Publish(topic string, payload []byte, qos uint8, retain bool)
-	// Subscribe subscribes topics for the client specified by clientID.
-	Subscribe(clientID string, topics []packets.Topic)
-	// UnSubscribe unsubscribes topics for the client specified by clientID.
-	UnSubscribe(clientID string, topics []string)
+	SubscriptionStore() subscription.Store
+	RetainedStore() retained.Store
+	PublishService() PublishService
 	// Client return the client specified by clientID.
 	Client(clientID string) Client
 	// GetConfig returns the config of the server
@@ -186,9 +182,9 @@ type server struct {
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket serverStop
 	exitChan        chan struct{}
-	retainedMsgMu   sync.Mutex
-	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name=
-	subscriptionsDB *trieDB                     //store subscriptions
+
+	retainedDB      retained.Store
+	subscriptionsDB subscription.Store //store subscriptions
 
 	msgRouter  chan *msgRouter
 	register   chan *register   //register session
@@ -198,6 +194,18 @@ type server struct {
 	plugins    []Plugable
 
 	statsManager StatsManager
+}
+
+func (srv *server) SubscriptionStore() subscription.Store {
+	return srv.subscriptionsDB
+}
+
+func (srv *server) RetainedStore() retained.Store {
+	return srv.retainedDB
+}
+
+func (srv *server) PublishService() PublishService {
+	return &publishService{srv: srv}
 }
 
 func (srv *server) checkStatus() {
@@ -235,10 +243,10 @@ var DefaultConfig = Config{
 	SessionExpiryInterval:      0 * time.Second,
 	SessionExpireCheckInterval: 0 * time.Second,
 	QueueQos0Messages:          true,
-	MaxInflight:                32,
+	MaxInflight:                0,
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
-	DeliverMode:                OnlyOnce,
+	DeliverMode:                Overlap,
 	MsgRouterLen:               DefaultMsgRouterLen,
 	RegisterLen:                DefaultRegisterLen,
 	UnregisterLen:              DefaultUnRegisterLen,
@@ -268,7 +276,10 @@ type unregister struct {
 }
 
 type msgRouter struct {
-	pub *packets.Publish
+	msg      packets.Message
+	clientID string
+	// if set to false, must set clientID to specify the client to send
+	match bool
 }
 
 // Status returns the server status
@@ -332,7 +343,8 @@ func (srv *server) registerHandler(register *register) {
 					Payload:   oldClient.opts.willPayload,
 				}
 				go func() {
-					msgRouter := &msgRouter{pub: willMsg}
+					fmt.Println("will msg")
+					msgRouter := &msgRouter{msg: messageFromPublish(willMsg), match: true}
 					srv.msgRouter <- msgRouter
 				}()
 			}
@@ -354,15 +366,14 @@ func (srv *server) registerHandler(register *register) {
 	client.setConnected()
 	if sessionReuse { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
 		client.session.unackpublish = oldSession.unackpublish
-		client.addMsgDeliveredTotal(oldClient.MsgDeliveredTotal())
-		client.addMsgDroppedTotal(oldClient.MsgDroppedTotal())
-		client.addSubscriptionsCount(oldClient.SubscriptionsCount())
+		client.statsManager = oldClient.statsManager
 		//send unacknowledged publish
 		oldSession.inflightMu.Lock()
 		for e := oldSession.inflight.Front(); e != nil; e = e.Next() {
 			if inflight, ok := e.Value.(*inflightElem); ok {
 				pub := inflight.packet
 				pub.Dup = true
+				client.statsManager.decInflightCurrent(1)
 				client.onlinePublish(pub)
 			}
 		}
@@ -382,6 +393,7 @@ func (srv *server) registerHandler(register *register) {
 				}
 				client.setAwaitRel(pid)
 				client.session.setPacketID(pid)
+				client.statsManager.decAwaitCurrent(1)
 				client.out <- pubrel
 			}
 		}
@@ -401,7 +413,7 @@ func (srv *server) registerHandler(register *register) {
 			zap.String("client_id", client.opts.clientID))
 	} else {
 		if oldExist {
-			srv.subscriptionsDB.deleteAll(client.opts.clientID)
+			srv.subscriptionsDB.UnsubscribeAll(client.opts.clientID)
 		}
 		zaplog.Info("logged in with new session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
@@ -450,8 +462,9 @@ clearIn:
 			TopicName: []byte(client.opts.willTopic),
 			Payload:   client.opts.willPayload,
 		}
+		msg := messageFromPublish(willMsg)
 		go func() {
-			msgRouter := &msgRouter{pub: willMsg}
+			msgRouter := &msgRouter{msg: msg, match: true}
 			client.server.msgRouter <- msgRouter
 		}()
 	}
@@ -466,7 +479,7 @@ clearIn:
 		if srv.hooks.OnSessionTerminated != nil {
 			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
-		srv.statsManager.messageDequeue(uint64(client.MsgQueueLen()))
+		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 	} else { //store session 保持session
 		srv.mu.Lock()
 		srv.offlineClients[client.opts.clientID] = time.Now()
@@ -490,21 +503,37 @@ clearIn:
 		srv.statsManager.addSessionInactive()
 	}
 }
-func (srv *server) msgRouterHandler(msg *msgRouter) {
-	srv.statsManager.messageReceived(msg.pub.Qos)
-	pub := msg.pub
-	rs := srv.subscriptionsDB.getMatchedTopicFilter(string(pub.TopicName))
+
+// 所有进来的 msg都会分配pid，指定pid重传的不在这里处理
+func (srv *server) msgRouterHandler(m *msgRouter) {
+	msg := m.msg
+	var matched subscription.ClientTopics
+	// no need to search in subscriptionsDB.
+	if !m.match {
+		matched = make(subscription.ClientTopics)
+		matched[m.clientID] = append(matched[m.clientID], packets.Topic{
+			Qos:  msg.Qos(),
+			Name: msg.Topic(),
+		})
+	} else {
+		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
+		if m.clientID != "" {
+			tmp := make(subscription.ClientTopics)
+			tmp[m.clientID] = matched[m.clientID]
+			matched = tmp
+		}
+	}
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
-	for cid, topics := range rs {
+	for cid, topics := range matched {
 		if srv.config.DeliverMode == Overlap {
 			for _, t := range topics {
-				publish := pub.CopyPublish()
-				if publish.Qos > t.Qos {
-					publish.Qos = t.Qos
-				}
-				publish.Dup = false
 				if c, ok := srv.clients[cid]; ok {
+					publish := messageToPublish(msg)
+					if publish.Qos > t.Qos {
+						publish.Qos = t.Qos
+					}
+					publish.Dup = false
 					c.publish(publish)
 				}
 			}
@@ -519,12 +548,12 @@ func (srv *server) msgRouterHandler(msg *msgRouter) {
 					break
 				}
 			}
-			publish := pub.CopyPublish()
-			if publish.Qos > maxQos {
-				publish.Qos = maxQos
-			}
-			publish.Dup = false
 			if c, ok := srv.clients[cid]; ok {
+				publish := messageToPublish(msg)
+				if publish.Qos > maxQos {
+					publish.Qos = maxQos
+				}
+				publish.Dup = false
 				c.publish(publish)
 			}
 		}
@@ -533,7 +562,7 @@ func (srv *server) msgRouterHandler(msg *msgRouter) {
 func (srv *server) removeSession(clientID string) {
 	delete(srv.clients, clientID)
 	delete(srv.offlineClients, clientID)
-	srv.subscriptionsDB.deleteAll(clientID)
+	srv.subscriptionsDB.UnsubscribeAll(clientID)
 }
 
 // sessionExpireCheck 判断是否超时
@@ -603,16 +632,16 @@ type WsServer struct {
 
 // NewServer returns a gmqtt server instance with the given options
 func NewServer(opts ...Options) *server {
-
 	// statistics
-	statsMgr := newStatsManager()
+	subStore := subscription_trie.NewStore()
+	statsMgr := newStatsManager(subStore)
 	srv := &server{
 		status:          serverStatusInit,
 		exitChan:        make(chan struct{}),
 		clients:         make(map[string]*client),
 		offlineClients:  make(map[string]time.Time),
-		retainedMsg:     make(map[string]*packets.Publish),
-		subscriptionsDB: newTrieDB(statsMgr),
+		retainedDB:      retained_trie.NewStore(),
+		subscriptionsDB: subStore,
 		config:          DefaultConfig,
 		statsManager:    statsMgr,
 	}
@@ -629,48 +658,47 @@ func NewServer(opts ...Options) *server {
 //
 // Publish publishs a message to the broker.
 // 	Notice: This method will not trigger the onPublish callback
-func (srv *server) Publish(topic string, payload []byte, qos uint8, retain bool) {
-	pub := &packets.Publish{
-		Qos:       qos,
-		TopicName: []byte(topic),
-		Payload:   payload,
-		Retain:    retain,
-	}
-	if pub.Retain {
-		//保留消息，处理保留
-		srv.retainedMsgMu.Lock()
-		srv.retainedMsg[string(pub.TopicName)] = pub
-		if len(pub.Payload) == 0 {
-			delete(srv.retainedMsg, string(pub.TopicName))
-		}
-		srv.retainedMsgMu.Unlock()
-	}
-
-	srv.msgRouter <- &msgRouter{pub}
-}
+//func (srv *server) Publish(topic string, payload []byte, qos uint8, retain bool) {
+//	pub := &packets.Publish{
+//		Qos:       qos,
+//		TopicName: []byte(topic),
+//		Payload:   payload,
+//		Retain:    retain,
+//	}
+//	// 处理保留消息
+//	if pub.Retain {
+//		if len(pub.Payload) == 0 {
+//			srv.retainedDB.Remove(string(pub.TopicName))
+//		} else {
+//			srv.retainedDB.AddOrReplace(messageFromPublish(pub))
+//		}
+//	}
+//
+//	srv.msgRouter <- &msgRouter{pub}
+//}
 
 // Subscribe 为某一个客户端订阅主题
 //
 // Subscribe subscribes topics for the client specified by clientID.
 // 	Notice: This method will not trigger the onSubscribe callback
-func (srv *server) Subscribe(clientID string, topics []packets.Topic) {
-	for _, v := range topics {
-		srv.subscriptionsDB.subscribe(clientID, v)
-	}
-}
-
-// UnSubscribe 为某一个客户端取消订阅某个主题
+//func (srv *server) Subscribe(clientID string, topics []packets.Topic) {
+//	for _, v := range topics {
+//		srv.subscriptionsDB.subscribe(clientID, v)
+//	}
+//}
 //
-// UnSubscribe unsubscribes topics for the client specified by clientID.
-func (srv *server) UnSubscribe(clientID string, topics []string) {
-	//client := srv.Client(clientID)
-	//if client == nil {
-	//	return
-	//}
-	for _, v := range topics {
-		srv.subscriptionsDB.unsubscribe(clientID, v)
-	}
-}
+//// UnSubscribe 为某一个客户端取消订阅某个主题
+////
+//// UnSubscribe unsubscribes topics for the client specified by clientID.
+//func (srv *server) UnSubscribe(clientID string, topics []string) {
+//	//client := srv.Client(clientID)
+//	//if client == nil {
+//	//	return
+//	//}
+//	for _, v := range topics {
+//		srv.subscriptionsDB.unsubscribe(clientID, v)
+//	}
+//}
 
 // Client returns the client for given clientID
 func (srv *server) Client(clientID string) Client {
@@ -781,6 +809,7 @@ func (srv *server) newClient(c net.Conn) *client {
 		opts:          &options{},
 		cleanWillFlag: false,
 		ready:         make(chan struct{}),
+		statsManager:  newSessionStatsManager(),
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
@@ -944,7 +973,7 @@ func (srv *server) loadPlugins() error {
 	}
 	// onMsgArrived
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(ctx context.Context, client Client, msg Message) (valid bool) {
+		onMsgArrived := func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
 			return true
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
@@ -954,7 +983,7 @@ func (srv *server) loadPlugins() error {
 	}
 	// onDeliver
 	if onDeliverWrappers != nil {
-		onDeliver := func(ctx context.Context, client Client, msg Message) {}
+		onDeliver := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onDeliverWrappers); i > 0; i-- {
 			onDeliver = onDeliverWrappers[i-1](onDeliver)
 		}
@@ -962,7 +991,7 @@ func (srv *server) loadPlugins() error {
 	}
 	// onAcked
 	if onAckedWrappers != nil {
-		onAcked := func(ctx context.Context, client Client, msg Message) {}
+		onAcked := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onAckedWrappers); i > 0; i-- {
 			onAcked = onAckedWrappers[i-1](onAcked)
 		}
@@ -987,7 +1016,7 @@ func (srv *server) loadPlugins() error {
 
 	// onMsgDropped
 	if onMsgDroppedWrappers != nil {
-		onMsgDropped := func(ctx context.Context, client Client, msg Message) {}
+		onMsgDropped := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}
