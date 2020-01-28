@@ -14,8 +14,8 @@ Gmqtt provides:
 * Support tls/ssl and websocket
 * Enable user to write plugins. See `plugin.go` and `/plugin` for more details.
 * Provide abilities for extensions to interact with the server. See `Server` interface in `server.go`  and `example_test.go` for more details.
-* Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/READEME.md))
-* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md))
+* Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
+* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
 
 # Limitations
 * The retained messages are not persisted when the server exit.
