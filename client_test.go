@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -23,7 +26,7 @@ type testListener struct {
 	acceptReady chan struct{}
 }
 
-var srv *Server
+var srv *server
 
 func (l *testListener) Accept() (c net.Conn, err error) {
 	<-l.acceptReady
@@ -116,18 +119,17 @@ func (c *rwTestConn) Close() error {
 	return nil
 }
 
-func newTestServer() *Server {
-	var s *Server
+func newTestServer() *server {
+	var s *server
 	if srv != nil {
 		s = srv
 	} else {
-		s = DefaultServer()
+		s = NewServer(WithLogger(zap.NewNop()))
 		s.config.RetryInterval = testRedeliveryInternal
 		s.config.RetryCheckInterval = testRedeliveryInternal
 	}
-	/*SetLogger(logger.NewLogger(os.Stderr, "", log2.LstdFlags))*/
 	ln := &testListener{acceptReady: make(chan struct{})}
-	s.AddTCPListenner(ln)
+	s.tcpListener = append(s.tcpListener, ln)
 	return s
 }
 
@@ -150,7 +152,7 @@ func defaultConnectPacket() *packets.Connect {
 	}
 }
 
-func doconnect(srv *Server, connect *packets.Connect) net.Conn {
+func doconnect(srv *server, connect *packets.Connect) net.Conn {
 	ln := srv.tcpListener[0].(*testListener)
 	if connect == nil {
 		connect = defaultConnectPacket()
@@ -169,7 +171,7 @@ func doconnect(srv *Server, connect *packets.Connect) net.Conn {
 	return conn
 }
 
-func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
+func connectedServer(connect *packets.Connect) (*server, net.Conn) {
 	srv := newTestServer()
 	ln := srv.tcpListener[0].(*testListener)
 	if connect == nil {
@@ -189,7 +191,7 @@ func connectedServer(connect *packets.Connect) (*Server, net.Conn) {
 	return srv, conn
 }
 
-func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn, net.Conn) {
+func connectedServerWith2Client(connect ...*packets.Connect) (*server, net.Conn, net.Conn) {
 	srv := newTestServer()
 	ln := srv.tcpListener[0].(*testListener)
 	cc := make([]net.Conn, 2)
@@ -231,16 +233,6 @@ func connectedServerWith2Client(connect ...*packets.Connect) (*Server, net.Conn,
 	writePacket(cc[1].(*rwTestConn), conn2)
 	readPacket(cc[1].(*rwTestConn))
 	return srv, cc[0], cc[1]
-}
-
-func TestClient_UserData(t *testing.T) {
-	c := mockClient()
-	data := "userdata"
-	c.Set("userKey", "userdata")
-	d, ok := c.Get("userKey")
-	if d.(string) != data || !ok {
-		t.Fatalf("Get() error, want %s, but %s", data, d)
-	}
 }
 
 func TestConnect(t *testing.T) {
@@ -568,7 +560,7 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 		{Qos: packets.QOS_1, Name: "t1"},
 		{Qos: packets.QOS_2, Name: "t2"},
 	}
-	srv.Subscribe("MQTT", tt)
+	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 	pub := &packets.Publish{
 		Dup:       false,
 		Qos:       packets.QOS_0,
@@ -601,10 +593,10 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
 	}
 
-	srv.UnSubscribe("MQTT", []string{"t0", "t1", "t2"})
+	srv.subscriptionsDB.Unsubscribe("MQTT", []string{"t0", "t1", "t2"}...)
 
 	for _, topic := range tt {
-		m := srv.subscriptionsDB.getMatchedTopicFilter(topic.Name)
+		m := srv.subscriptionsDB.GetTopicMatched(topic.Name)
 		if len(m) != 0 {
 			t.Fatalf("UnSubscribe error,  got %v", m)
 		}
@@ -621,7 +613,7 @@ func TestServer_Publish(t *testing.T) {
 		{Qos: packets.QOS_1, Name: "t1"},
 		{Qos: packets.QOS_2, Name: "t2"},
 	}
-	srv.Subscribe("MQTT", tt)
+	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 	pub := &packets.Publish{
 		Dup:       false,
 		Qos:       packets.QOS_0,
@@ -629,11 +621,12 @@ func TestServer_Publish(t *testing.T) {
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
 	}
-	srv.Publish(string(pub.TopicName), pub.Payload, pub.Qos, pub.Retain)
+	srv.publishService.Publish(NewMessage(string(pub.TopicName), pub.Payload, pub.Qos, Retained(pub.Retain)))
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
 	packet, err := readPacket(c)
+
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -713,7 +706,7 @@ func TestUnsubscribe(t *testing.T) {
 
 func TestOnSubscribe(t *testing.T) {
 	srv := newTestServer()
-	srv.RegisterOnSubscribe(func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
+	srv.hooks.OnSubscribe = func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 		if topic.Qos == packets.QOS_0 {
 			return packets.QOS_1
 		}
@@ -721,7 +714,7 @@ func TestOnSubscribe(t *testing.T) {
 			return packets.SUBSCRIBE_FAILURE
 		}
 		return topic.Qos
-	})
+	}
 	conn := doconnect(srv, nil)
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
@@ -747,11 +740,11 @@ func TestOnSubscribe(t *testing.T) {
 			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
 		}
 
-		m := srv.subscriptionsDB.getMatchedTopicFilter("/a/b/+")
+		m := srv.subscriptionsDB.GetTopicMatched("/a/b/+")
 		if len(m) != 0 {
 			t.Fatalf("onSubscribe error, got %v", m)
 		}
-		m = srv.subscriptionsDB.getMatchedTopicFilter("/a/b/c")
+		m = srv.subscriptionsDB.GetTopicMatched("/a/b/c")
 		if ts, ok := m["MQTT"]; ok {
 			if ts[0].Qos != packets.QOS_1 {
 				t.Fatalf("onSubscribe error, got %v", ts)
@@ -764,6 +757,7 @@ func TestOnSubscribe(t *testing.T) {
 }
 
 func TestRetainMsg(t *testing.T) {
+	a := assert.New(t)
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())
 	var err error
@@ -790,21 +784,14 @@ func TestRetainMsg(t *testing.T) {
 		},
 	}
 	err = writePacket(c, sub)
-	srv.retainedMsgMu.Lock()
-	if retain, ok := srv.retainedMsg["a/b"]; ok {
-		if retain.Qos != pub.Qos {
-			t.Fatalf("Qos error, want %d, got %d", pub.Qos, retain.Qos)
-		}
-		if !bytes.Equal(retain.TopicName, pub.TopicName) {
-			t.Fatalf("TopicName error, want %v, got %v", pub.TopicName, retain.TopicName)
-		}
-		if !bytes.Equal(retain.Payload, pub.Payload) {
-			t.Fatalf("Payload error, want %v, got %v", pub.Payload, retain.Payload)
-		}
-	} else {
-		t.Fatalf("retained Msg error")
-	}
-	srv.retainedMsgMu.Unlock()
+
+	retain := srv.retainedDB.GetRetainedMessage("a/b")
+	a.NotNil(retain)
+
+	a.Equal(pub.Qos, retain.Qos())
+	a.Equal(string(pub.TopicName), retain.Topic())
+	a.Equal(pub.Payload, retain.Payload())
+
 	var pp []packets.Packet
 	for i := 0; i < 2; i++ { //read suback & publish
 		p, err := readPacket(c)
@@ -929,7 +916,7 @@ func TestQos1Redelivery(t *testing.T) {
 			originalPid = pub.PacketID
 		}
 	}
-	p, err := readPacketWithTimeOut(c, testRedeliveryInternal+1*time.Second)
+	p, err := readPacketWithTimeOut(c, 2*testRedeliveryInternal)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -1033,7 +1020,7 @@ func TestQos2Redelivery(t *testing.T) {
 		if pubrec2.PacketID != pubrec.PacketID {
 			t.Fatalf("PacketID error, want %d, got %d", pubrec.PacketID, pubrec2.PacketID)
 		}
-		p, err = readPacketWithTimeOut(reciver, 1*time.Second)
+		p, err = readPacketWithTimeOut(reciver, 10*time.Second)
 		if err != errTestReadTimeout {
 			t.Fatalf("delivery duplicated messages， %v", reflect.TypeOf(p))
 		}
@@ -1146,13 +1133,13 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 }
 
 func TestOfflineMessageQueueing(t *testing.T) {
+	a := assert.New(t)
 	c := DefaultConfig
 	c.MaxMsgQueue = 5
-	srv = NewServer(c)
+	srv = NewServer(WithConfig(c), WithLogger(zap.NewNop()))
 	defer func() {
 		srv = nil
 	}()
-
 	conn1 := defaultConnectPacket()
 	conn1.CleanSession = false
 	conn1.ClientID = []byte("id1")
@@ -1160,6 +1147,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	conn2 := defaultConnectPacket()
 	conn2.CleanSession = false
 	conn2.ClientID = []byte("id2")
+
 	srv, s, r := connectedServerWith2Client(conn1, conn2)
 	defer srv.Stop(context.Background())
 	var err error
@@ -1207,9 +1195,9 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	cl := srv.Client(string(conn2.ClientID))
-	if cl.MsgDroppedTotal() != 1 || cl.MsgQueueLen() != 5 {
-		t.Fatalf("want MsgQueueDropped,MsgQueueLen = 1,5 but %d, %d", cl.MsgDroppedTotal(), cl.MsgQueueLen())
-	}
+	stats := cl.GetSessionStatsManager().GetStats()
+	a.EqualValues(1, stats.Qos1.DroppedTotal)
+	a.EqualValues(5, stats.QueuedCurrent)
 
 	err = writePacket(reConn, conn2)
 	if err != nil {
@@ -1240,9 +1228,9 @@ func TestOfflineMessageQueueing(t *testing.T) {
 		}
 	}
 	cl = srv.Client(string(conn2.ClientID))
-	if cl.MsgDroppedTotal() != 1 || cl.MsgQueueLen() != 0 {
-		t.Fatalf("want MsgQueueDropped,MsgQueueLen = 1,0 but %d, %d", cl.MsgDroppedTotal(), cl.MsgQueueLen())
-	}
+	stats = cl.GetSessionStatsManager().GetStats()
+	a.EqualValues(1, stats.Qos1.DroppedTotal)
+	a.EqualValues(0, stats.QueuedCurrent)
 }
 
 func TestWillMsg(t *testing.T) {

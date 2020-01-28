@@ -4,6 +4,7 @@ package gmqtt
 import (
 	"bufio"
 	"container/list"
+	"context"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -73,71 +76,23 @@ func putBufioWriter(bw *bufio.Writer) {
 
 // Client represent
 type Client interface {
-	// Set stores a new key/value pair
-	Set(key string, value interface{})
-	// Get returns the value which set by Set() method for the given key, ie: (value, true).
-	// If the key does not exists it returns (nil, false)
-	Get(key string) (value interface{}, exists bool)
 	// OptionsReader returns ClientOptionsReader for reading options data.
 	OptionsReader() ClientOptionsReader
-	SessionStatsReader
 	// IsConnected returns whether the client is connected.
 	IsConnected() bool
-	// Status returns client's status
-	Status() int32
 	// ConnectedAt returns the connected time
 	ConnectedAt() time.Time
 	// DisconnectedAt return the disconnected time
 	DisconnectedAt() time.Time
 	// Close closes the client connection. The returned channel will be closed after unregister process has been done
 	Close() <-chan struct{}
+
+	GetSessionStatsManager() SessionStatsManager
 }
 
-// SessionStatsReader
-type SessionStatsReader interface {
-	// InflightLen returns the current length of the inflight queue.
-	InflightLen() int64
-	// InflightLen returns the current length of the message queue.
-	MsgQueueLen() int64
-	// InflightLen returns the current length of the awaitRel queue.
-	AwaitRelLen() int64
-	// SubscriptionsCount returns subscription count
-	SubscriptionsCount() int64
-	// MsgDroppedTotal returns the total number of dropped messages
-	MsgDroppedTotal() int64
-	// MsgDeliveredTotal returns the total number of delivered messages
-	MsgDeliveredTotal() int64
-}
-
-// ChainStore is used to store and retrieve key/value pair data between hooks function in call chain.
-type ChainStore interface {
-	Set(key string, value interface{})
-	Get(key string) (value interface{}, exists bool)
-}
-
-// chainStore implement the ChainStore
-type chainStore struct {
-	keys map[string]interface{}
-}
-
-// Set is used to store a new key/value pair exclusively for the hook call chain.
-func (c *chainStore) Set(key string, value interface{}) {
-	if c.keys == nil {
-		c.keys = make(map[string]interface{})
-	}
-	c.keys[key] = value
-}
-
-// Get returns the value for the given key, ie: (value, true).
-// If the value does not exists it returns (nil, false)
-func (c *chainStore) Get(key string) (value interface{}, exists bool) {
-	value, exists = c.keys[key]
-	return
-}
-
-// Client represents a MQTT client
+// Client represents a MQTT client and implements the Client interface
 type client struct {
-	server        *Server
+	server        *server
 	wg            sync.WaitGroup
 	rwc           net.Conn //raw tcp connection
 	bufr          *bufio.Reader
@@ -160,18 +115,12 @@ type client struct {
 
 	connectedAt    int64
 	disconnectedAt int64
+
+	statsManager SessionStatsManager
 }
 
-func (client *client) addSubscriptionsCount(delta int64) {
-	atomic.AddInt64(&client.session.subscriptionsCount, delta)
-}
-
-func (client *client) addMsgDroppedTotal(delta int64) {
-	atomic.AddInt64(&client.session.msgDroppedTotal, delta)
-}
-
-func (client *client) addMsgDeliveredTotal(delta int64) {
-	atomic.AddInt64(&client.session.msgDeliveredTotal, delta)
+func (client *client) GetSessionStatsManager() SessionStatsManager {
+	return client.statsManager
 }
 
 func (client *client) setConnectedAt(time time.Time) {
@@ -189,53 +138,6 @@ func (client *client) ConnectedAt() time.Time {
 // DisconnectedAt
 func (client *client) DisconnectedAt() time.Time {
 	return time.Unix(atomic.LoadInt64(&client.disconnectedAt), 0)
-}
-
-// SubscriptionsCount
-func (client *client) SubscriptionsCount() int64 {
-	return atomic.LoadInt64(&client.session.subscriptionsCount)
-}
-
-// MsgDroppedTotal
-func (client *client) MsgDroppedTotal() int64 {
-	return atomic.LoadInt64(&client.session.msgDroppedTotal)
-}
-
-// MsgDeliveredTotal
-func (client *client) MsgDeliveredTotal() int64 {
-	return atomic.LoadInt64(&client.session.msgDeliveredTotal)
-}
-
-// InflightLen
-func (client *client) InflightLen() int64 {
-	return atomic.LoadInt64(&client.session.inflightLen)
-}
-
-// MsgQueueLen
-func (client *client) MsgQueueLen() int64 {
-	return atomic.LoadInt64(&client.session.msgQueueLen)
-}
-
-// AwaitRelLen
-func (client *client) AwaitRelLen() int64 {
-	return atomic.LoadInt64(&client.session.awaitRelLen)
-}
-
-// Set is used to store a new key/value pair exclusively for the client.
-// notice: Set should be used only inside OnXXXX hook function.
-func (client *client) Set(key string, value interface{}) {
-	if client.keys == nil {
-		client.keys = make(map[string]interface{})
-	}
-	client.keys[key] = value
-}
-
-// Get returns the value for the given key, ie: (value, true).
-// If the value does not exists it returns (nil, false)
-// // notice: Get should be used only inside OnXXXX hook function.
-func (client *client) Get(key string) (value interface{}, exists bool) {
-	value, exists = client.keys[key]
-	return
 }
 
 //OptionsReader returns the ClientOptionsReader. This is mainly used in callback functions.
@@ -271,6 +173,11 @@ func (client *client) Status() int32 {
 // IsConnected returns whether the client is connected or not.
 func (client *client) IsConnected() bool {
 	return client.Status() == Connected
+}
+
+// IsDisConnected returns whether the client is connected or not.
+func (client *client) IsDisConnected() bool {
+	return client.Status() == Disconnected
 }
 
 //ClientOptionsReader is mainly used in callback functions.
@@ -355,9 +262,12 @@ func (o *options) RemoteAddr() net.Addr {
 	return o.remoteAddr
 }
 
-func (client *client) setError(error error) {
+func (client *client) setError(err error) {
 	select {
-	case client.error <- error:
+	case client.error <- err:
+		if err != nil && err != io.EOF {
+			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
+		}
 	default:
 	}
 }
@@ -376,26 +286,31 @@ func (client *client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
+			zaplog.Debug("sending packet",
+				zap.String("packet", packet.String()),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
 			err = client.writePacket(packet)
 			if err != nil {
 				return
 			}
-
+			client.server.statsManager.packetSent(packet)
+			if pub, ok := packet.(*packets.Publish); ok {
+				client.server.statsManager.messageSent(pub.Qos)
+				client.statsManager.messageSent(pub.Qos)
+			}
 		}
 
 	}
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-	if log != nil {
-		log.Printf("%-15s %v: %s ", "sending to", client.rwc.RemoteAddr(), packet)
-	}
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
 	}
 	return client.packetWriter.Flush()
-
 }
 
 func (client *client) readLoop() {
@@ -418,8 +333,14 @@ func (client *client) readLoop() {
 		if err != nil {
 			return
 		}
-		if log != nil {
-			log.Printf("%-15s %v: %s ", "received from", client.rwc.RemoteAddr(), packet)
+		zaplog.Debug("received packet",
+			zap.String("packet", packet.String()),
+			zap.String("remote", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.clientID),
+		)
+		client.server.statsManager.packetReceived(packet)
+		if pub, ok := packet.(*packets.Publish); ok {
+			client.server.statsManager.messageReceived(pub.Qos)
 		}
 		client.in <- packet
 	}
@@ -497,12 +418,14 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			ok = true
 		}
 	}()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
 	var p packets.Packet
 	select {
 	case <-client.close:
 		return
 	case p = <-client.in: //first packet
-	case <-time.After(5 * time.Second):
+	case <-timeout.C:
 		err = ErrConnectTimeOut
 		return
 	}
@@ -520,11 +443,9 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	client.opts.username = string(conn.Username)
 	client.opts.password = string(conn.Password)
 	client.opts.willFlag = conn.WillFlag
-	//client.opts.WillPayload = make([]byte, len(conn.WillMsg))
 	client.opts.willPayload = conn.WillMsg
 	client.opts.willQos = conn.WillQos
 	client.opts.willTopic = string(conn.WillTopic)
-	//copy(client.opts.WillPayload, conn.WillMsg)
 	client.opts.willRetain = conn.WillRetain
 	client.opts.remoteAddr = client.rwc.RemoteAddr()
 	client.opts.localAddr = client.rwc.LocalAddr()
@@ -535,7 +456,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 		client:  client,
 		connect: conn,
 	}
-	// 这也是同步，也可以考虑用同步做。
 	select {
 	case client.server.register <- register:
 	case <-client.close:
@@ -567,7 +487,6 @@ func (client *client) internalClose() {
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
 		unregister := &unregister{client: client, done: make(chan struct{})}
-		// 这就是同步啊。可以用同步做
 		client.server.unregister <- unregister
 		<-unregister.done
 	}
@@ -575,12 +494,16 @@ func (client *client) internalClose() {
 	putBufioWriter(client.bufw)
 
 	// onClose hooks
-	if client.server.onClose != nil {
-		client.server.onClose(&chainStore{}, client, client.err)
+	if client.server.hooks.OnClose != nil {
+		client.server.hooks.OnClose(context.Background(), client, client.err)
 	}
 	client.setDisconnectedAt(time.Now())
+	client.server.statsManager.addClientDisconnected()
+	client.server.statsManager.decSessionActive()
 }
 
+// 这里的publish都是已经copy后的publish了
+// 从msgRouter过来的publish 的dup不可能是true
 func (client *client) onlinePublish(publish *packets.Publish) {
 	if publish.Qos >= packets.QOS_1 {
 		if publish.Dup {
@@ -593,19 +516,18 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 			return
 		}
 	}
-	client.deliverMsg(publish)
+	client.sendMsg(publish)
 }
 
-// deliverMsg wrap the hook function and session stats
-func (client *client) deliverMsg(publish *packets.Publish) {
+// sendMsg wrap the hook function and session stats
+func (client *client) sendMsg(publish *packets.Publish) {
 	select {
 	case <-client.close:
 		return
 	case client.out <- publish:
-		client.addMsgDeliveredTotal(1)
 		// onDeliver hook
-		if client.server.onDeliver != nil {
-			client.server.onDeliver(&chainStore{}, client, messageFromPublish(publish))
+		if client.server.hooks.OnDeliver != nil {
+			client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(publish))
 		}
 	}
 }
@@ -624,18 +546,18 @@ func (client *client) write(packets packets.Packet) {
 		return
 	case client.out <- packets:
 	}
-
 }
 
 //Subscribe handler
 func (client *client) subscribeHandler(sub *packets.Subscribe) {
 	srv := client.server
-	if srv.onSubscribe != nil {
+	if srv.hooks.OnSubscribe != nil {
 		for k, v := range sub.Topics {
-			qos := srv.onSubscribe(&chainStore{}, client, v)
+			qos := srv.hooks.OnSubscribe(context.Background(), client, v)
 			sub.Topics[k].Qos = qos
 		}
 	}
+	var msgs []packets.Message
 	suback := sub.NewSubBack()
 	for k, v := range sub.Topics {
 		if v.Qos != packets.SUBSCRIBE_FAILURE {
@@ -643,23 +565,31 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 				Name: v.Name,
 				Qos:  suback.Payload[k],
 			}
-			srv.subscriptionsDB.subscribe(client.opts.clientID, topic)
-			client.addSubscriptionsCount(1)
-			if srv.onSubscribed != nil {
-				srv.onSubscribed(&chainStore{}, client, topic)
+			srv.subscriptionsDB.Subscribe(client.opts.clientID, topic)
+			if srv.hooks.OnSubscribed != nil {
+				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
+			zaplog.Info("subscribe succeeded",
+				zap.String("topic", v.Name),
+				zap.Uint8("qos", suback.Payload[k]),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
+			// matched retained messages
+			msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
+		} else {
+			zaplog.Info("subscribe failed",
+				zap.String("topic", v.Name),
+				zap.Uint8("qos", suback.Payload[k]),
+				zap.String("client_id", client.opts.clientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
 		}
 	}
 	client.write(suback)
-	srv.retainedMsgMu.Lock()
-	for _, msg := range srv.retainedMsg {
-		pub := msg.CopyPublish()
-		pub.Retain = true
-		msgRouter := &msgRouter{pub: pub}
-		srv.msgRouter <- msgRouter
+	for _, msg := range msgs {
+		srv.msgRouter <- &msgRouter{msg: msg, match: false, clientID: client.opts.clientID}
 	}
-	srv.retainedMsgMu.Unlock()
-
 }
 
 //Publish handler
@@ -680,23 +610,22 @@ func (client *client) publishHandler(pub *packets.Publish) {
 			s.unackpublish[pub.PacketID] = true
 		}
 	}
+	msg := messageFromPublish(pub)
 	if pub.Retain {
-		//保留消息，处理保留
-		srv.retainedMsgMu.Lock()
-		srv.retainedMsg[string(pub.TopicName)] = pub
 		if len(pub.Payload) == 0 {
-			delete(srv.retainedMsg, string(pub.TopicName))
+			srv.retainedDB.Remove(string(pub.TopicName))
+		} else {
+			srv.retainedDB.AddOrReplace(msg)
 		}
-		srv.retainedMsgMu.Unlock()
 	}
 	if !dup {
 		var valid = true
-		if srv.onMsgArrived != nil {
-			valid = srv.onMsgArrived(&chainStore{}, client, messageFromPublish(pub))
+		if srv.hooks.OnMsgArrived != nil {
+			valid = srv.hooks.OnMsgArrived(context.Background(), client, msg)
 		}
 		if valid {
 			pub.Retain = false
-			msgRouter := &msgRouter{pub: pub}
+			msgRouter := &msgRouter{msg: messageFromPublish(pub), match: true}
 			select {
 			case <-client.close:
 				return
@@ -730,15 +659,16 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
-	//	srv.subscriptionsDB.Lock()
-	//	defer srv.subscriptionsDB.Unlock()
 	for _, topicName := range unSub.Topics {
-		srv.subscriptionsDB.unsubscribe(client.opts.clientID, topicName)
-		client.addSubscriptionsCount(-1)
-		if srv.onUnsubscribed != nil {
-			srv.onUnsubscribed(&chainStore{}, client, topicName)
+		srv.subscriptionsDB.Unsubscribe(client.opts.clientID, topicName)
+		if srv.hooks.OnUnsubscribed != nil {
+			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
-
+		zaplog.Info("unsubscribed",
+			zap.String("topic", topicName),
+			zap.String("client_id", client.opts.clientID),
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+		)
 	}
 
 }

@@ -1,7 +1,10 @@
 package gmqtt
 
 import (
+	"fmt"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -10,13 +13,17 @@ const testMaxInflightLen = 20
 const testMaxAwaitRelLen = 20
 const testMaxMsgQueueLen = 20
 
+func init() {
+	zaplog, _ = zap.NewProduction()
+}
+
 //mock client,only for session_test.go
 func mockClient() *client {
 	config := DefaultConfig
 	config.MaxInflight = testMaxInflightLen
 	config.MaxMsgQueue = testMaxMsgQueueLen
 	config.MaxAwaitRel = testMaxAwaitRelLen
-	b := NewServer(config)
+	b := NewServer(WithConfig(config))
 	c := b.newClient(nil)
 	c.opts.cleanSession = true
 	c.newSession()
@@ -147,8 +154,8 @@ func TestMsgQueue(t *testing.T) {
 	}
 	for e := c.session.inflight.Front(); e != nil; e = e.Next() {
 		elem := e.Value.(*inflightElem)
-		if elem.pid != packets.PacketID(beginPid) {
-			t.Fatalf("inflightElem.pid error, want %d, but %d", beginPid, elem.pid)
+		if elem.packet.PacketID != packets.PacketID(beginPid) {
+			t.Fatalf("inflightElem.pid error, want %d, but %d", beginPid, elem.packet.PacketID)
 		}
 		beginPid++
 	}
@@ -175,6 +182,7 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	i := 1
 	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
 		if elem, ok := e.Value.(*packets.Publish); ok {
+			fmt.Println(elem)
 			if i == 1 && elem.PacketID != 1 {
 				t.Fatalf("msgQueue dropping priority  error, want %d ,got %d", i, elem.PacketID)
 			}

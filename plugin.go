@@ -19,14 +19,14 @@ type HookWrapper struct {
 	OnStopWrapper              OnStopWrapper
 }
 
-// Plugable is the interface for every plugins
+// Plugable is the interface need to be implemented for every plugins.
 type Plugable interface {
-	// Load will be called in server.Run().if return error, the server will panic
-	Load(service ServerService) error
-	// Unload will be called when the server is shutdown, the return error is only for loggin
+	// Load will be called in server.Run(). If return error, the server will panic.
+	Load(service Server) error
+	// Unload will be called when the server is shutdown, the return error is only for logging
 	Unload() error
 	// HookWrapper returns all hook wrappers that used by the plugin.
-	// Set the hook wrapper to nil if the plugin does not need the hook
+	// Return a empty wrapper  if the plugin does not need any hooks
 	HookWrapper() HookWrapper
 	// Name return the plugin name
 	Name() string

@@ -1,13 +1,10 @@
 package management
 
 import (
-	"strconv"
-
-	"net/http"
-
+	"context"
 	"errors"
-
-	"fmt"
+	"net/http"
+	"strconv"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -47,57 +44,60 @@ func newResponse(result interface{}, pager *Pager, err error) *Response {
 
 type Management struct {
 	monitor *monitor
-	service gmqtt.ServerService
+	server  gmqtt.Server
 	addr    string
 	user    gin.Accounts //BasicAuth user info,username => password
 }
 
 // OnSessionCreatedWrapper store the client when session created
 func (m *Management) OnSessionCreatedWrapper(created gmqtt.OnSessionCreated) gmqtt.OnSessionCreated {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client) {
+	return func(ctx context.Context, client gmqtt.Client) {
 		m.monitor.addClient(client)
-		created(cs, client)
+		created(ctx, client)
 	}
 }
 
 // OnSessionResumedWrapper refresh the client when session resumed
 func (m *Management) OnSessionResumedWrapper(resumed gmqtt.OnSessionResumed) gmqtt.OnSessionResumed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client) {
+	return func(ctx context.Context, client gmqtt.Client) {
 		m.monitor.addClient(client)
-		resumed(cs, client)
+		resumed(ctx, client)
 	}
 }
 
 // OnSessionTerminated remove the client when session terminated
 func (m *Management) OnSessionTerminatedWrapper(terminated gmqtt.OnSessionTerminated) gmqtt.OnSessionTerminated {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
+	return func(ctx context.Context, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
 		m.monitor.deleteClient(client.OptionsReader().ClientID())
 		m.monitor.deleteClientSubscriptions(client.OptionsReader().ClientID())
-		terminated(cs, client, reason)
+		terminated(ctx, client, reason)
 	}
 }
 
 // OnSubscribedWrapper store the subscription
 func (m *Management) OnSubscribedWrapper(subscribed gmqtt.OnSubscribed) gmqtt.OnSubscribed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) {
+	return func(ctx context.Context, client gmqtt.Client, topic packets.Topic) {
 		m.monitor.addSubscription(client.OptionsReader().ClientID(), topic)
-		subscribed(cs, client, topic)
+		subscribed(ctx, client, topic)
 	}
 }
 
 // OnUnsubscribedWrapper remove the subscription
 func (m *Management) OnUnsubscribedWrapper(unsubscribe gmqtt.OnUnsubscribed) gmqtt.OnUnsubscribed {
-	return func(cs gmqtt.ChainStore, client gmqtt.Client, topicName string) {
+	return func(ctx context.Context, client gmqtt.Client, topicName string) {
 		m.monitor.deleteSubscription(client.OptionsReader().ClientID(), topicName)
-		unsubscribe(cs, client, topicName)
+		unsubscribe(ctx, client, topicName)
 	}
 }
 
-func (m *Management) Load(service gmqtt.ServerService) error {
-	m.service = service
-	m.monitor.config = service.GetConfig()
+func (m *Management) Load(server gmqtt.Server) error {
+	m.monitor = newMonitor(server.SubscriptionStore())
+	m.server = server
+	m.monitor.config = server.GetConfig()
 	var router gin.IRouter
+	gin.SetMode(gin.ReleaseMode)
 	e := gin.Default()
+
 	if m.user != nil {
 		router = e.Group("/", gin.BasicAuth(m.user))
 	} else {
@@ -165,9 +165,8 @@ func newPager(c *gin.Context) *Pager {
 
 func New(addr string, user gin.Accounts) *Management {
 	m := &Management{
-		monitor: newMonitor(),
-		user:    user,
-		addr:    addr,
+		user: user,
+		addr: addr,
 	}
 	return m
 }
@@ -235,8 +234,8 @@ func (m *Management) Subscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, errors.New("invalid clientID")))
 		return
 	}
-	m.service.Subscribe(cid, []packets.Topic{
-		{Qos: uint8(qos), Name: topic},
+	m.server.SubscriptionStore().Subscribe(cid, packets.Topic{
+		Qos: uint8(qos), Name: topic,
 	})
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
@@ -255,7 +254,7 @@ func (m *Management) Unsubscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, errors.New("invalid clientID")))
 		return
 	}
-	m.service.UnSubscribe(cid, []string{topic})
+	m.server.SubscriptionStore().Unsubscribe(cid, topic)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 
@@ -269,7 +268,6 @@ func (m *Management) Publish(c *gin.Context) {
 	if retainFlag != "" {
 		retain = true
 	}
-	fmt.Println(retain)
 	qos, err := strconv.Atoi(qosParam)
 	if err != nil || qos < 0 || qos > 2 {
 		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalQos))
@@ -283,14 +281,15 @@ func (m *Management) Publish(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalUtf8))
 		return
 	}
-	m.service.Publish(topic, []byte(payload), uint8(qos), retain)
+	msg := gmqtt.NewMessage(topic, []byte(payload), uint8(qos), gmqtt.Retained(retain))
+	m.server.PublishService().Publish(msg)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 
 // CloseClient is the handle function for "Delete /client/:id" which close the client specified by the id
 func (m *Management) CloseClient(c *gin.Context) {
 	id := c.Param("id")
-	client := m.service.Client(id)
+	client := m.server.Client(id)
 	if client != nil {
 		client.Close()
 	}

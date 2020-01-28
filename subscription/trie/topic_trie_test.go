@@ -1,4 +1,4 @@
-package gmqtt
+package trie
 
 import (
 	"testing"
@@ -140,6 +140,27 @@ var testUnsubscribe = struct {
 	},
 }
 
+var testPreOrderTraverse = struct {
+	topics   []packets.Topic
+	clientID string
+}{
+	topics: []packets.Topic{
+		{
+			Qos:  0,
+			Name: "a/b/c",
+		},
+		{
+			Qos:  1,
+			Name: "/a/b/c",
+		},
+		{
+			Qos:  2,
+			Name: "b/c/d",
+		},
+	},
+	clientID: "abc",
+}
+
 func TestTopicTrie_matchedClients(t *testing.T) {
 	a := assert.New(t)
 	for _, v := range testTopicMatch {
@@ -213,4 +234,19 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestTopicTrie_preOrderTraverse(t *testing.T) {
+	//a := assert.New(t)
+	trie := newTopicTrie()
+	for _, v := range testPreOrderTraverse.topics {
+		trie.subscribe(testPreOrderTraverse.clientID, v)
+	}
+	trie.subscribe("abcd", packets.Topic{
+		Qos:  2,
+		Name: "a/b/c",
+	})
+	trie.preOrderTraverse(func(clientID string, topic packets.Topic) bool {
+		return true
+	})
 }

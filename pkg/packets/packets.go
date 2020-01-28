@@ -80,6 +80,9 @@ type Packet interface {
 	Unpack(r io.Reader) error
 	// String is mainly used in logging, debugging and testing.
 	String() string
+	//// Header returns the referenced header structure of the packet.
+	//// The return value is read only. DO NOT EDIT.
+	//Header() *FixHeader
 }
 
 // FixHeader represents the FixHeader of the MQTT packet
@@ -475,4 +478,54 @@ func TopicMatch(topic []byte, topicFilter []byte) bool {
 		return false
 	}
 	return false
+}
+
+// TotalBytes returns how many bytes of the packet
+func TotalBytes(p Packet) uint {
+	var header *FixHeader
+	switch pt := p.(type) {
+	case *Connect:
+		header = pt.FixHeader
+	case *Connack:
+		header = pt.FixHeader
+	case *Disconnect:
+		header = pt.FixHeader
+	case *Pingreq:
+		header = pt.FixHeader
+	case *Pingresp:
+		header = pt.FixHeader
+	case *Puback:
+		header = pt.FixHeader
+	case *Pubcomp:
+		header = pt.FixHeader
+	case *Publish:
+		header = pt.FixHeader
+	case *Pubrec:
+		header = pt.FixHeader
+	case *Pubrel:
+		header = pt.FixHeader
+	case *Suback:
+		header = pt.FixHeader
+	case *Subscribe:
+		header = pt.FixHeader
+	case *Unsuback:
+		header = pt.FixHeader
+	case *Unsubscribe:
+		header = pt.FixHeader
+	}
+	if header == nil {
+		return 0
+	}
+	var headerLength uint
+	if header.RemainLength <= 127 {
+		headerLength = 2
+	} else if header.RemainLength <= 16383 {
+		headerLength = 3
+	} else if header.RemainLength <= 2097151 {
+		headerLength = 4
+	} else if header.RemainLength <= 268435455 {
+		headerLength = 5
+	}
+	return headerLength + uint(header.RemainLength)
+
 }

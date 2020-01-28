@@ -3,8 +3,6 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"fmt"
-	log2 "log"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,9 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/DrmagicE/gmqtt/logger"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+
+	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
+	subscription_trie "github.com/DrmagicE/gmqtt/subscription/trie"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/retained"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 var (
@@ -36,255 +40,126 @@ const (
 	serverStatusStarted
 )
 
-// Message represent a publish packet
-type Message interface {
-	Dup() bool
-	Qos() uint8
-	Retained() bool
-	Topic() string
-	PacketID() packets.PacketID
-	Payload() []byte
-}
-type msg struct {
-	dup      bool
-	qos      uint8
-	retained bool
-	topic    string
-	packetID packets.PacketID
-	payload  []byte
+var zaplog *zap.Logger
+
+func init() {
+	zaplog = zap.NewNop()
 }
 
-func (m *msg) Dup() bool {
-	return m.dup
+// LoggerWithField add fields to a new logger.
+// Plugins can use this method to add plugin name field.
+func LoggerWithField(fields ...zap.Field) *zap.Logger {
+	return zaplog.With(fields...)
 }
 
-func (m *msg) Qos() uint8 {
-	return m.qos
-}
-
-func (m *msg) Retained() bool {
-	return m.retained
-}
-
-func (m *msg) Topic() string {
-	return m.topic
-}
-
-func (m *msg) PacketID() packets.PacketID {
-	return m.packetID
-}
-
-func (m *msg) Payload() []byte {
-	return m.payload
-}
-
-func messageFromPublish(p *packets.Publish) *msg {
-	return &msg{
-		dup:      p.Dup,
-		qos:      p.Qos,
-		retained: p.Retain,
-		topic:    string(p.TopicName),
-		packetID: p.PacketID,
-		payload:  p.Payload,
-	}
-}
-
-// ServerService is mainly used by plugin to interact with Server
-type ServerService interface {
-	// Publish publishes a message to the broker.
-	Publish(topic string, payload []byte, qos uint8, retain bool)
-	// Subscribe subscribes topics for the client specified by clientID.
-	Subscribe(clientID string, topics []packets.Topic)
-	// UnSubscribe unsubscribes topics for the client specified by clientID.
-	UnSubscribe(clientID string, topics []string)
+// Server interface represents a mqtt server instance.
+type Server interface {
+	// SubscriptionStore returns the subscription.Store.
+	SubscriptionStore() subscription.Store
+	// RetainedStore returns the retained.Store.
+	RetainedStore() retained.Store
+	// PublishService returns the PublishService
+	PublishService() PublishService
 	// Client return the client specified by clientID.
 	Client(clientID string) Client
 	// GetConfig returns the config of the server
 	GetConfig() Config
+	// GetStatsManager returns StatsManager
+	GetStatsManager() StatsManager
 }
 
-// Server represents a mqtt server instance.
-// Create a Server by using NewServer() or DefaultServer()
-type Server struct {
+// server represents a mqtt server instance.
+// Create a server by using NewServer()
+type server struct {
 	wg      sync.WaitGroup
 	mu      sync.RWMutex //gard clients & offlineClients map
 	status  int32        //server status
 	clients map[string]*client
-	// offlineClients store the disconnected time of all disconnected clients with valid session(not expired). Key by clientID
+	// offlineClients store the disconnected time of all disconnected clients
+	// with valid session(not expired). Key by clientID
 	offlineClients  map[string]time.Time
 	tcpListener     []net.Listener //tcp listeners
-	websocketServer []*WsServer    //websocket server
+	websocketServer []*WsServer    //websocket serverStop
 	exitChan        chan struct{}
-	retainedMsgMu   sync.Mutex
-	retainedMsg     map[string]*packets.Publish //retained msg, key by topic name
 
-	subscriptionsDB *trieDB //store subscriptions
+	retainedDB      retained.Store
+	subscriptionsDB subscription.Store //store subscriptions
 
 	msgRouter  chan *msgRouter
 	register   chan *register   //register session
 	unregister chan *unregister //unregister session
+	config     Config
+	hooks      Hooks
+	plugins    []Plugable
 
-	config Config
-	//hooks
-	onAccept            OnAccept
-	onConnect           OnConnect
-	onConnected         OnConnected
-	onSessionCreated    OnSessionCreated
-	onSessionResumed    OnSessionResumed
-	onSessionTerminated OnSessionTerminated
-	onSubscribe         OnSubscribe
-	onSubscribed        OnSubscribed
-	onUnsubscribed      OnUnsubscribed
-	onMsgArrived        OnMsgArrived
-	onDeliver           OnDeliver
-	onAcked             OnAcked
-	onMsgDropped        OnMsgDropped
-	onClose             OnClose
-	onStop              OnStop
-
-	// 所有的插件
-	plugins []Plugable
+	statsManager   StatsManager
+	publishService PublishService
 }
 
-func (srv *Server) checkStatus() {
+func (srv *server) SubscriptionStore() subscription.Store {
+	return srv.subscriptionsDB
+}
+
+func (srv *server) RetainedStore() retained.Store {
+	return srv.retainedDB
+}
+
+func (srv *server) PublishService() PublishService {
+	return srv.publishService
+}
+
+func (srv *server) checkStatus() {
 	if srv.Status() != serverStatusInit {
 		panic(statusPanic)
 	}
 }
 
-// RegisterOnAccept registers a onAccept callback.
-// A panic will cause if any RegisterOnXXX is called after server.Run()
-func (srv *Server) RegisterOnAccept(callback OnAccept) {
-	srv.checkStatus()
-	srv.onAccept = callback
-}
-
-// RegisterOnConnect registers a onConnect callback.
-func (srv *Server) RegisterOnConnect(callback OnConnect) {
-	srv.checkStatus()
-	srv.onConnect = callback
-}
-
-// RegisterOnConnect registers a onConnected callback.
-func (srv *Server) RegisterOnConnected(callback OnConnected) {
-	srv.checkStatus()
-	srv.onConnected = callback
-}
-
-// RegisterOnSessionCreated registers a OnSessionCreated callback.
-func (srv *Server) RegisterOnSessionCreated(callback OnSessionCreated) {
-	srv.checkStatus()
-	srv.onSessionCreated = callback
-}
-
-// RegisterOnSessionResumed registers a OnSessionResumed callback.
-func (srv *Server) RegisterOnSessionResumed(callback OnSessionResumed) {
-	srv.checkStatus()
-	srv.onSessionResumed = callback
-}
-
-// RegisterOnConnect registers a OnSessionTerminated callback.
-func (srv *Server) RegisterOnSessionTerminated(callback OnSessionTerminated) {
-	srv.checkStatus()
-	srv.onSessionTerminated = callback
-}
-
-// RegisterOnSubscribe registers a onSubscribe callback.
-func (srv *Server) RegisterOnSubscribe(callback OnSubscribe) {
-	srv.checkStatus()
-	srv.onSubscribe = callback
-}
-
-// RegisterOnSubscribe registers a onSubscribed callback.
-func (srv *Server) RegisterOnSubscribed(callback OnSubscribed) {
-	srv.checkStatus()
-	srv.onSubscribed = callback
-}
-
-// RegisterOnUnsubscribed registers a onUnsubscribed callback.
-func (srv *Server) RegisterOnUnsubscribed(callback OnUnsubscribed) {
-	srv.checkStatus()
-	srv.onUnsubscribed = callback
-}
-
-// RegisterOnMsgArrived registers a onMsgArrived callback.
-func (srv *Server) RegisterOnMsgArrived(callback OnMsgArrived) {
-	srv.checkStatus()
-	srv.onMsgArrived = callback
-}
-
-// RegisterOnMsgDropped registers a onAcked callback.
-func (srv *Server) RegisterOnMsgDropped(callback OnMsgDropped) {
-	srv.checkStatus()
-	srv.onMsgDropped = callback
-}
-
-// RegisterOnDeliver registers a onDeliver callback.
-func (srv *Server) RegisterOnDeliver(callback OnDeliver) {
-	srv.checkStatus()
-	srv.onDeliver = callback
-}
-
-// RegisterOnAcked registers a onAcked callback.
-func (srv *Server) RegisterOnAcked(callback OnAcked) {
-	srv.checkStatus()
-	srv.onAcked = callback
-}
-
-// RegisterOnClose registers a onClose callback.
-func (srv *Server) RegisterOnClose(callback OnClose) {
-	srv.checkStatus()
-	srv.onClose = callback
-}
-
-// RegisterOnStop registers a onStop callback.
-func (srv *Server) RegisterOnStop(callback OnStop) {
-	srv.checkStatus()
-	srv.onStop = callback
-}
-
-var log *logger.Logger
-
-// SetLogger sets the logger. It is used in DEBUG mode.
-func SetLogger(l *logger.Logger) {
-	log = l
-}
-
-type DeliverMode int
+type DeliveryMode int
 
 const (
-	Overlap  DeliverMode = 0
-	OnlyOnce DeliverMode = 1
+	Overlap  DeliveryMode = 0
+	OnlyOnce DeliveryMode = 1
 )
 
 type Config struct {
 	RetryInterval              time.Duration
 	RetryCheckInterval         time.Duration
 	SessionExpiryInterval      time.Duration
-	SessionExpireCheckInterval time.Duration
+	SessionExpiryCheckInterval time.Duration
 	QueueQos0Messages          bool
 	MaxInflight                int
 	MaxAwaitRel                int
 	MaxMsgQueue                int
-	DeliverMode                DeliverMode
+	DeliveryMode               DeliveryMode
+	MsgRouterLen               int
+	RegisterLen                int
+	UnregisterLen              int
 }
 
 // DefaultConfig default config used by NewServer()
 var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
-	SessionExpiryInterval:      0,
-	SessionExpireCheckInterval: 0,
+	SessionExpiryInterval:      0 * time.Second,
+	SessionExpiryCheckInterval: 0 * time.Second,
 	QueueQos0Messages:          true,
 	MaxInflight:                32,
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
-	DeliverMode:                OnlyOnce,
+	DeliveryMode:               OnlyOnce,
+	MsgRouterLen:               DefaultMsgRouterLen,
+	RegisterLen:                DefaultRegisterLen,
+	UnregisterLen:              DefaultUnRegisterLen,
 }
 
 // GetConfig returns the config of the server
-func (srv *Server) GetConfig() Config {
+func (srv *server) GetConfig() Config {
 	return srv.config
+}
+
+// GetStatsManager returns StatsManager
+func (srv *server) GetStatsManager() StatsManager {
+	return srv.statsManager
 }
 
 //session register
@@ -301,15 +176,18 @@ type unregister struct {
 }
 
 type msgRouter struct {
-	pub *packets.Publish
+	msg      packets.Message
+	clientID string
+	// if set to false, must set clientID to specify the client to send
+	match bool
 }
 
 // Status returns the server status
-func (srv *Server) Status() int32 {
+func (srv *server) Status() int32 {
 	return atomic.LoadInt32(&srv.status)
 }
 
-func (srv *Server) registerHandler(register *register) {
+func (srv *server) registerHandler(register *register) {
 	// ack code set in Connack Packet
 	var code uint8
 	client := register.client
@@ -319,27 +197,28 @@ func (srv *Server) registerHandler(register *register) {
 	if connect.AckCode != packets.CodeAccepted {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
 		ack := connect.NewConnackPacket(false)
-		//client.out <- ack
 		client.writePacket(ack)
 		register.error = err
 		return
 	}
-	if srv.onConnect != nil {
-		code = srv.onConnect(&chainStore{}, client)
+	if srv.hooks.OnConnect != nil {
+		code = srv.hooks.OnConnect(context.Background(), client)
 	}
 	connect.AckCode = code
 	if code != packets.CodeAccepted {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
 		ack := connect.NewConnackPacket(false)
-		//client.out <- ack
 		client.writePacket(ack)
 		client.setError(err)
 		register.error = err
 		return
 	}
-	if srv.onConnected != nil {
-		srv.onConnected(&chainStore{}, client)
+	if srv.hooks.OnConnect != nil {
+		srv.hooks.OnConnected(context.Background(), client)
 	}
+	srv.statsManager.addClientConnected()
+	srv.statsManager.addSessionActive()
+
 	client.setConnectedAt(time.Now())
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
@@ -349,9 +228,10 @@ func (srv *Server) registerHandler(register *register) {
 	if oldExist {
 		oldSession = oldClient.session
 		if oldClient.IsConnected() {
-			if log != nil {
-				log.Printf("%-15s %v: logging with duplicate ClientID: %s", "", client.rwc.RemoteAddr(), client.OptionsReader().ClientID())
-			}
+			zaplog.Info("logging with duplicate ClientID",
+				zap.String("remote", client.rwc.RemoteAddr().String()),
+				zap.String("client_id", client.OptionsReader().ClientID()),
+			)
 			oldClient.setSwitching()
 			<-oldClient.Close()
 			if oldClient.opts.willFlag {
@@ -363,48 +243,36 @@ func (srv *Server) registerHandler(register *register) {
 					Payload:   oldClient.opts.willPayload,
 				}
 				go func() {
-					msgRouter := &msgRouter{pub: willMsg}
+					msgRouter := &msgRouter{msg: messageFromPublish(willMsg), match: true}
 					srv.msgRouter <- msgRouter
 				}()
 			}
 			if !client.opts.cleanSession && !oldClient.opts.cleanSession { //reuse old session
 				sessionReuse = true
-				/*			clearOut:
-							for {
-								select {
-								case p := <-oldClient.out:
-									if p, ok := p.(*packets.Publish); ok {
-										oldClient.msgEnQueue(p)
-									}
-								default:
-									break clearOut
-								}
-							}*/
 			}
-		} else if oldClient.Status() == Disconnected {
+		} else if oldClient.IsDisConnected() {
 			if !client.opts.cleanSession {
 				sessionReuse = true
-			} else if srv.onSessionTerminated != nil {
-				srv.onSessionTerminated(&chainStore{}, oldClient, ConflictTermination)
+			} else if srv.hooks.OnSessionTerminated != nil {
+				srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 			}
-		} else if srv.onSessionTerminated != nil {
-			srv.onSessionTerminated(&chainStore{}, oldClient, ConflictTermination)
+		} else if srv.hooks.OnSessionTerminated != nil {
+			srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 		}
 	}
 	ack := connect.NewConnackPacket(sessionReuse)
 	client.out <- ack
 	client.setConnected()
-	if sessionReuse { //发送还未确认的消息和离线消息队列 inflight & msgQueue
+	if sessionReuse { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
 		client.session.unackpublish = oldSession.unackpublish
-		client.addMsgDeliveredTotal(oldClient.MsgDeliveredTotal())
-		client.addMsgDroppedTotal(oldClient.MsgDroppedTotal())
-		client.addSubscriptionsCount(oldClient.SubscriptionsCount())
+		client.statsManager = oldClient.statsManager
 		//send unacknowledged publish
 		oldSession.inflightMu.Lock()
 		for e := oldSession.inflight.Front(); e != nil; e = e.Next() {
 			if inflight, ok := e.Value.(*inflightElem); ok {
 				pub := inflight.packet
 				pub.Dup = true
+				client.statsManager.decInflightCurrent(1)
 				client.onlinePublish(pub)
 			}
 		}
@@ -424,6 +292,7 @@ func (srv *Server) registerHandler(register *register) {
 				}
 				client.setAwaitRel(pid)
 				client.session.setPacketID(pid)
+				client.statsManager.decAwaitCurrent(1)
 				client.out <- pubrel
 			}
 		}
@@ -433,34 +302,36 @@ func (srv *Server) registerHandler(register *register) {
 		oldSession.msgQueueMu.Lock()
 		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() {
 			if publish, ok := e.Value.(*packets.Publish); ok {
+				client.statsManager.messageDequeue(1)
 				client.onlinePublish(publish)
 			}
 		}
 		oldSession.msgQueueMu.Unlock()
-		if log != nil {
-			log.Printf("%-15s %v: logined with session reuse", "", client.rwc.RemoteAddr())
-		}
+
+		zaplog.Info("logged in with session reuse",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.clientID))
 	} else {
 		if oldExist {
-			srv.subscriptionsDB.deleteAll(client.opts.clientID)
+			srv.subscriptionsDB.UnsubscribeAll(client.opts.clientID)
 		}
-		if log != nil {
-			log.Printf("%-15s %v: logined with new session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Info("logged in with new session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.clientID),
+		)
 	}
 	if sessionReuse {
-		if srv.onSessionResumed != nil {
-			srv.onSessionResumed(&chainStore{}, client)
+		if srv.hooks.OnSessionResumed != nil {
+			srv.hooks.OnSessionResumed(context.Background(), client)
 		}
 	} else {
-		if srv.onSessionCreated != nil {
-			srv.onSessionCreated(&chainStore{}, client)
+		if srv.hooks.OnSessionCreated != nil {
+			srv.hooks.OnSessionCreated(context.Background(), client)
 		}
 	}
 	delete(srv.offlineClients, client.opts.clientID)
-
 }
-func (srv *Server) unregisterHandler(unregister *unregister) {
+func (srv *server) unregisterHandler(unregister *unregister) {
 	defer close(unregister.done)
 	client := unregister.client
 	client.setDisConnected()
@@ -491,29 +362,32 @@ clearIn:
 			TopicName: []byte(client.opts.willTopic),
 			Payload:   client.opts.willPayload,
 		}
+		msg := messageFromPublish(willMsg)
 		go func() {
-			msgRouter := &msgRouter{pub: willMsg}
+			msgRouter := &msgRouter{msg: msg, match: true}
 			client.server.msgRouter <- msgRouter
 		}()
 	}
 	if client.opts.cleanSession {
-		if log != nil {
-			log.Printf("%-15s %v: logout & cleaning session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Info("logged out and cleaning session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.OptionsReader().ClientID()),
+		)
 		srv.mu.Lock()
 		srv.removeSession(client.opts.clientID)
 		srv.mu.Unlock()
-		if srv.onSessionTerminated != nil {
-			srv.onSessionTerminated(&chainStore{}, client, NormalTermination)
+		if srv.hooks.OnSessionTerminated != nil {
+			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
-
+		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 	} else { //store session 保持session
 		srv.mu.Lock()
 		srv.offlineClients[client.opts.clientID] = time.Now()
 		srv.mu.Unlock()
-		if log != nil {
-			log.Printf("%-15s %v: logout & storing session", "", client.rwc.RemoteAddr())
-		}
+		zaplog.Info("logged out and storing session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.OptionsReader().ClientID()),
+		)
 		//clear  out
 	clearOut:
 		for {
@@ -526,22 +400,40 @@ clearIn:
 				break clearOut
 			}
 		}
+		srv.statsManager.addSessionInactive()
 	}
 }
-func (srv *Server) msgRouterHandler(msg *msgRouter) {
-	pub := msg.pub
-	rs := srv.subscriptionsDB.getMatchedTopicFilter(string(pub.TopicName))
+
+// 所有进来的 msg都会分配pid，指定pid重传的不在这里处理
+func (srv *server) msgRouterHandler(m *msgRouter) {
+	msg := m.msg
+	var matched subscription.ClientTopics
+	if m.match {
+		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
+		if m.clientID != "" {
+			tmp := matched[m.clientID]
+			matched = make(subscription.ClientTopics)
+			matched[m.clientID] = tmp
+		}
+	} else {
+		// no need to search in subscriptionsDB.
+		matched = make(subscription.ClientTopics)
+		matched[m.clientID] = append(matched[m.clientID], packets.Topic{
+			Qos:  msg.Qos(),
+			Name: msg.Topic(),
+		})
+	}
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
-	for cid, topics := range rs {
-		if srv.config.DeliverMode == Overlap {
+	for cid, topics := range matched {
+		if srv.config.DeliveryMode == Overlap {
 			for _, t := range topics {
-				publish := pub.CopyPublish()
-				if publish.Qos > t.Qos {
-					publish.Qos = t.Qos
-				}
-				publish.Dup = false
 				if c, ok := srv.clients[cid]; ok {
+					publish := messageToPublish(msg)
+					if publish.Qos > t.Qos {
+						publish.Qos = t.Qos
+					}
+					publish.Dup = false
 					c.publish(publish)
 				}
 			}
@@ -556,27 +448,27 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 					break
 				}
 			}
-			publish := pub.CopyPublish()
-			if publish.Qos > maxQos {
-				publish.Qos = maxQos
-			}
-			publish.Dup = false
 			if c, ok := srv.clients[cid]; ok {
+				publish := messageToPublish(msg)
+				if publish.Qos > maxQos {
+					publish.Qos = maxQos
+				}
+				publish.Dup = false
 				c.publish(publish)
 			}
 		}
 	}
 }
-func (srv *Server) removeSession(clientID string) {
+func (srv *server) removeSession(clientID string) {
 	delete(srv.clients, clientID)
 	delete(srv.offlineClients, clientID)
-	srv.subscriptionsDB.deleteAll(clientID)
+	srv.subscriptionsDB.UnsubscribeAll(clientID)
 }
 
 // sessionExpireCheck 判断是否超时
 // sessionExpireCheck check and terminate expired sessions
-func (srv *Server) sessionExpireCheck() {
-	expire := srv.config.SessionExpireCheckInterval
+func (srv *server) sessionExpireCheck() {
+	expire := srv.config.SessionExpiryCheckInterval
 	if expire == 0 {
 		return
 	}
@@ -586,9 +478,11 @@ func (srv *Server) sessionExpireCheck() {
 		if now.Sub(disconnectedAt) >= expire {
 			if client, _ := srv.clients[id]; client != nil {
 				srv.removeSession(id)
-				if srv.onSessionTerminated != nil {
-					srv.onSessionTerminated(&chainStore{}, client, ExpiredTermination)
+				if srv.hooks.OnSessionTerminated != nil {
+					srv.hooks.OnSessionTerminated(context.Background(), client, ExpiredTermination)
 				}
+				srv.statsManager.addSessionExpired()
+				srv.statsManager.decSessionInactive()
 			}
 		}
 	}
@@ -597,9 +491,9 @@ func (srv *Server) sessionExpireCheck() {
 }
 
 // server event loop
-func (srv *Server) eventLoop() {
+func (srv *server) eventLoop() {
 	if srv.config.SessionExpiryInterval != 0 {
-		sessionExpireTimer := time.NewTicker(srv.config.SessionExpireCheckInterval)
+		sessionExpireTimer := time.NewTicker(srv.config.SessionExpiryCheckInterval)
 		defer sessionExpireTimer.Stop()
 		for {
 			select {
@@ -631,128 +525,44 @@ func (srv *Server) eventLoop() {
 // WsServer is used to build websocket server
 type WsServer struct {
 	Server   *http.Server
+	Path     string // Url path
 	CertFile string //TLS configration
 	KeyFile  string //TLS configration
 }
 
-// DefaultServer returns a default gmqtt server instance
-func DefaultServer() *Server {
-	return &Server{
+// NewServer returns a gmqtt server instance with the given options
+func NewServer(opts ...Options) *server {
+	// statistics
+	subStore := subscription_trie.NewStore()
+	statsMgr := newStatsManager(subStore)
+	srv := &server{
 		status:          serverStatusInit,
 		exitChan:        make(chan struct{}),
 		clients:         make(map[string]*client),
 		offlineClients:  make(map[string]time.Time),
-		msgRouter:       make(chan *msgRouter, DefaultMsgRouterLen),
-		register:        make(chan *register, DefaultRegisterLen),
-		unregister:      make(chan *unregister, DefaultUnRegisterLen),
-		retainedMsg:     make(map[string]*packets.Publish),
-		subscriptionsDB: newTrieDB(),
+		retainedDB:      retained_trie.NewStore(),
+		subscriptionsDB: subStore,
 		config:          DefaultConfig,
+		statsManager:    statsMgr,
 	}
-}
-
-// NewServer returns a gmqtt server instance with the given config
-func NewServer(c Config) *Server {
-	return &Server{
-		status:          serverStatusInit,
-		exitChan:        make(chan struct{}),
-		clients:         make(map[string]*client),
-		offlineClients:  make(map[string]time.Time),
-		msgRouter:       make(chan *msgRouter, DefaultMsgRouterLen),
-		register:        make(chan *register, DefaultRegisterLen),
-		unregister:      make(chan *unregister, DefaultUnRegisterLen),
-		retainedMsg:     make(map[string]*packets.Publish),
-		subscriptionsDB: newTrieDB(),
-		config:          c,
+	srv.publishService = &publishService{server: srv}
+	for _, fn := range opts {
+		fn(srv)
 	}
-}
-
-// SetMsgRouterLen sets the length of msgRouter channel.
-func (srv *Server) SetMsgRouterLen(i int) {
-	srv.checkStatus()
-	srv.msgRouter = make(chan *msgRouter, i)
-}
-
-// SetRegisterLen sets the length of register channel.
-func (srv *Server) SetRegisterLen(i int) {
-	srv.checkStatus()
-	srv.register = make(chan *register, i)
-}
-
-// SetUnregisterLen sets the length of unregister channel.
-func (srv *Server) SetUnregisterLen(i int) {
-	srv.checkStatus()
-	srv.unregister = make(chan *unregister, i)
-}
-
-// Publish 主动发布一个主题
-//
-// Publish publishs a message to the broker.
-// 	Notice: This method will not trigger the onPublish callback
-func (srv *Server) Publish(topic string, payload []byte, qos uint8, retain bool) {
-	pub := &packets.Publish{
-		Qos:       qos,
-		TopicName: []byte(topic),
-		Payload:   payload,
-		Retain:    retain,
-	}
-	if pub.Retain {
-		//保留消息，处理保留
-		srv.retainedMsgMu.Lock()
-		srv.retainedMsg[string(pub.TopicName)] = pub
-		if len(pub.Payload) == 0 {
-			delete(srv.retainedMsg, string(pub.TopicName))
-		}
-		srv.retainedMsgMu.Unlock()
-	}
-
-	srv.msgRouter <- &msgRouter{pub}
-}
-
-// Subscribe 为某一个客户端订阅主题
-//
-// Subscribe subscribes topics for the client specified by clientID.
-// 	Notice: This method will not trigger the onSubscribe callback
-func (srv *Server) Subscribe(clientID string, topics []packets.Topic) {
-	for _, v := range topics {
-		srv.subscriptionsDB.subscribe(clientID, v)
-	}
-}
-
-// UnSubscribe 为某一个客户端取消订阅某个主题
-//
-// UnSubscribe unsubscribes topics for the client specified by clientID.
-func (srv *Server) UnSubscribe(clientID string, topics []string) {
-	//client := srv.Client(clientID)
-	//if client == nil {
-	//	return
-	//}
-	for _, v := range topics {
-		srv.subscriptionsDB.unsubscribe(clientID, v)
-	}
+	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
+	srv.register = make(chan *register, srv.config.RegisterLen)
+	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
+	return srv
 }
 
 // Client returns the client for given clientID
-func (srv *Server) Client(clientID string) Client {
+func (srv *server) Client(clientID string) Client {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	return srv.clients[clientID]
 }
 
-// AddTCPListenner adds tcp listeners to mqtt server.
-// This method enables the mqtt server to serve on multiple ports.
-func (srv *Server) AddTCPListenner(ln ...net.Listener) {
-	srv.checkStatus()
-	srv.tcpListener = append(srv.tcpListener, ln...)
-}
-
-// AddWebSocketServer adds websocket server to mqtt server.
-func (srv *Server) AddWebSocketServer(Server ...*WsServer) {
-	srv.checkStatus()
-	srv.websocketServer = append(srv.websocketServer, Server...)
-}
-
-func (srv *Server) serveTCP(l net.Listener) {
+func (srv *server) serveTCP(l net.Listener) {
 	defer func() {
 		l.Close()
 	}()
@@ -776,8 +586,8 @@ func (srv *Server) serveTCP(l net.Listener) {
 		}
 
 		// onAccept hooks
-		if srv.onAccept != nil {
-			if !srv.onAccept(&chainStore{}, rw) {
+		if srv.hooks.OnAccept != nil {
+			if !srv.hooks.OnAccept(context.Background(), rw) {
 				rw.Close()
 				continue
 			}
@@ -827,7 +637,7 @@ func (ws *wsConn) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
-func (srv *Server) serveWebSocket(ws *WsServer) {
+func (srv *server) serveWebSocket(ws *WsServer) {
 	var err error
 	if ws.CertFile != "" && ws.KeyFile != "" {
 		err = ws.Server.ListenAndServeTLS(ws.CertFile, ws.KeyFile)
@@ -839,7 +649,7 @@ func (srv *Server) serveWebSocket(ws *WsServer) {
 	}
 }
 
-func (srv *Server) newClient(c net.Conn) *client {
+func (srv *server) newClient(c net.Conn) *client {
 	client := &client{
 		server:        srv,
 		rwc:           c,
@@ -854,6 +664,7 @@ func (srv *Server) newClient(c net.Conn) *client {
 		opts:          &options{},
 		cleanWillFlag: false,
 		ready:         make(chan struct{}),
+		statsManager:  newSessionStatsManager(),
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
@@ -862,12 +673,7 @@ func (srv *Server) newClient(c net.Conn) *client {
 	return client
 }
 
-// AddPlugins 添加插件
-func (srv *Server) AddPlugins(plugin ...Plugable) {
-	srv.plugins = append(srv.plugins, plugin...)
-}
-
-func (srv *Server) loadPlugins() error {
+func (srv *server) loadPlugins() error {
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
 		onConnectWrappers          []OnConnectWrapper
@@ -886,6 +692,7 @@ func (srv *Server) loadPlugins() error {
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
 	for _, p := range srv.plugins {
+		zaplog.Info("loading plugin", zap.String("name", p.Name()))
 		err := p.Load(srv)
 		if err != nil {
 			return err
@@ -940,166 +747,179 @@ func (srv *Server) loadPlugins() error {
 	}
 	// onAccept
 	if onAckedWrappers != nil {
-		onAccept := func(cs ChainStore, conn net.Conn) bool {
+		onAccept := func(ctx context.Context, conn net.Conn) bool {
 			return true
 		}
 		for i := len(onAcceptWrappers); i > 0; i-- {
 			onAccept = onAcceptWrappers[i-1](onAccept)
 		}
-		srv.onAccept = onAccept
+		srv.hooks.OnAccept = onAccept
 	}
 	// onConnect
 	if onConnectWrappers != nil {
-		onConnect := func(cs ChainStore, client Client) (code uint8) {
+		onConnect := func(ctx context.Context, client Client) (code uint8) {
 			return packets.CodeAccepted
 		}
 		for i := len(onConnectWrappers); i > 0; i-- {
 			onConnect = onConnectWrappers[i-1](onConnect)
 		}
-		srv.onConnect = onConnect
+		srv.hooks.OnConnect = onConnect
 	}
 	// onConnected
 	if onConnectedWrappers != nil {
-		onConnected := func(cs ChainStore, client Client) {}
+		onConnected := func(ctx context.Context, client Client) {}
 		for i := len(onConnectedWrappers); i > 0; i-- {
 			onConnected = onConnectedWrappers[i-1](onConnected)
 		}
-		srv.onConnected = onConnected
+		srv.hooks.OnConnected = onConnected
 	}
 	// onSessionCreated
 	if onSessionCreatedWrapper != nil {
-		onSessionCreated := func(cs ChainStore, client Client) {}
+		onSessionCreated := func(ctx context.Context, client Client) {}
 		for i := len(onSessionCreatedWrapper); i > 0; i-- {
 			onSessionCreated = onSessionCreatedWrapper[i-1](onSessionCreated)
 		}
-		srv.onSessionCreated = onSessionCreated
+		srv.hooks.OnSessionCreated = onSessionCreated
 	}
 
 	// onSessionResumed
 	if onSessionResumedWrapper != nil {
-		onSessionResumed := func(cs ChainStore, client Client) {}
+		onSessionResumed := func(ctx context.Context, client Client) {}
 		for i := len(onSessionResumedWrapper); i > 0; i-- {
 			onSessionResumed = onSessionResumedWrapper[i-1](onSessionResumed)
 		}
-		srv.onSessionResumed = onSessionResumed
+		srv.hooks.OnSessionResumed = onSessionResumed
 	}
 
 	// onSessionTerminated
 	if onSessionTerminatedWrapper != nil {
-		onSessionTerminated := func(cs ChainStore, client Client, reason SessionTerminatedReason) {}
+		onSessionTerminated := func(ctx context.Context, client Client, reason SessionTerminatedReason) {}
 		for i := len(onSessionTerminatedWrapper); i > 0; i-- {
 			onSessionTerminated = onSessionTerminatedWrapper[i-1](onSessionTerminated)
 		}
-		srv.onSessionTerminated = onSessionTerminated
+		srv.hooks.OnSessionTerminated = onSessionTerminated
 	}
 
 	// onSubscribe
 	if onSubscribeWrappers != nil {
-		onSubscribe := func(cs ChainStore, client Client, topic packets.Topic) (qos uint8) {
+		onSubscribe := func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 			return topic.Qos
 		}
 		for i := len(onSubscribeWrappers); i > 0; i-- {
 			onSubscribe = onSubscribeWrappers[i-1](onSubscribe)
 		}
-		srv.onSubscribe = onSubscribe
+		srv.hooks.OnSubscribe = onSubscribe
 	}
 	// onSubscribed
 	if onSubscribedWrappers != nil {
-		onSubscribed := func(cs ChainStore, client Client, topic packets.Topic) {}
+		onSubscribed := func(ctx context.Context, client Client, topic packets.Topic) {}
 		for i := len(onSubscribedWrappers); i > 0; i-- {
 			onSubscribed = onSubscribedWrappers[i-1](onSubscribed)
 		}
-		srv.onSubscribed = onSubscribed
+		srv.hooks.OnSubscribed = onSubscribed
 	}
 	//onUnsubscribed
 	if onUnsubscribedWrappers != nil {
-		onUnsubscribed := func(cs ChainStore, client Client, topicName string) {}
+		onUnsubscribed := func(ctx context.Context, client Client, topicName string) {}
 		for i := len(onUnsubscribedWrappers); i > 0; i-- {
 			onUnsubscribed = onUnsubscribedWrappers[i-1](onUnsubscribed)
 		}
-		srv.onUnsubscribed = onUnsubscribed
+		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
 	// onMsgArrived
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(cs ChainStore, client Client, msg Message) (valid bool) {
+		onMsgArrived := func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
 			return true
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
 			onMsgArrived = onMsgArrivedWrappers[i-1](onMsgArrived)
 		}
-		srv.onMsgArrived = onMsgArrived
+		srv.hooks.OnMsgArrived = onMsgArrived
 	}
 	// onDeliver
 	if onDeliverWrappers != nil {
-		onDeliver := func(cs ChainStore, client Client, msg Message) {}
+		onDeliver := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onDeliverWrappers); i > 0; i-- {
 			onDeliver = onDeliverWrappers[i-1](onDeliver)
 		}
-		srv.onDeliver = onDeliver
+		srv.hooks.OnDeliver = onDeliver
 	}
 	// onAcked
 	if onAckedWrappers != nil {
-		onAcked := func(cs ChainStore, client Client, msg Message) {}
+		onAcked := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onAckedWrappers); i > 0; i-- {
 			onAcked = onAckedWrappers[i-1](onAcked)
 		}
-		srv.onAcked = onAcked
+		srv.hooks.OnAcked = onAcked
 	}
 	// onClose hooks
 	if onCloseWrappers != nil {
-		onClose := func(cs ChainStore, client Client, err error) {}
+		onClose := func(ctx context.Context, client Client, err error) {}
 		for i := len(onCloseWrappers); i > 0; i-- {
 			onClose = onCloseWrappers[i-1](onClose)
 		}
-		srv.onClose = onClose
+		srv.hooks.OnClose = onClose
 	}
 	// onStop
 	if onStopWrappers != nil {
-		onStop := func(cs ChainStore) {}
+		onStop := func(ctx context.Context) {}
 		for i := len(onStopWrappers); i > 0; i-- {
 			onStop = onStopWrappers[i-1](onStop)
 		}
-		srv.onStop = onStop
+		srv.hooks.OnStop = onStop
 	}
 
 	// onMsgDropped
 	if onMsgDroppedWrappers != nil {
-		onMsgDropped := func(cs ChainStore, client Client, msg Message) {}
+		onMsgDropped := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}
-		srv.onMsgDropped = onMsgDropped
+		srv.hooks.OnMsgDropped = onMsgDropped
 	}
 
 	return nil
 }
 
+func (srv *server) wsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := defaultUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			zaplog.Warn("websocket upgrade error", zap.String("msg", err.Error()))
+			return
+		}
+		defer c.Close()
+		conn := &wsConn{c.UnderlyingConn(), c}
+		client := srv.newClient(conn)
+		client.serve()
+	}
+}
+
 // Run starts the mqtt server. This method is non-blocking
-func (srv *Server) Run() {
+func (srv *server) Run() {
+	var tcps []string
+	var ws []string
+	for _, v := range srv.tcpListener {
+		tcps = append(tcps, v.Addr().String())
+	}
+	for _, v := range srv.websocketServer {
+		ws = append(ws, v.Server.Addr)
+	}
+	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
+
 	err := srv.loadPlugins()
 	if err != nil {
 		panic(err)
 	}
-
 	srv.status = serverStatusStarted
 	go srv.eventLoop()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
 	}
-	if len(srv.websocketServer) != 0 {
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			c, err := defaultUpgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log2.Println("upgrade:", err)
-				return
-			}
-			defer c.Close()
-			conn := &wsConn{c.UnderlyingConn(), c}
-			client := srv.newClient(conn)
-			client.serve()
-		})
-	}
 	for _, server := range srv.websocketServer {
+		mux := http.NewServeMux()
+		mux.Handle(server.Path, srv.wsHandler())
+		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
 }
@@ -1109,7 +929,12 @@ func (srv *Server) Run() {
 //  2. Closing all idle connections
 //  3. Waiting for all connections have been closed
 //  4. Triggering OnStop()
-func (srv *Server) Stop(ctx context.Context) error {
+func (srv *server) Stop(ctx context.Context) error {
+	zaplog.Info("stopping gmqtt server")
+	defer func() {
+		zaplog.Info("server stopped")
+		//zaplog.Sync()
+	}()
 	select {
 	case <-srv.exitChan:
 		return nil
@@ -1122,6 +947,7 @@ func (srv *Server) Stop(ctx context.Context) error {
 	for _, ws := range srv.websocketServer {
 		ws.Server.Shutdown(ctx)
 	}
+
 	//关闭所有的client
 	//closing all idle clients
 	srv.mu.Lock()
@@ -1143,13 +969,17 @@ func (srv *Server) Stop(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
+		zaplog.Warn("server stop timeout, forced exit", zap.String("error", ctx.Err().Error()))
 		return ctx.Err()
 	case <-done:
 		for _, v := range srv.plugins {
-			fmt.Println("unload", v.Unload())
+			err := v.Unload()
+			if err != nil {
+				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
+			}
 		}
-		if srv.onStop != nil {
-			srv.onStop(&chainStore{})
+		if srv.hooks.OnStop != nil {
+			srv.hooks.OnStop(context.Background())
 		}
 		return nil
 	}

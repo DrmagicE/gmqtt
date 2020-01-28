@@ -2,32 +2,24 @@ package gmqtt
 
 import (
 	"container/list"
+	"context"
 	"sync"
 	"time"
 
-	"sync/atomic"
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-const maxInflightMessages = 65535
-
 type session struct {
-	inflightMu  sync.Mutex //gard inflight
-	inflight    *list.List //传输中等待确认的报文
-	inflightLen int64
+	inflightMu sync.Mutex //gard inflight
+	inflight   *list.List //传输中等待确认的报文
 
-	awaitRelMu  sync.Mutex // gard awaitRel
-	awaitRel    *list.List // 未确认的awaitRel报文
-	awaitRelLen int64
+	awaitRelMu sync.Mutex // gard awaitRel
+	awaitRel   *list.List // 未确认的awaitRel报文
 
-	msgQueueMu  sync.Mutex //gard msgQueue
-	msgQueue    *list.List //缓存数据，缓存publish报文
-	msgQueueLen int64
-
-	subscriptionsCount int64 //subscription数量
-	msgDroppedTotal    int64
-	msgDeliveredTotal  int64
+	msgQueueMu sync.Mutex //gard msgQueue
+	msgQueue   *list.List //缓存数据，缓存publish报文
 
 	//QOS=2 的情况下，判断报文是否是客户端重发报文，如果重发，则不分发.
 	// 确保[MQTT-4.3.3-2]中：在收发送PUBREC报文确认任何到对应的PUBREL报文之前，接收者必须后续的具有相同标识符的PUBLISH报文。
@@ -44,8 +36,6 @@ type session struct {
 type inflightElem struct {
 	//at is the entry time
 	at time.Time
-	//pid is the packetID
-	pid packets.PacketID
 	//packet represents Publish packet
 	packet *packets.Publish
 }
@@ -70,15 +60,17 @@ func (client *client) setAwaitRel(pid packets.PacketID) {
 	if s.awaitRel.Len() >= s.config.MaxAwaitRel && s.config.MaxAwaitRel != 0 { //加入缓存队列
 		removeMsg := s.awaitRel.Front()
 		s.awaitRel.Remove(removeMsg)
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "awaitRel window is overflow, removing the front elem ", client.OptionsReader().ClientID(), removeMsg.Value)
-		}
+		zaplog.Info("awaitRel window is full, removing the front elem",
+			zap.String("clientID", client.opts.clientID),
+			zap.Int16("pid", int16(pid)))
+	} else {
+		client.statsManager.addAwaitCurrent(1)
 	}
 	s.awaitRel.PushBack(elem)
-	atomic.AddInt64(&s.awaitRelLen, 1)
+
 }
 
-//awaitRelAck
+//unsetAwaitRel
 func (client *client) unsetAwaitRel(pid packets.PacketID) {
 	s := client.session
 	s.awaitRelMu.Lock()
@@ -87,7 +79,7 @@ func (client *client) unsetAwaitRel(pid packets.PacketID) {
 		if el, ok := e.Value.(*awaitRelElem); ok {
 			if el.pid == pid {
 				s.awaitRel.Remove(e)
-				atomic.AddInt64(&s.awaitRelLen, -1)
+				client.statsManager.decAwaitCurrent(1)
 				s.freePacketID(pid)
 				return
 			}
@@ -111,19 +103,15 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 	s.msgQueueMu.Lock()
 	defer s.msgQueueMu.Unlock()
 	if s.msgQueue.Len() >= s.config.MaxMsgQueue && s.config.MaxMsgQueue != 0 {
-		client.addMsgDroppedTotal(1)
-		if log != nil {
-			log.Printf("%-15s[%s]", "msg queue is overflow, removing msg. ", client.OptionsReader().ClientID())
-		}
 		var removeMsg *list.Element
 		// onMessageDropped hook
-		if srv.onMsgDropped != nil {
+		if srv.hooks.OnMsgDropped != nil {
 			defer func() {
-				cs := &chainStore{}
+				cs := context.Background()
 				if removeMsg != nil {
-					srv.onMsgDropped(cs, client, messageFromPublish(removeMsg.Value.(*packets.Publish)))
+					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(removeMsg.Value.(*packets.Publish)))
 				} else {
-					srv.onMsgDropped(cs, client, messageFromPublish(publish))
+					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(publish))
 				}
 			}()
 		}
@@ -136,22 +124,37 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			}
 		}
 		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "QOS_0 in queue"),
+				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+			)
 			s.msgQueue.Remove(removeMsg)
-			if log != nil {
-				log.Printf("%-15s[%s],packet: %s ", "qos 0 msg removed", client.OptionsReader().ClientID(), removeMsg.Value.(packets.Packet))
-			}
+			client.server.statsManager.messageDropped(0)
+			client.statsManager.messageDropped(0)
 		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "QOS_0 enqueue"),
+				zap.String("packet", publish.String()),
+			)
+			client.server.statsManager.messageDropped(0)
+			client.statsManager.messageDropped(0)
 			return
-		} else if publish.Qos != packets.QOS_0 { //case3: removing the front message of msgQueue
+		} else { //case3: removing the front message of msgQueue
 			removeMsg = s.msgQueue.Front()
 			s.msgQueue.Remove(removeMsg)
-			if log != nil {
-				p := removeMsg.Value.(packets.Packet)
-				log.Printf("%-15s[%s],packet: %s ", "first msg removed", client.OptionsReader().ClientID(), p)
-			}
+			zaplog.Info("message queue is full, removing msg",
+				zap.String("clientID", client.opts.clientID),
+				zap.String("type", "front"),
+				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+			)
+			client.server.statsManager.messageDropped(removeMsg.Value.(*packets.Publish).Qos)
+			client.statsManager.messageDropped(removeMsg.Value.(*packets.Publish).Qos)
 		}
 	} else {
-		atomic.AddInt64(&s.msgQueueLen, 1)
+		client.server.statsManager.messageEnqueue(1)
+		client.statsManager.messageEnqueue(1)
 	}
 	s.msgQueue.PushBack(publish)
 }
@@ -163,11 +166,13 @@ func (client *client) msgDequeue() *packets.Publish {
 
 	if s.msgQueue.Len() > 0 {
 		queueElem := s.msgQueue.Front()
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "sending queued msg ", client.OptionsReader().ClientID(), queueElem.Value.(*packets.Publish))
-		}
+		zaplog.Debug("msg dequeued",
+			zap.String("clientID", client.opts.clientID),
+			zap.String("packet", queueElem.Value.(*packets.Publish).String()))
+
 		s.msgQueue.Remove(queueElem)
-		atomic.AddInt64(&s.msgQueueLen, -1)
+		client.statsManager.messageDequeue(1)
+		client.server.statsManager.messageDequeue(1)
 		return queueElem.Value.(*packets.Publish)
 	}
 	return nil
@@ -178,21 +183,26 @@ func (client *client) msgDequeue() *packets.Publish {
 func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 	s := client.session
 	s.inflightMu.Lock()
-	defer s.inflightMu.Unlock()
+	defer func() {
+		s.inflightMu.Unlock()
+		if enqueue {
+			client.statsManager.addInflightCurrent(1)
+		}
+	}()
 	elem := &inflightElem{
 		at:     time.Now(),
-		pid:    publish.PacketID,
 		packet: publish,
 	}
 	if s.inflight.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 { //加入缓存队列
-		if log != nil {
-			log.Printf("%-15s[%s],packet: %s ", "inflight window is overflow, saving msg into msgQueue", client.OptionsReader().ClientID(), elem.packet)
-		}
+		zaplog.Info("inflight window full, saving msg into msgQueue",
+			zap.String("clientID", client.opts.clientID),
+			zap.String("packet", elem.packet.String()),
+		)
 		client.msgEnQueue(publish)
 		enqueue = false
 		return
 	}
-	atomic.AddInt64(&s.inflightLen, 1)
+	zaplog.Debug("set inflight", zap.String("clientID", client.opts.clientID), zap.String("packet", elem.packet.String()))
 	s.inflight.PushBack(elem)
 	enqueue = true
 	return
@@ -222,28 +232,27 @@ func (client *client) unsetInflight(packet packets.Packet) {
 				}
 				pid = packet.(*packets.Pubrec).PacketID
 			}
-			if el.pid == pid {
+			if el.packet.PacketID == pid {
 				s.inflight.Remove(e)
-				atomic.AddInt64(&s.inflightLen, -1)
-				if log != nil {
-					log.Printf("%-15s[%s],packet: %s ", "inflight msg released ", client.OptionsReader().ClientID(), packet)
-				}
+				client.statsManager.decInflightCurrent(1)
+				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.clientID),
+					zap.String("packet", packet.String()),
+				)
 				if freeID {
 					s.freePacketID(pid)
 				}
 				// onAcked hook
-				if srv.onAcked != nil {
-					srv.onAcked(&chainStore{}, client, messageFromPublish(e.Value.(*inflightElem).packet))
+				if srv.hooks.OnAcked != nil {
+					srv.hooks.OnAcked(context.Background(), client, messageFromPublish(e.Value.(*inflightElem).packet))
 				}
 				publish := client.msgDequeue()
 				if publish != nil {
 					elem := &inflightElem{
 						at:     time.Now(),
-						pid:    publish.PacketID,
 						packet: publish,
 					}
 					s.inflight.PushBack(elem)
-					client.deliverMsg(publish)
+					client.sendMsg(publish)
 				}
 				return
 			}
