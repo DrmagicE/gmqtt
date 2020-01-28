@@ -213,7 +213,7 @@ func (srv *server) registerHandler(register *register) {
 		register.error = err
 		return
 	}
-	if srv.hooks.OnConnect != nil {
+	if srv.hooks.OnConnected != nil {
 		srv.hooks.OnConnected(context.Background(), client)
 	}
 	srv.statsManager.addClientConnected()
@@ -549,10 +549,14 @@ func NewServer(opts ...Options) *server {
 	for _, fn := range opts {
 		fn(srv)
 	}
-	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
-	srv.register = make(chan *register, srv.config.RegisterLen)
-	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
 	return srv
+}
+
+// Init initialises the options.
+func (srv *server) Init(opts ...Options) {
+	for _, fn := range opts {
+		fn(srv)
+	}
 }
 
 // Client returns the client for given clientID
@@ -897,6 +901,10 @@ func (srv *server) wsHandler() http.HandlerFunc {
 
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() {
+	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
+	srv.register = make(chan *register, srv.config.RegisterLen)
+	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
+
 	var tcps []string
 	var ws []string
 	for _, v := range srv.tcpListener {

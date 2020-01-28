@@ -4,7 +4,6 @@
 * 基于Go语言实现的V3.1.1版本的MQTT服务器
 * 提供MQTT服务器开发库，使用该库可以二次开发出功能更丰富的MQTT服务器应用
 * MQTT V3.1.1 版本的协议解析库
-* MQTT压力测试工具 [README.md](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README_ZH.md)
 
 # 安装
 ```$ go get -u github.com/DrmagicE/gmqtt```
@@ -13,7 +12,7 @@
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
 * 支持tls/ssl以及ws/wss
 * 定制化插件能力。具体内容可参考`plugin.go` 和 `/plugin/`
-* 暴露服务接口，向外部提供与server交互的能力，详见`server.go`的`Server`接口定义。
+* 暴露服务接口，向外部提供与server交互的能力，详见`server.go`的`Server`接口定义和`example_test.go`。
 * 提供监控指标，目前支持prometheus。 (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/READEME.md))
 * restful API支持. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md))
 
@@ -21,7 +20,6 @@
 # 缺陷
 * 保留消息还未实现持久化存储。
 * 不支持集群部署。
-
 
 
 # 开始
@@ -124,3 +122,11 @@ $ go test -race .
 ```
 ## 集成测试
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+
+
+
+# TODO
+* 支持MQTT V3和V5
+* 桥接模式，集群模式（看情况）
+
+*暂时不保证向后兼容，在添加上述新功能时可能会有breaking changes。*

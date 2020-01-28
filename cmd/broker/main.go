@@ -32,7 +32,7 @@ func main() {
 	}
 
 	l, _ := zap.NewProduction()
-	// l, _ := zap.NewDevelopment()
+	//l, _ := zap.NewDevelopment()
 	s := gmqtt.NewServer(
 		gmqtt.WithTCPListener(ln),
 		gmqtt.WithWebsocketServer(ws),
@@ -42,7 +42,6 @@ func main() {
 		}, "/metrics")),
 		gmqtt.WithLogger(l),
 	)
-
 	s.Run()
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)

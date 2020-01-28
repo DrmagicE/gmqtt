@@ -5,7 +5,6 @@ Gmqtt provides:
 *  MQTT broker that fully implements the MQTT protocol V3.1.1.
 *  Golang MQTT broker package for secondary development.
 *  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
-*  MQTT broker benchmark tool.
 
 # Installation
 ```$ go get -u github.com/DrmagicE/gmqtt```
@@ -14,7 +13,7 @@ Gmqtt provides:
 * Provide hook method to customized the broker behaviours(Authentication, ACL, etc..). See `hooks.go` for more details
 * Support tls/ssl and websocket
 * Enable user to write plugins. See `plugin.go` and `/plugin` for more details.
-* Provide abilities for extensions to interact with the server. See `Server` interface in `server.go` for more details.
+* Provide abilities for extensions to interact with the server. See `Server` interface in `server.go`  and `example_test.go` for more details.
 * Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/READEME.md))
 * Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md))
 
@@ -125,6 +124,8 @@ $ go test -race .
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 
+# TODO
+* Support MQTT V3 and V5.
+* Support bridge mode and maybe cluster.
 
-
-
+*Breaking changes may occur when adding this new features.*
