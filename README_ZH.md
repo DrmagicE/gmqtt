@@ -124,6 +124,3 @@ $ go test -race .
 ```
 ## 集成测试
 通过了 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
-
-## 压力测试
-[文档与测试结果](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README_ZH.md)

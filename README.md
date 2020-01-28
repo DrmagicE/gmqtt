@@ -124,9 +124,6 @@ $ go test -race .
 ## Integration Test
 Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
-## Benchmark Test
-[Documentation & Results](https://github.com/DrmagicE/gmqtt/blob/master/cmd/benchmark/README.md)
-
 
 
 
