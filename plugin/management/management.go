@@ -44,7 +44,7 @@ func newResponse(result interface{}, pager *Pager, err error) *Response {
 
 type Management struct {
 	monitor *monitor
-	service gmqtt.Server
+	server  gmqtt.Server
 	addr    string
 	user    gin.Accounts //BasicAuth user info,username => password
 }
@@ -90,9 +90,10 @@ func (m *Management) OnUnsubscribedWrapper(unsubscribe gmqtt.OnUnsubscribed) gmq
 	}
 }
 
-func (m *Management) Load(service gmqtt.Server) error {
-	m.service = service
-	m.monitor.config = service.GetConfig()
+func (m *Management) Load(server gmqtt.Server) error {
+	m.monitor = newMonitor(server.SubscriptionStore())
+	m.server = server
+	m.monitor.config = server.GetConfig()
 	var router gin.IRouter
 	gin.SetMode(gin.ReleaseMode)
 	e := gin.Default()
@@ -164,9 +165,8 @@ func newPager(c *gin.Context) *Pager {
 
 func New(addr string, user gin.Accounts) *Management {
 	m := &Management{
-		monitor: newMonitor(),
-		user:    user,
-		addr:    addr,
+		user: user,
+		addr: addr,
 	}
 	return m
 }
@@ -234,8 +234,8 @@ func (m *Management) Subscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, errors.New("invalid clientID")))
 		return
 	}
-	m.service.Subscribe(cid, []packets.Topic{
-		{Qos: uint8(qos), Name: topic},
+	m.server.SubscriptionStore().Subscribe(cid, packets.Topic{
+		Qos: uint8(qos), Name: topic,
 	})
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
@@ -254,7 +254,7 @@ func (m *Management) Unsubscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, errors.New("invalid clientID")))
 		return
 	}
-	m.service.UnSubscribe(cid, []string{topic})
+	m.server.SubscriptionStore().Unsubscribe(cid, topic)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 
@@ -281,14 +281,15 @@ func (m *Management) Publish(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalUtf8))
 		return
 	}
-	m.service.Publish(topic, []byte(payload), uint8(qos), retain)
+	msg := gmqtt.NewMessage(topic, []byte(payload), uint8(qos), gmqtt.Retained(retain))
+	m.server.PublishService().Publish(msg)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 
 // CloseClient is the handle function for "Delete /client/:id" which close the client specified by the id
 func (m *Management) CloseClient(c *gin.Context) {
 	id := c.Param("id")
-	client := m.service.Client(id)
+	client := m.server.Client(id)
 	if client != nil {
 		client.Close()
 	}

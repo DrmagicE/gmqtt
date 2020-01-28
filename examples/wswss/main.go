@@ -22,15 +22,17 @@ func main() {
 
 	ws := &gmqtt.WsServer{
 		Server: &http.Server{Addr: ":8080"},
+		Path:   "/",
 	}
 	wss := &gmqtt.WsServer{
 		Server:   &http.Server{Addr: ":8081"},
+		Path:     "/",
 		CertFile: "../testcerts/server.crt",
 		KeyFile:  "../testcerts/server.key",
 	}
 	s := gmqtt.NewServer(
-		gmqtt.TCPListener(ln),
-		gmqtt.WebsocketServer(ws, wss),
+		gmqtt.WithTCPListener(ln),
+		gmqtt.WithWebsocketServer(ws, wss),
 	)
 	s.Run()
 	fmt.Println("started...")

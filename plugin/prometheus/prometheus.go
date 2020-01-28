@@ -7,13 +7,19 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
+const name = "prometheus"
+
+var log *zap.Logger
+
 const metricPrefix = "gmqtt_"
 
+// Prometheus served as a prometheus exporter that exposes gmqtt metrics.
 type Prometheus struct {
 	statsManager gmqtt.StatsManager
 	httpServer   *http.Server
@@ -29,6 +35,7 @@ func New(httpSever *http.Server, path string) *Prometheus {
 }
 
 func (p *Prometheus) Load(service gmqtt.Server) error {
+	log = gmqtt.LoggerWithField(zap.String("plugin", name))
 	p.statsManager = service.GetStatsManager()
 	r := prometheus.NewPedanticRegistry()
 	r.MustRegister(p)
@@ -50,7 +57,7 @@ func (p *Prometheus) HookWrapper() gmqtt.HookWrapper {
 	return gmqtt.HookWrapper{}
 }
 func (p *Prometheus) Name() string {
-	return "prometheus"
+	return name
 }
 
 func (p *Prometheus) Describe(desc chan<- *prometheus.Desc) {
@@ -58,6 +65,7 @@ func (p *Prometheus) Describe(desc chan<- *prometheus.Desc) {
 }
 
 func (p *Prometheus) Collect(m chan<- prometheus.Metric) {
+	log.Debug("metrics collected")
 	st := p.statsManager.GetStats()
 	collectPacketsStats(st.PacketStats, m)
 	collectClientStats(st.ClientStats, m)
@@ -75,7 +83,7 @@ func collectPacketsStats(ps *gmqtt.PacketStats, m chan<- prometheus.Metric) {
 	collectPacketsStatsBytes(bytesSentMetricName, ps.BytesSent, m)
 
 	collectPacketsStatsCounter(ReceivedCounterMetricName, ps.ReceivedTotal, m)
-	collectPacketsStatsCounter(sentCounterMetricName, ps.ReceivedTotal, m)
+	collectPacketsStatsCounter(sentCounterMetricName, ps.SentTotal, m)
 }
 func collectPacketsStatsBytes(metricName string, pb *gmqtt.PacketBytes, m chan<- prometheus.Metric) {
 	m <- prometheus.MustNewConstMetric(

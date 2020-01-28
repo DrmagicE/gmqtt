@@ -8,6 +8,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 const (
@@ -16,18 +17,20 @@ const (
 )
 
 type monitor struct {
-	clientMu      sync.Mutex
-	clientList    *quickList
-	subMu         sync.Mutex
-	subscriptions map[string]*quickList // key by clientID
-	config        gmqtt.Config
+	clientMu       sync.Mutex
+	clientList     *quickList
+	subMu          sync.Mutex
+	subscriptions  map[string]*quickList // key by clientID
+	config         gmqtt.Config
+	subStatsReader subscription.StatsReader
 }
 
 // newMonitor
-func newMonitor() *monitor {
+func newMonitor(subStatsReader subscription.StatsReader) *monitor {
 	return &monitor{
-		clientList:    newQuickList(),
-		subscriptions: make(map[string]*quickList),
+		clientList:     newQuickList(),
+		subscriptions:  make(map[string]*quickList),
+		subStatsReader: subStatsReader,
 	}
 }
 func statusText(client gmqtt.Client) string {
@@ -105,20 +108,24 @@ type ClientInfo struct {
 
 // SessionInfo represents the session information
 type SessionInfo struct {
-	ClientID          string    `json:"client_id"`
-	Status            string    `json:"status"`
-	CleanSession      bool      `json:"clean_session"`
-	Subscriptions     int64     `json:"subscriptions"`
-	MaxInflight       int       `json:"max_inflight"`
-	InflightLen       int64     `json:"inflight_len"`
-	MaxMsgQueue       int       `json:"max_msg_queue"`
-	MsgQueueLen       int64     `json:"msg_queue_len"`
-	MaxAwaitRel       int       `json:"max_await_rel"`
-	AwaitRelLen       int64     `json:"await_rel_len"`
-	MsgDroppedTotal   int64     `json:"msg_dropped_total"`
-	MsgDeliveredTotal int64     `json:"msg_delivered_total"`
-	ConnectedAt       time.Time `json:"connected_at"`
-	DisconnectedAt    time.Time `json:"disconnected_at"`
+	ClientID              string    `json:"client_id"`
+	Status                string    `json:"status"`
+	CleanSession          bool      `json:"clean_session"`
+	Subscriptions         uint64    `json:"subscriptions"`
+	MaxInflight           int       `json:"max_inflight"`
+	InflightLen           uint64    `json:"inflight_len"`
+	MaxMsgQueue           int       `json:"max_msg_queue"`
+	MsgQueueLen           uint64    `json:"msg_queue_len"`
+	MaxAwaitRel           int       `json:"max_await_rel"`
+	AwaitRelLen           uint64    `json:"await_rel_len"`
+	Qos0MsgDroppedTotal   uint64    `json:"qos0_msg_dropped_total"`
+	Qos1MsgDroppedTotal   uint64    `json:"qos1_msg_dropped_total"`
+	Qos2MsgDroppedTotal   uint64    `json:"qos2_msg_dropped_total"`
+	Qos0MsgDeliveredTotal uint64    `json:"qos0_msg_delivered_total"`
+	Qos1MsgDeliveredTotal uint64    `json:"qos1_msg_delivered_total"`
+	Qos2MsgDeliveredTotal uint64    `json:"qos2_msg_delivered_total"`
+	ConnectedAt           time.Time `json:"connected_at"`
+	DisconnectedAt        time.Time `json:"disconnected_at"`
 }
 
 // SubscriptionInfo represents the subscription information
@@ -228,23 +235,29 @@ func newClientInfo(client gmqtt.Client) *ClientInfo {
 	}
 	return rs
 }
-func newSessionInfo(client gmqtt.Client, c gmqtt.Config) *SessionInfo {
+func (m *monitor) newSessionInfo(client gmqtt.Client, c gmqtt.Config) *SessionInfo {
 	optsReader := client.OptionsReader()
+	stats := client.GetSessionStatsManager().GetStats()
+	subStats, _ := m.subStatsReader.GetClientStats(optsReader.ClientID())
 	rs := &SessionInfo{
-		ClientID:          optsReader.ClientID(),
-		Status:            statusText(client),
-		CleanSession:      optsReader.CleanSession(),
-		Subscriptions:     client.SubscriptionsCount(),
-		MaxInflight:       c.MaxInflight,
-		InflightLen:       client.InflightLen(),
-		MaxMsgQueue:       c.MaxMsgQueue,
-		MsgQueueLen:       client.MsgQueueLen(),
-		MaxAwaitRel:       c.MaxAwaitRel,
-		AwaitRelLen:       client.AwaitRelLen(),
-		MsgDroppedTotal:   client.MsgDroppedTotal(),
-		MsgDeliveredTotal: client.MsgDeliveredTotal(),
-		ConnectedAt:       client.ConnectedAt(),
-		DisconnectedAt:    client.DisconnectedAt(),
+		ClientID:              optsReader.ClientID(),
+		Status:                statusText(client),
+		CleanSession:          optsReader.CleanSession(),
+		Subscriptions:         subStats.SubscriptionsCurrent,
+		MaxInflight:           c.MaxInflight,
+		InflightLen:           stats.InflightCurrent,
+		MaxMsgQueue:           c.MaxMsgQueue,
+		MsgQueueLen:           stats.MessageStats.QueuedCurrent,
+		MaxAwaitRel:           c.MaxAwaitRel,
+		AwaitRelLen:           stats.AwaitRelCurrent,
+		Qos0MsgDroppedTotal:   stats.Qos0.DroppedTotal,
+		Qos1MsgDroppedTotal:   stats.Qos1.DroppedTotal,
+		Qos2MsgDroppedTotal:   stats.Qos2.DroppedTotal,
+		Qos0MsgDeliveredTotal: stats.Qos0.SentTotal,
+		Qos1MsgDeliveredTotal: stats.Qos1.SentTotal,
+		Qos2MsgDeliveredTotal: stats.Qos2.SentTotal,
+		ConnectedAt:           client.ConnectedAt(),
+		DisconnectedAt:        client.DisconnectedAt(),
 	}
 	return rs
 }
@@ -277,14 +290,14 @@ func (m *monitor) GetSessionByID(clientID string) (*SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newSessionInfo(client, m.config), err
+	return m.newSessionInfo(client, m.config), err
 }
 
 // GetSessions
 func (m *monitor) GetSessions(offset, n int) ([]*SessionInfo, error) {
 	rs := make([]*SessionInfo, 0)
 	fn := func(elem *list.Element) {
-		rs = append(rs, newSessionInfo(elem.Value.(gmqtt.Client), m.config))
+		rs = append(rs, m.newSessionInfo(elem.Value.(gmqtt.Client), m.config))
 	}
 	m.clientMu.Lock()
 	m.clientList.iterate(fn, offset, n)

@@ -154,8 +154,8 @@ func TestMsgQueue(t *testing.T) {
 	}
 	for e := c.session.inflight.Front(); e != nil; e = e.Next() {
 		elem := e.Value.(*inflightElem)
-		if elem.pid != packets.PacketID(beginPid) {
-			t.Fatalf("inflightElem.pid error, want %d, but %d", beginPid, elem.pid)
+		if elem.packet.PacketID != packets.PacketID(beginPid) {
+			t.Fatalf("inflightElem.pid error, want %d, but %d", beginPid, elem.packet.PacketID)
 		}
 		beginPid++
 	}

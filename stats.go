@@ -23,9 +23,11 @@ type SessionStatsManager interface {
 	decInflightCurrent(delta uint64)
 	addAwaitCurrent(delta uint64)
 	decAwaitCurrent(delta uint64)
+	// GetStats return the session statistics
 	GetStats() *SessionStats
 }
 
+// SessionStats the collection of statistics of each session.
 type SessionStats struct {
 	// InflightCurrent, the current length of the inflight queue.
 	InflightCurrent uint64
@@ -212,7 +214,7 @@ func (p *PacketCount) copy() *PacketCount {
 	}
 }
 
-// ClientStats provides the statistics of connections.
+// ClientStats provides the statistics of client connections.
 type ClientStats struct {
 	ConnectedTotal    uint64
 	DisconnectedTotal uint64
@@ -287,7 +289,7 @@ func (m *MessageStats) copy() *MessageStats {
 	}
 }
 
-// ServerStats is the collection of all statistics.
+// ServerStats is the collection of global  statistics.
 type ServerStats struct {
 	PacketStats       *PacketStats
 	ClientStats       *ClientStats

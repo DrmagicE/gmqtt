@@ -661,7 +661,6 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	client.write(unSuback)
 	for _, topicName := range unSub.Topics {
 		srv.subscriptionsDB.Unsubscribe(client.opts.clientID, topicName)
-		fmt.Println("Unsubscribe")
 		if srv.hooks.OnUnsubscribed != nil {
 			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}

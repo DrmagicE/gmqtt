@@ -60,7 +60,7 @@ type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
 
 type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
-// OnMessageArrived 返回接收到的publish报文是否允许转发，返回false则该报文不会被继续转发
+// OnMsgArrived 返回接收到的publish报文是否允许转发，返回false则该报文不会被继续转发
 //
 // OnMsgArrived returns whether the publish packet will be delivered or not.
 // If returns false, the packet will not be delivered to any clients.

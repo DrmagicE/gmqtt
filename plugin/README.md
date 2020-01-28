@@ -1,4 +1,4 @@
 # Plugin
 
-## How to write plugins?
+## How to write plugins
 TODO 

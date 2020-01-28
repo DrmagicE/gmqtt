@@ -1,6 +1,5 @@
 [中文文档](https://github.com/DrmagicE/gmqtt/blob/master/README_ZH.md)
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
-Inspired by [EMQ](https://github.com/emqx/emqx)
 
 Gmqtt provides:
 *  MQTT broker that fully implements the MQTT protocol V3.1.1.
@@ -12,66 +11,72 @@ Gmqtt provides:
 ```$ go get -u github.com/DrmagicE/gmqtt```
 
 # Features
-* Built-in hook methods so you can customized the behaviours of your project(Authentication, ACL, etc..)
+* Provide hook method to customized the broker behaviours(Authentication, ACL, etc..). See `hooks.go` for more details
 * Support tls/ssl and websocket
-* Provide monitor/management API
-## New Features
-* More Hooks function ara available. See `hooks.go` for more details
-* Enable user to develop plugins . See `plugin.go` and `/plugin/management` for more details
-* Use tire tree to store subscriptions
+* Enable user to write plugins. See `plugin.go` and `/plugin` for more details.
+* Provide abilities for extensions to interact with the server. See `Server` interface in `server.go` for more details.
+* Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/READEME.md))
+* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md))
 
-# Limitation
+# Limitations
 * The retained messages are not persisted when the server exit.
 * Cluster is not supported.
 
 
 # Get Started
 ## Build-in MQTT broker
-[Build-in MQTT broker](https://github.com/DrmagicE/gmqtt/blob/master/cmd/broker/README.md)
+```
+$ cd cmd/broker
+$ go run main.go
+```
+The broker will listen on port 1883 for TCP and 8080 for websocket.
+The broker loads the following plugins:
+ * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md): Listens on port `8001`, provides restful api service
+ * [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/READEME.md): Listens on port `8082`, serve as a prometheus exporter with `/metrics` path.
 
-## Using `gmqtt` Library for Secondary Development
+## Docker
+```
+$ docker build -t gmqtt .
+$ docker run -p 1883:1883 -p  8081:8081 -p 8082:8082 gmqtt
+```
+## Build with external source code
 The features of build-in MQTT broker are not rich enough.It is not implementing some features such as Authentication, ACL etc..
-So It is recommend to use `gmqtt` package to customized your broker: 
-
+But It is easy to write your own plugins to extend the broker.
 ```
 func main() {
-	s := gmqtt.DefaultServer()
+	// listener
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
 	}
-	crt, err := tls.LoadX509KeyPair("../testcerts/server.crt", "../testcerts/server.key")
-	if err != nil {
-		log.Fatalln(err.Error())
-		return
+	// websocket server
+	ws := &gmqtt.WsServer{
+		Server: &http.Server{Addr: ":8080"},
+		Path:   "/ws",
 	}
-	tlsConfig := &tls.Config{}
-	tlsConfig.Certificates = []tls.Certificate{crt}
-	tlsln, err := tls.Listen("tcp", ":8883", tlsConfig)
-
 	if err != nil {
-		log.Fatalln(err.Error())
-		return
+		panic(err)
 	}
-	s.AddTCPListenner(ln)
-	s.AddTCPListenner(tlsln)
 
-	s.RegisterOnSubscribe(func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) (qos uint8) {
-		if topic.Name == "test/nosubscribe" {
-			return packets.SUBSCRIBE_FAILURE
-		}
-		return topic.Qos
-	})
+	l, _ := zap.NewProduction()
+	// l, _ := zap.NewDevelopment()
+	s := gmqtt.NewServer(
+		gmqtt.WithTCPListener(ln),
+		gmqtt.WithWebsocketServer(ws),
+		// Add your plugins
+		gmqtt.WithPlugin(management.New(":8081", nil)),
+		gmqtt.WithPlugin(prometheus.New(&http.Server{
+			Addr: ":8082",
+		}, "/metrics")),
+		gmqtt.WithLogger(l),
+	)
 
-	//server.SetLogger(logger.NewLogger(os.Stderr, "", log.LstdFlags))
 	s.Run()
-	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	s.Stop(context.Background())
-	fmt.Println("stopped")
 }
 ```
 See `/examples` for more details.
@@ -96,114 +101,21 @@ Gmqtt implements the following hooks:
 * OnClose
 * OnStop
 
-See /examples/hook for more detail.
-
-### OnConnect()
-```
-// OnConnect will be called when a valid connect packet is received.
-// It returns the code of the connack packet.
-type OnConnect func(cs ChainStore, client Client) (code uint8)
-```
-This hook may be used to implement  Authentication process.For example:
-```
-...
-s.RegisterOnConnect(func(cs gmqtt.ChainStore, client gmqtt.Client) (code uint8) {
-    username := client.OptionsReader().Username()
-    password := client.OptionsReader().Password()
-    if validateUser(username, password) {
-        return packets.CodeAccepted
-    }
-    return packets.CodeBadUsernameorPsw
-})
-
-```
-### OnSubscribe()
-This method is called after receiving MQTT SUBSCRIBE packet.
-It returns the maximum QoS level that was granted to the subscription that was requested by the SUBSCRIBE packet.
-```
-/*
-OnSubscribe returns the maximum available QoS for the topic:
- 0x00 - Success - Maximum QoS 0
- 0x01 - Success - Maximum QoS 1
- 0x02 - Success - Maximum QoS 2
- 0x80 - Failure
-*/
-type OnSubscribe func(cs ChainStore, client Client, topic packets.Topic) (qos uint8)
-```
-This hook may be used to implement  ACL(Access Control List) process.For example:
-```
-...
-s.RegisterOnSubscribe(func(cs gmqtt.ChainStore, client gmqtt.Client, topic packets.Topic) (qos uint8) {
-    if client.OptionsReader().Username() == "root" {
-        return topic.Qos
-    }
-    if client.OptionsReader().Username() == "qos0" {
-        if topic.Qos <= packets.QOS_0 {
-            return topic.Qos
-        }
-        return packets.QOS_0
-    }
-    if client.OptionsReader().Username() == "qos1" {
-        if topic.Qos <= packets.QOS_1 {
-            return topic.Qos
-        }
-        return packets.QOS_1
-    }
-    if client.OptionsReader().Username() == "publishonly" {
-        return packets.SUBSCRIBE_FAILURE
-    }
-    return topic.Qos
-})
-```
-### OnUnsubscribed()
-```
-// OnUnsubscribed will be called after the topic has been unsubscribed
-type OnUnsubscribed func(cs ChainStore, client Client, topicName string)
-```
+See `/examples/hook` for more detail.
 
 
-### OnMsgArrived()
-This method will be called after receiving a MQTT PUBLISH packet.
-```
-// OnMsgArrived returns whether the publish packet will be delivered or not.
-// If returns false, the packet will not be delivered to any clients.
-type OnMsgArrived func(cs ChainStore, client Client, msg Message) (valid bool)
-```
-For example:
-```
-...
-s.RegisterOnMsgArrived(func(cs gmqtt.ChainStore, client gmqtt.Client, msg gmqtt.Message) (valid bool) {
-    if client.OptionsReader().Username() == "subscribeonly" {
-        client.Close()  //2.close the Network Connection
-        return false
-    }
-    //Only qos1 & qos0 are acceptable(will be delivered)
-    if msg.Qos() == packets.QOS_2 {
-        return false  //1.make a positive acknowledgement but not going to distribute the packet
-    }
-    return true
-})
-```
->If a Server implementation does not authorize a PUBLISH to be performed by a Client; it has no way of informing that Client. It MUST either 1.make a positive acknowledgement, according to the normal QoS rules, or 2.close the Network Connection [MQTT-3.3.5-2].
 
-### OnClose()
-```
-// OnClose will be called after the tcp connection of the client has been closed
-type OnClose func(cs ChainStore, client Client, err error)
-```
-
-
-## Server Stop Process
+## Stop the Server
 Call `server.Stop()` to stop the broker gracefully:
-1. Closing all open TCP listeners and shutting down all open websocket servers
-2. Closing all idle connections
-3. Waiting for all connections have been closed
-4. Triggering OnStop()
+1. Close all open TCP listeners and shutting down all open websocket servers
+2. Close all idle connections
+3. Wait for all connections have been closed
+4. Trigger OnStop().
 
 # Test
 ## Unit Test
 ```
-$ go test -race .
+$ go test -race . && go test -race pkg/packets
 ```
 ```
 $ cd pkg/packets

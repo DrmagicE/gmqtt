@@ -3,7 +3,6 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -41,125 +40,21 @@ const (
 	serverStatusStarted
 )
 
-//// default mode
-////var mode = "debug"
-
 var zaplog *zap.Logger = zap.NewNop()
 
-//const (
-//	DebugMode   = "debug"
-//	ReleaseMode = "release"
-//)
-
-type Options func(srv *server)
-
-// WithConfig set the config of the server
-func WithConfig(config Config) Options {
-	return func(srv *server) {
-		srv.config = config
-	}
-}
-
-func WithSubscriptionStore(store subscription.Store) Options {
-	return func(srv *server) {
-		srv.subscriptionsDB = store
-	}
-}
-
-// WithTCPListener set  tcp listener(s) of the server. Default listen on  :1883.
-func WithTCPListener(lns ...net.Listener) Options {
-	return func(srv *server) {
-		srv.tcpListener = append(srv.tcpListener, lns...)
-	}
-}
-
-// WithWebsocketServer set  websocket server(s) of the server.
-func WithWebsocketServer(ws ...*WsServer) Options {
-	return func(srv *server) {
-		srv.websocketServer = ws
-	}
-}
-
-// WithPlugin set plugin(s) of the server.
-func WithPlugin(plugin ...Plugable) Options {
-	return func(srv *server) {
-		srv.plugins = append(srv.plugins, plugin...)
-	}
-}
-
-// WithHook set hooks of the server. Notice: WithPlugin() will overwrite hooks.
-func WithHook(hooks Hooks) Options {
-	return func(srv *server) {
-		srv.hooks = hooks
-	}
-}
-
-func WithLogger(logger *zap.Logger) Options {
-	return func(srv *server) {
-		zaplog = logger
-	}
-}
-
-// msg is the implementation of Message interface
-type msg struct {
-	dup      bool
-	qos      uint8
-	retained bool
-	topic    string
-	packetID packets.PacketID
-	payload  []byte
-}
-
-func (m *msg) Dup() bool {
-	return m.dup
-}
-
-func (m *msg) Qos() uint8 {
-	return m.qos
-}
-
-func (m *msg) Retained() bool {
-	return m.retained
-}
-
-func (m *msg) Topic() string {
-	return m.topic
-}
-
-func (m *msg) PacketID() packets.PacketID {
-	return m.packetID
-}
-
-func (m *msg) Payload() []byte {
-	return m.payload
-}
-
-func messageFromPublish(p *packets.Publish) *msg {
-	return &msg{
-		dup:      p.Dup,
-		qos:      p.Qos,
-		retained: p.Retain,
-		topic:    string(p.TopicName),
-		packetID: p.PacketID,
-		payload:  p.Payload,
-	}
-}
-
-func messageToPublish(msg packets.Message) *packets.Publish {
-	return &packets.Publish{
-		Dup:       msg.Dup(),
-		Qos:       msg.Qos(),
-		Retain:    msg.Retained(),
-		TopicName: []byte(msg.Topic()),
-		PacketID:  msg.PacketID(),
-		Payload:   msg.Payload(),
-	}
+// LoggerWithField add fields to a new logger.
+// Plugins can use this method to add plugin name field.
+func LoggerWithField(fields ...zap.Field) *zap.Logger {
+	return zaplog.With(fields...)
 }
 
 // Server interface represents a mqtt server instance.
 type Server interface {
+	// SubscriptionStore returns the subscription.Store.
 	SubscriptionStore() subscription.Store
+	// RetainedStore returns the retained.Store.
 	RetainedStore() retained.Store
+	// PublishService returns the PublishService
 	PublishService() PublishService
 	// Client return the client specified by clientID.
 	Client(clientID string) Client
@@ -193,7 +88,8 @@ type server struct {
 	hooks      Hooks
 	plugins    []Plugable
 
-	statsManager StatsManager
+	statsManager   StatsManager
+	publishService PublishService
 }
 
 func (srv *server) SubscriptionStore() subscription.Store {
@@ -205,7 +101,7 @@ func (srv *server) RetainedStore() retained.Store {
 }
 
 func (srv *server) PublishService() PublishService {
-	return &publishService{srv: srv}
+	return srv.publishService
 }
 
 func (srv *server) checkStatus() {
@@ -214,23 +110,23 @@ func (srv *server) checkStatus() {
 	}
 }
 
-type DeliverMode int
+type DeliveryMode int
 
 const (
-	Overlap  DeliverMode = 0
-	OnlyOnce DeliverMode = 1
+	Overlap  DeliveryMode = 0
+	OnlyOnce DeliveryMode = 1
 )
 
 type Config struct {
 	RetryInterval              time.Duration
 	RetryCheckInterval         time.Duration
 	SessionExpiryInterval      time.Duration
-	SessionExpireCheckInterval time.Duration
+	SessionExpiryCheckInterval time.Duration
 	QueueQos0Messages          bool
 	MaxInflight                int
 	MaxAwaitRel                int
 	MaxMsgQueue                int
-	DeliverMode                DeliverMode
+	DeliveryMode               DeliveryMode
 	MsgRouterLen               int
 	RegisterLen                int
 	UnregisterLen              int
@@ -241,12 +137,12 @@ var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
 	SessionExpiryInterval:      0 * time.Second,
-	SessionExpireCheckInterval: 0 * time.Second,
+	SessionExpiryCheckInterval: 0 * time.Second,
 	QueueQos0Messages:          true,
-	MaxInflight:                0,
+	MaxInflight:                32,
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
-	DeliverMode:                Overlap,
+	DeliveryMode:               OnlyOnce,
 	MsgRouterLen:               DefaultMsgRouterLen,
 	RegisterLen:                DefaultRegisterLen,
 	UnregisterLen:              DefaultUnRegisterLen,
@@ -343,7 +239,6 @@ func (srv *server) registerHandler(register *register) {
 					Payload:   oldClient.opts.willPayload,
 				}
 				go func() {
-					fmt.Println("will msg")
 					msgRouter := &msgRouter{msg: messageFromPublish(willMsg), match: true}
 					srv.msgRouter <- msgRouter
 				}()
@@ -403,6 +298,7 @@ func (srv *server) registerHandler(register *register) {
 		oldSession.msgQueueMu.Lock()
 		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() {
 			if publish, ok := e.Value.(*packets.Publish); ok {
+				client.statsManager.messageDequeue(1)
 				client.onlinePublish(publish)
 			}
 		}
@@ -508,25 +404,25 @@ clearIn:
 func (srv *server) msgRouterHandler(m *msgRouter) {
 	msg := m.msg
 	var matched subscription.ClientTopics
-	// no need to search in subscriptionsDB.
-	if !m.match {
+	if m.match {
+		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
+		if m.clientID != "" {
+			tmp := matched[m.clientID]
+			matched = make(subscription.ClientTopics)
+			matched[m.clientID] = tmp
+		}
+	} else {
+		// no need to search in subscriptionsDB.
 		matched = make(subscription.ClientTopics)
 		matched[m.clientID] = append(matched[m.clientID], packets.Topic{
 			Qos:  msg.Qos(),
 			Name: msg.Topic(),
 		})
-	} else {
-		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
-		if m.clientID != "" {
-			tmp := make(subscription.ClientTopics)
-			tmp[m.clientID] = matched[m.clientID]
-			matched = tmp
-		}
 	}
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
 	for cid, topics := range matched {
-		if srv.config.DeliverMode == Overlap {
+		if srv.config.DeliveryMode == Overlap {
 			for _, t := range topics {
 				if c, ok := srv.clients[cid]; ok {
 					publish := messageToPublish(msg)
@@ -568,7 +464,7 @@ func (srv *server) removeSession(clientID string) {
 // sessionExpireCheck 判断是否超时
 // sessionExpireCheck check and terminate expired sessions
 func (srv *server) sessionExpireCheck() {
-	expire := srv.config.SessionExpireCheckInterval
+	expire := srv.config.SessionExpiryCheckInterval
 	if expire == 0 {
 		return
 	}
@@ -593,7 +489,7 @@ func (srv *server) sessionExpireCheck() {
 // server event loop
 func (srv *server) eventLoop() {
 	if srv.config.SessionExpiryInterval != 0 {
-		sessionExpireTimer := time.NewTicker(srv.config.SessionExpireCheckInterval)
+		sessionExpireTimer := time.NewTicker(srv.config.SessionExpiryCheckInterval)
 		defer sessionExpireTimer.Stop()
 		for {
 			select {
@@ -645,6 +541,7 @@ func NewServer(opts ...Options) *server {
 		config:          DefaultConfig,
 		statsManager:    statsMgr,
 	}
+	srv.publishService = &publishService{server: srv}
 	for _, fn := range opts {
 		fn(srv)
 	}

@@ -73,7 +73,7 @@ func main() {
 		}
 		return topic.Qos
 	}
-	onMsgArrived := func(ctx context.Context, client gmqtt.Client, msg gmqtt.Message) (valid bool) {
+	onMsgArrived := func(ctx context.Context, client gmqtt.Client, msg packets.Message) (valid bool) {
 		if client.OptionsReader().Username() == "subscribeonly" {
 			client.Close()
 			return false
@@ -90,7 +90,7 @@ func main() {
 	onStop := func(ctx context.Context) {
 		log.Println("stop")
 	}
-	onDeliver := func(ctx context.Context, client gmqtt.Client, msg gmqtt.Message) {
+	onDeliver := func(ctx context.Context, client gmqtt.Client, msg packets.Message) {
 		log.Printf("delivering message %s to client %s", msg.Payload(), client.OptionsReader().ClientID())
 	}
 	hooks := gmqtt.Hooks{
@@ -103,8 +103,8 @@ func main() {
 	}
 
 	s := gmqtt.NewServer(
-		gmqtt.TCPListener(ln),
-		gmqtt.Hook(hooks),
+		gmqtt.WithTCPListener(ln),
+		gmqtt.WithHook(hooks),
 	)
 
 	log.Println("started...")

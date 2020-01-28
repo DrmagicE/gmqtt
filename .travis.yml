@@ -1,16 +1,13 @@
 language: go
 
 go:
-  - "1.10.x"
   - "1.11.x"
   - "1.12.x"
+  - "1.13.x"
 
-install:
-  - go get -t -v -d -u ./...
-
-before_install:
-  - go get -t -v -d -u github.com/DrmagicE/gmqtt
-
+env:
+  - GO111MODULE=on
+  -
 script:
   -  go test -race ./pkg/packets
   -  go test -race .  -coverprofile=coverage.txt -covermode=atomic

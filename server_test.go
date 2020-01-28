@@ -39,7 +39,7 @@ func TestHooks(t *testing.T) {
 			hooksStr += "OnSubscribe"
 			return packets.QOS_1
 		},
-		OnMsgArrived: func(ctx context.Context, client Client, msg Message) (valid bool) {
+		OnMsgArrived: func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
 			hooksStr += "OnMsgArrived"
 			return true
 		},
