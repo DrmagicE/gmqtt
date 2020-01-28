@@ -27,7 +27,7 @@
 ## 使用内置的MQTT服务器
 下列命令将启动一个监听`1883`端口[tcp]和`8080`端口[websocket]的MQTT服务。
 该broker加载了如下插件:
- * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md): 监听`8001`端口, 提供restful api服务
+ * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md): 监听`8081`端口, 提供restful api服务
  * [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md): 监听`8082`端口, 作为prometheus exporter供prometheus server采集，接口地址为: `/metrics`
 
 ```

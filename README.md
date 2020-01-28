@@ -15,7 +15,7 @@ Gmqtt provides:
 * Enable user to write plugins. See `plugin.go` and `/plugin` for more details.
 * Provide abilities for extensions to interact with the server. See `Server` interface in `server.go`  and `example_test.go` for more details.
 * Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
-* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
+* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md))
 
 # Limitations
 * The retained messages are not persisted when the server exit.
@@ -30,7 +30,7 @@ $ go run main.go
 ```
 The broker will listen on port 1883 for TCP and 8080 for websocket.
 The broker loads the following plugins:
- * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md): Listens on port `8001`, provides restful api service
+ * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md): Listens on port `8081`, provides restful api service
  * [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md): Listens on port `8082`, serve as a prometheus exporter with `/metrics` path.
 
 
