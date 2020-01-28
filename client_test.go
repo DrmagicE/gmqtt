@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"reflect"
@@ -1137,7 +1136,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	a := assert.New(t)
 	c := DefaultConfig
 	c.MaxMsgQueue = 5
-	srv = NewServer(WithConfig(c))
+	srv = NewServer(WithConfig(c), WithLogger(zap.NewNop()))
 	defer func() {
 		srv = nil
 	}()
@@ -1230,7 +1229,6 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	}
 	cl = srv.Client(string(conn2.ClientID))
 	stats = cl.GetSessionStatsManager().GetStats()
-	fmt.Println("len", cl.(*client).session.msgQueue.Len())
 	a.EqualValues(1, stats.Qos1.DroppedTotal)
 	a.EqualValues(0, stats.QueuedCurrent)
 }

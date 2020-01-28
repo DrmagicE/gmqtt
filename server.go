@@ -40,7 +40,11 @@ const (
 	serverStatusStarted
 )
 
-var zaplog *zap.Logger = zap.NewNop()
+var zaplog *zap.Logger
+
+func init() {
+	zaplog = zap.NewNop()
+}
 
 // LoggerWithField add fields to a new logger.
 // Plugins can use this method to add plugin name field.
@@ -550,52 +554,6 @@ func NewServer(opts ...Options) *server {
 	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
 	return srv
 }
-
-// Publish 主动发布一个主题
-//
-// Publish publishs a message to the broker.
-// 	Notice: This method will not trigger the onPublish callback
-//func (srv *server) Publish(topic string, payload []byte, qos uint8, retain bool) {
-//	pub := &packets.Publish{
-//		Qos:       qos,
-//		TopicName: []byte(topic),
-//		Payload:   payload,
-//		Retain:    retain,
-//	}
-//	// 处理保留消息
-//	if pub.Retain {
-//		if len(pub.Payload) == 0 {
-//			srv.retainedDB.Remove(string(pub.TopicName))
-//		} else {
-//			srv.retainedDB.AddOrReplace(messageFromPublish(pub))
-//		}
-//	}
-//
-//	srv.msgRouter <- &msgRouter{pub}
-//}
-
-// Subscribe 为某一个客户端订阅主题
-//
-// Subscribe subscribes topics for the client specified by clientID.
-// 	Notice: This method will not trigger the onSubscribe callback
-//func (srv *server) Subscribe(clientID string, topics []packets.Topic) {
-//	for _, v := range topics {
-//		srv.subscriptionsDB.subscribe(clientID, v)
-//	}
-//}
-//
-//// UnSubscribe 为某一个客户端取消订阅某个主题
-////
-//// UnSubscribe unsubscribes topics for the client specified by clientID.
-//func (srv *server) UnSubscribe(clientID string, topics []string) {
-//	//client := srv.Client(clientID)
-//	//if client == nil {
-//	//	return
-//	//}
-//	for _, v := range topics {
-//		srv.subscriptionsDB.unsubscribe(clientID, v)
-//	}
-//}
 
 // Client returns the client for given clientID
 func (srv *server) Client(clientID string) Client {
