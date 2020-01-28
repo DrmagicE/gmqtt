@@ -30,8 +30,9 @@ $ go run main.go
 ```
 The broker will listen on port 1883 for TCP and 8080 for websocket.
 The broker loads the following plugins:
- * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/READEME.md): Listens on port `8001`, provides restful api service
+ * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md): Listens on port `8001`, provides restful api service
  * [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md): Listens on port `8082`, serve as a prometheus exporter with `/metrics` path.
+
 
 ## Docker
 ```
