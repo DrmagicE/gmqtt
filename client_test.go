@@ -916,7 +916,7 @@ func TestQos1Redelivery(t *testing.T) {
 			originalPid = pub.PacketID
 		}
 	}
-	p, err := readPacketWithTimeOut(c, testRedeliveryInternal+5*time.Second)
+	p, err := readPacketWithTimeOut(c, 2*testRedeliveryInternal)
 	if err != nil {
 		t.Fatalf("unexpected error:%s", err)
 	}
@@ -1020,7 +1020,7 @@ func TestQos2Redelivery(t *testing.T) {
 		if pubrec2.PacketID != pubrec.PacketID {
 			t.Fatalf("PacketID error, want %d, got %d", pubrec.PacketID, pubrec2.PacketID)
 		}
-		p, err = readPacketWithTimeOut(reciver, 5*time.Second)
+		p, err = readPacketWithTimeOut(reciver, 10*time.Second)
 		if err != errTestReadTimeout {
 			t.Fatalf("delivery duplicated messages， %v", reflect.TypeOf(p))
 		}
