@@ -750,7 +750,7 @@ func (srv *server) loadPlugins() error {
 		}
 	}
 	// onAccept
-	if onAckedWrappers != nil {
+	if onAcceptWrappers != nil {
 		onAccept := func(ctx context.Context, conn net.Conn) bool {
 			return true
 		}
