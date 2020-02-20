@@ -84,6 +84,8 @@ type Client interface {
 	ConnectedAt() time.Time
 	// DisconnectedAt return the disconnected time
 	DisconnectedAt() time.Time
+	// Connection returns the raw net.Conn
+	Connection() net.Conn
 	// Close closes the client connection. The returned channel will be closed after unregister process has been done
 	Close() <-chan struct{}
 
@@ -138,6 +140,11 @@ func (client *client) ConnectedAt() time.Time {
 // DisconnectedAt
 func (client *client) DisconnectedAt() time.Time {
 	return time.Unix(atomic.LoadInt64(&client.disconnectedAt), 0)
+}
+
+// Connection returns the raw net.Conn
+func (client *client) Connection() net.Conn {
+	return client.rwc
 }
 
 //OptionsReader returns the ClientOptionsReader. This is mainly used in callback functions.
