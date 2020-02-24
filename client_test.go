@@ -649,6 +649,95 @@ func TestServer_Publish(t *testing.T) {
 
 }
 
+func TestServer_PublishToClientWithMatch(t *testing.T) {
+	a := assert.New(t)
+	srv, conn := connectedServer(nil)
+	defer srv.Stop(context.Background())
+
+	c := conn.(*rwTestConn)
+	tt := []packets.Topic{
+		{Qos: packets.QOS_0, Name: "t0"},
+		{Qos: packets.QOS_1, Name: "t1"},
+		{Qos: packets.QOS_2, Name: "t2"},
+	}
+	srv.subscriptionsDB.Subscribe("MQTT", tt...)
+
+	// create a package for an unsubscribed channel
+	pubU := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("tu"),
+		Payload:   []byte("payload"),
+	}
+	srv.publishService.PublishToClient("MQTT",
+		NewMessage(string(pubU.TopicName), pubU.Payload, pubU.Qos, Retained(pubU.Retain)),
+		true) // publish with match=true, i.e. the pubU package should not be delivered
+
+	pub := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.publishService.PublishToClient("MQTT",
+		NewMessage(string(pub.TopicName), pub.Payload, pub.Qos, Retained(pub.Retain)),
+		true)
+	packet, err := readPacket(c)
+	a.Nil(err)
+
+	if p, ok := packet.(*packets.Publish); ok {
+		a.NotEqual(string(p.TopicName), string(pubU.TopicName), "Match error, received message for unsubscribed topic")
+	} else {
+		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
+	}
+}
+
+func TestServer_PublishToClientWithoutMatch(t *testing.T) {
+	a := assert.New(t)
+	srv, conn := connectedServer(nil)
+	defer srv.Stop(context.Background())
+	c := conn.(*rwTestConn)
+	tt := []packets.Topic{
+		{Qos: packets.QOS_0, Name: "t0"},
+		{Qos: packets.QOS_1, Name: "t1"},
+		{Qos: packets.QOS_2, Name: "t2"},
+	}
+	srv.subscriptionsDB.Subscribe("MQTT", tt...)
+
+	// create a package for an unsubscribed channel
+	pubU := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("tu"),
+		Payload:   []byte("payload"),
+	}
+	srv.publishService.PublishToClient("MQTT",
+		NewMessage(string(pubU.TopicName), pubU.Payload, pubU.Qos, Retained(pubU.Retain)),
+		false) // publish with match=false, i.e. the pubU package should be delivered
+
+	pub := &packets.Publish{
+		Dup:       false,
+		Qos:       packets.QOS_0,
+		Retain:    false,
+		TopicName: []byte("t0"),
+		Payload:   []byte("payload"),
+	}
+	srv.publishService.PublishToClient("MQTT",
+		NewMessage(string(pub.TopicName), pub.Payload, pub.Qos, Retained(pub.Retain)),
+		true)
+	packet, err := readPacket(c)
+	a.Nil(err)
+
+	if p, ok := packet.(*packets.Publish); ok {
+		a.Equal(string(pubU.TopicName), string(p.TopicName), "Match error, did not receive message for unsubscribed topic")
+	} else {
+		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
+	}
+}
+
 func TestUnsubscribe(t *testing.T) {
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())

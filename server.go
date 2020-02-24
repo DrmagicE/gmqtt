@@ -411,9 +411,11 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 	if m.match {
 		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
 		if m.clientID != "" {
-			tmp := matched[m.clientID]
+			tmp, ok := matched[m.clientID]
 			matched = make(subscription.ClientTopics)
-			matched[m.clientID] = tmp
+			if ok {
+				matched[m.clientID] = tmp
+			}
 		}
 	} else {
 		// no need to search in subscriptionsDB.
