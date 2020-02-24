@@ -650,9 +650,10 @@ func TestServer_Publish(t *testing.T) {
 }
 
 func TestServer_PublishToClientWithMatch(t *testing.T) {
+	a := assert.New(t)
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())
-	var err error
+
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
 		{Qos: packets.QOS_0, Name: "t0"},
@@ -683,27 +684,20 @@ func TestServer_PublishToClientWithMatch(t *testing.T) {
 	srv.publishService.PublishToClient("MQTT",
 		NewMessage(string(pub.TopicName), pub.Payload, pub.Qos, Retained(pub.Retain)),
 		true)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
 	packet, err := readPacket(c)
+	a.Nil(err)
 
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
 	if p, ok := packet.(*packets.Publish); ok {
-		if string(p.TopicName) == string(pubU.TopicName) {
-			t.Fatal("Match error, received message for unsubscribed topic", string(p.TopicName))
-		}
+		a.NotEqual(string(p.TopicName), string(pubU.TopicName), "Match error, received message for unsubscribed topic")
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
 	}
 }
 
 func TestServer_PublishToClientWithoutMatch(t *testing.T) {
+	a := assert.New(t)
 	srv, conn := connectedServer(nil)
 	defer srv.Stop(context.Background())
-	var err error
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
 		{Qos: packets.QOS_0, Name: "t0"},
@@ -734,18 +728,11 @@ func TestServer_PublishToClientWithoutMatch(t *testing.T) {
 	srv.publishService.PublishToClient("MQTT",
 		NewMessage(string(pub.TopicName), pub.Payload, pub.Qos, Retained(pub.Retain)),
 		true)
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
 	packet, err := readPacket(c)
+	a.Nil(err)
 
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
 	if p, ok := packet.(*packets.Publish); ok {
-		if string(p.TopicName) != string(pubU.TopicName) {
-			t.Fatal("Match error, did not receive message for unsubscribed topic", string(p.TopicName))
-		}
+		a.Equal(string(pubU.TopicName), string(p.TopicName), "Match error, did not receive message for unsubscribed topic")
 	} else {
 		t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(packet))
 	}
