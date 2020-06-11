@@ -36,7 +36,7 @@ func TestEncodeUTF8String(t *testing.T) {
 		if !bytes.Equal(b, v.wantBytes) {
 			t.Errorf("EncodeUTF8String(%v) error, want %v, but %v", v.buf, v.wantBytes, b)
 		}
-		if v.wantSize != v.wantSize {
+		if size != v.wantSize {
 			t.Errorf("EncodeUTF8String(%v) error, want %d, but %d", v.buf, v.wantSize, size)
 		}
 		if err != v.wantErr {
@@ -51,7 +51,7 @@ func TestDecodeUTF8String(t *testing.T) {
 		if !bytes.Equal(b, v.wantBytes) {
 			t.Errorf("DecodeUTF8String(%v) error, want %v, but %v", v.buf, v.wantBytes, b)
 		}
-		if v.wantSize != v.wantSize {
+		if size != v.wantSize {
 			t.Errorf("DecodeUTF8String(%v) error, want %d, but %d", v.buf, v.wantSize, size)
 		}
 		if err != v.wantErr {
