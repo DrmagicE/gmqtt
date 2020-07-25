@@ -30,7 +30,7 @@ func (p *Pingresp) Unpack(r io.Reader) error {
 
 // NewPingrespPacket returns a Pingresp instance by the given FixHeader and io.Reader
 func NewPingrespPacket(fh *FixHeader, r io.Reader) (*Pingresp, error) {
-	if fh.Flags != FLAG_RESERVED {
+	if fh.Flags != FlagReserved {
 		return nil, ErrInvalFlags
 	}
 	p := &Pingresp{FixHeader: fh}

@@ -285,7 +285,7 @@ func (srv *server) registerHandler(register *register) {
 				pubrel := &packets.Pubrel{
 					FixHeader: &packets.FixHeader{
 						PacketType:   packets.PUBREL,
-						Flags:        packets.FLAG_PUBREL,
+						Flags:        packets.FlagPubrel,
 						RemainLength: 2,
 					},
 					PacketID: pid,

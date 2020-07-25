@@ -19,7 +19,7 @@ func (p *Unsuback) String() string {
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsuback) Pack(w io.Writer) error {
 	if p.FixHeader == nil {
-		p.FixHeader = &FixHeader{PacketType: UNSUBACK, Flags: FLAG_RESERVED, RemainLength: 2}
+		p.FixHeader = &FixHeader{PacketType: UNSUBACK, Flags: FlagReserved, RemainLength: 2}
 	}
 	err := p.FixHeader.Pack(w)
 	if err != nil {
@@ -48,7 +48,7 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 // NewUnsubackPacket returns a Unsuback instance by the given FixHeader and io.Reader.
 func NewUnsubackPacket(fh *FixHeader, r io.Reader) (*Unsuback, error) {
 	p := &Unsuback{FixHeader: fh}
-	if fh.Flags != FLAG_RESERVED {
+	if fh.Flags != FlagReserved {
 		return nil, ErrInvalFlags
 	}
 	err := p.Unpack(r)

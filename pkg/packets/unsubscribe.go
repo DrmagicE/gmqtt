@@ -29,7 +29,7 @@ func (p *Unsubscribe) NewUnSubBack() *Unsuback {
 func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	p := &Unsubscribe{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.10.1-1]
-	if fh.Flags != FLAG_UNSUBSCRIBE {
+	if fh.Flags != FlagUnsubscribe {
 		return nil, ErrInvalFlags
 	}
 	err := p.Unpack(r)
@@ -38,7 +38,7 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FLAG_UNSUBSCRIBE}
+	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
 	buf := make([]byte, 0, 256)
 	pid := make([]byte, 2)
 	binary.BigEndian.PutUint16(pid, p.PacketID)

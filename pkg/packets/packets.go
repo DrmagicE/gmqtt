@@ -2,8 +2,10 @@ package packets
 
 import (
 	"bufio"
+	`bytes`
 	"encoding/binary"
 	"errors"
+	`fmt`
 	"io"
 	"unicode/utf8"
 )
@@ -24,7 +26,23 @@ var (
 	ErrInvalWillQos              = errors.New("invalid Will Qos")
 	ErrInvalWillRetain           = errors.New("invalid Will Retain")
 	ErrInvalUTF8String           = errors.New("invalid utf-8 string")
+	ErrInvalUint32  = errors.New("invalid uint32")
+	ErrInvalUint16  = errors.New("invalid uint16")
 )
+// MalformedErr is the error return when a control packet
+// that cannot be parsed according to MQTT specification.
+type MalformedErr struct {
+	// error is the underline error for debugging
+	error error
+}
+func (m MalformedErr) Error() string {
+	return fmt.Sprintf("malformed packet: %s", m.error)
+}
+func NewMalformedErr(error error) MalformedErr {
+	return MalformedErr{
+		error:error,
+	}
+}
 
 //Packet type
 const (
@@ -43,14 +61,23 @@ const (
 	PINGREQ
 	PINGRESP
 	DISCONNECT
+	AUTH
+)
+
+// MQTT Version
+type Version = byte
+
+const (
+	Version311 Version = 0x04
+	Version5   Version = 0x05
 )
 
 // Flag in the FixHeader
 const (
-	FLAG_RESERVED    = 0
-	FLAG_SUBSCRIBE   = 2
-	FLAG_UNSUBSCRIBE = 2
-	FLAG_PUBREL      = 2
+	FlagReserved    = 0
+	FlagSubscribe   = 2
+	FlagUnsubscribe = 2
+	FlagPubrel      = 2
 )
 
 // QoS levels & Subscribe failure
@@ -94,9 +121,17 @@ type FixHeader struct {
 
 // Topic represents the MQTT Topic
 type Topic struct {
-	Qos  uint8
+	SubOptions
 	Name string
 }
+type SubOptions struct {
+	Qos               uint8
+	RetainHandling    byte
+	NoLocal           bool
+	RetainAsPublished bool
+}
+
+
 
 // Reader is used to read data from bufio.Reader and create MQTT packet instance.
 type Reader struct {
@@ -186,7 +221,6 @@ func (fh *FixHeader) Pack(w io.Writer) error {
 	_, err = w.Write(b)
 	return err
 }
-
 //DecodeRemainLength 将remain length 转成byte表示
 //
 //DecodeRemainLength puts the length int into bytes
@@ -223,28 +257,21 @@ func DecodeRemainLength(length int) ([]byte, error) {
 // EncodeRemainLength 读remainLength,如果格式错误返回 error
 //
 // EncodeRemainLength reads the remain length bytes from bufio.Reader and returns length int.
-func EncodeRemainLength(r *bufio.Reader) (int, error) {
-	var i int
-	multiplier := 1
-	var value int
-	buf := make([]byte, 0, 1)
+func EncodeRemainLength(r io.ByteReader) (int, error) {
+	var vbi uint32
+	var multiplier uint32
 	for {
-		b, err := r.ReadByte()
-		if err != nil {
+		digit, err := r.ReadByte()
+		if err != nil && err != io.EOF {
 			return 0, err
 		}
-		buf = append(buf, b)
-		value += int(buf[i]&byte(127)) * multiplier
-		multiplier *= 128
-		if multiplier > 128*128*128*128 {
-			return 0, ErrInvalRemainLength
+		vbi |= uint32(digit&127) << multiplier
+		if (digit & 128) == 0 {
+			break
 		}
-		if buf[i]&128 != 0 { //高位不等于零还有下一个字节
-			i++
-		} else { //否则返回value
-			return value, nil
-		}
+		multiplier += 7
 	}
+	return int(vbi), nil
 }
 
 // EncodeUTF8String encodes the bytes into UTF-8 encoded strings, returns the encoded bytes, bytes size and error.
@@ -258,6 +285,64 @@ func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	binary.BigEndian.PutUint16(bufw, uint16(buflen))
 	bufw = append(bufw, buf...)
 	return bufw, 2 + buflen, nil
+}
+
+func readUint16(r *bytes.Buffer) (uint16, error) {
+	if r.Len() < 2 {
+		return 0,errMalformed(ErrInvalUint16)
+	}
+	return binary.BigEndian.Uint16(r.Next(2)), nil
+}
+
+func writeUint16(w *bytes.Buffer, i uint16) {
+	w.WriteByte(byte(i >> 8))
+	w.WriteByte(byte(i))
+}
+func writeUint32(w *bytes.Buffer, i uint32) {
+	w.WriteByte(byte(i >> 24))
+	w.WriteByte(byte(i >> 16))
+	w.WriteByte(byte(i >> 8))
+	w.WriteByte(byte(i))
+}
+
+func readUint32(r *bytes.Buffer) (uint32, error) {
+	if r.Len() < 4 {
+		return 0, errMalformed(ErrInvalUint32)
+	}
+	return binary.BigEndian.Uint32(r.Next(4)), nil
+}
+
+func readBinary(r *bytes.Buffer) (b []byte, err error) {
+	return readUTF8String(false, r)
+}
+
+func readUTF8String(mustUTF8 bool, r *bytes.Buffer) (b []byte, err error) {
+	if r.Len() < 2 {
+		return nil, errMalformed(ErrInvalUTF8String)
+	}
+	length := int(binary.BigEndian.Uint16(r.Next(2)))
+	if r.Len() < length {
+		return nil, errMalformed(ErrInvalUTF8String)
+	}
+	payload := r.Next(length)
+	if mustUTF8 {
+		if !ValidUTF8(payload) {
+			return nil, errMalformed(ErrInvalUTF8String)
+		}
+	}
+	return payload, nil
+}
+
+
+
+// the length of s cannot be greater than 65535
+func writeUTF8String(w *bytes.Buffer, s []byte) {
+	writeUint16(w, uint16(len(s)))
+	w.Write(s)
+}
+func writeBinary(w *bytes.Buffer, b []byte) {
+	writeUint16(w, uint16(len(b)))
+	w.Write(b)
 }
 
 // DecodeUTF8String decodes the  UTF-8 encoded strings into bytes, returns the decoded bytes, bytes size and error.
@@ -346,13 +431,10 @@ func ValidUTF8(p []byte) bool {
 // ValidTopicName 验证主题名是否合法  [MQTT-4.7.1-1]
 //
 // ValidTopicName returns whether the bytes is a valid topic name.[MQTT-4.7.1-1].
-func ValidTopicName(p []byte) bool {
-	if len(p) == 0 {
-		return false
-	}
-	for {
+func ValidTopicName(mustUTF8 bool, p []byte) bool {
+	for len(p) > 0 {
 		ru, size := utf8.DecodeRune(p)
-		if !utf8.ValidRune(ru) {
+		if mustUTF8 && ru == utf8.RuneError {
 			return false
 		}
 		if size == 1 {
@@ -361,25 +443,27 @@ func ValidTopicName(p []byte) bool {
 				return false
 			}
 		}
-		if size == 0 {
-			return true
-		}
 		p = p[size:]
 	}
+	return true
 }
 
 // ValidTopicFilter 验证主题过滤器是否合法
 //
 // ValidTopicFilter  returns whether the bytes is a valid topic filter. [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
-func ValidTopicFilter(p []byte) bool {
+// ValidTopicFilter 验证主题过滤器是否合法
+//
+// ValidTopicFilter  returns whether the bytes is a valid topic filter. [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
+func ValidTopicFilter(mustUTF8 bool, p []byte) bool {
 	if len(p) == 0 {
 		return false
 	}
 	var prevByte byte //前一个字节
 	var isSetPrevByte bool
-	for {
+
+	for len(p) > 0 {
 		ru, size := utf8.DecodeRune(p)
-		if !utf8.ValidRune(ru) {
+		if mustUTF8 && ru == utf8.RuneError {
 			return false
 		}
 		if size == 1 && isSetPrevByte {
@@ -397,13 +481,11 @@ func ValidTopicFilter(p []byte) bool {
 				}
 			}
 		}
-		if size == 0 {
-			return true
-		}
 		prevByte = p[0]
 		isSetPrevByte = true
 		p = p[size:]
 	}
+	return true
 }
 
 // TopicMatch 返回topic和topic filter是否
@@ -529,3 +611,5 @@ func TotalBytes(p Packet) uint {
 	return headerLength + uint(header.RemainLength)
 
 }
+
+

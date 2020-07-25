@@ -1,10 +1,9 @@
 package packets
 
 import (
-	"encoding/binary"
-	"io"
-
+	`bytes`
 	"fmt"
+	"io"
 )
 
 type Message interface {
@@ -18,6 +17,7 @@ type Message interface {
 
 // Publish represents the MQTT Publish  packet
 type Publish struct {
+	Version   Version
 	FixHeader *FixHeader
 	Dup       bool   //是否重发 [MQTT-3.3.1.-1]
 	Qos       uint8  //qos等级
@@ -25,6 +25,8 @@ type Publish struct {
 	TopicName []byte //主题名
 	PacketID         //报文标识符
 	Payload   []byte
+
+	Properties *Properties
 }
 
 func (p *Publish) String() string {
@@ -44,6 +46,8 @@ func (p *Publish) CopyPublish() *Publish {
 		TopicName: p.TopicName,
 		Payload:   p.Payload,
 	}
+	// TODO property Copy
+
 	/*	pub.Payload = make([]byte, len(p.Payload))
 		pub.TopicName = make([]byte, len(p.TopicName))
 		copy(pub.TopicName, p.TopicName)
@@ -57,10 +61,10 @@ func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
 	p.Dup = (1 & (fh.Flags >> 3)) > 0
 	p.Qos = (fh.Flags >> 1) & 3
 	if p.Qos == 0 && p.Dup { //[MQTT-3.3.1-2]、 [MQTT-4.3.1-1]
-		return nil, ErrInvalFlags
+		return nil, errMalformed(ErrInvalFlags)
 	}
 	if p.Qos > QOS_2 {
-		return nil, ErrInvalQos
+		return nil, errMalformed(ErrInvalQos)
 	}
 	if fh.Flags&1 == 1 { //保留标志
 		p.Retain = true
@@ -75,6 +79,7 @@ func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Publish) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBLISH}
+	bufw := &bytes.Buffer{}
 	var dup, retain byte
 	dup = 0
 	retain = 0
@@ -85,49 +90,54 @@ func (p *Publish) Pack(w io.Writer) error {
 		retain = 1
 	}
 	p.FixHeader.Flags = dup | retain | (p.Qos << 1)
-	topicLength := uint16(len(p.TopicName))
-	lenByte := make([]byte, 2)
-	binary.BigEndian.PutUint16(lenByte, topicLength)
-	remainLength := int(topicLength) + 2 + len(p.Payload) //4 : 2个字节packetid 2个字节的topiclen
+	writeBinary(bufw, p.TopicName)
 	if p.Qos == QOS_1 || p.Qos == QOS_2 {
-		remainLength += 2
+		writeUint16(bufw, p.PacketID)
 	}
-	p.FixHeader.RemainLength = remainLength
-	p.FixHeader.Pack(w)
-	w.Write(lenByte)
-	w.Write(p.TopicName)
-	if p.Qos == QOS_1 || p.Qos == QOS_2 {
-		pid := make([]byte, 2)
-		binary.BigEndian.PutUint16(pid, p.PacketID)
-		w.Write(pid)
+
+	p.Properties.Pack(bufw, PUBLISH)
+
+	bufw.Write(p.Payload)
+	p.FixHeader.RemainLength = bufw.Len()
+	err := p.FixHeader.Pack(w)
+	if err != nil {
+		return err
 	}
-	_, err := w.Write(p.Payload)
+	_, err = bufw.WriteTo(w)
 	return err
 
 }
 
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Publish) Unpack(r io.Reader) error {
-	var size int
 	var err error
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err = io.ReadFull(r, restBuffer)
 	if err != nil {
-		return err
+		return errMalformed(err)
 	}
-	p.TopicName, size, err = DecodeUTF8String(restBuffer)
+	bufr := bytes.NewBuffer(restBuffer)
+	p.TopicName, err = readUTF8String(true, bufr)
 	if err != nil {
 		return err
 	}
-	restBuffer = restBuffer[size:]
-	if !ValidTopicName(p.TopicName) {
-		return ErrInvalTopicName
+	if !ValidTopicName(true, p.TopicName) {
+		return errMalformed(ErrInvalTopicName)
 	}
 	if p.Qos > QOS_0 {
-		p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
-		restBuffer = restBuffer[2:]
+		p.PacketID, err = readUint16(bufr)
+		if err != nil {
+			return err
+		}
 	}
-	p.Payload = restBuffer
+	if p.Version ==Version5 {
+		// resolve properties
+		if err := p.Properties.Unpack(bufr, PUBLISH); err != nil {
+			return err
+		}
+	}
+	// 判断Payload的类型
+	p.Payload = bufr.Next(bufr.Len())
 	return nil
 }
 

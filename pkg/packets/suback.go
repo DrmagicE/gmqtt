@@ -21,7 +21,7 @@ func (p *Suback) String() string {
 func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 	p := &Suback{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.8.1-1]
-	if fh.Flags != FLAG_RESERVED {
+	if fh.Flags != FlagReserved {
 		return nil, ErrInvalFlags
 	}
 	err := p.Unpack(r)

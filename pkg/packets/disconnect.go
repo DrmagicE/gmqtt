@@ -17,7 +17,7 @@ func (d *Disconnect) String() string {
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (d *Disconnect) Pack(w io.Writer) error {
 	var err error
-	d.FixHeader = &FixHeader{PacketType: DISCONNECT, Flags: FLAG_RESERVED, RemainLength: 0}
+	d.FixHeader = &FixHeader{PacketType: DISCONNECT, Flags: FlagReserved, RemainLength: 0}
 	err = d.FixHeader.Pack(w)
 	if err != nil {
 		return err
