@@ -1,4 +1,4 @@
-package packets
+package v5
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ func (p *Pingresp) Pack(w io.Writer) error {
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pingresp) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 0 {
-		return ErrInvalRemainLength
+		return errMalformed(ErrInvalRemainLength)
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package packets
+package v5
 
 import (
 	"bytes"
@@ -8,10 +8,8 @@ import (
 
 // Pubrec represents the MQTT Pubrec  packet.
 type Pubrec struct {
-	Version   Version
 	FixHeader *FixHeader
 	PacketID  PacketID
-
 	// V5
 	Code       byte
 	Properties *Properties
@@ -22,11 +20,8 @@ func (p *Pubrec) String() string {
 }
 
 // NewPubrecPacket returns a Pubrec instance by the given FixHeader and io.Reader.
-func NewPubrecPacket(fh *FixHeader, version Version, r io.Reader) (*Pubrec, error) {
-	p := &Pubrec{FixHeader: fh, Version: version}
-	if p.Version == Version5 {
-		p.Properties = &Properties{}
-	}
+func NewPubrecPacket(fh *FixHeader, r io.Reader) (*Pubrec, error) {
+	p := &Pubrec{FixHeader: fh}
 	err := p.Unpack(r)
 	if err != nil {
 		return nil, err
@@ -36,7 +31,7 @@ func NewPubrecPacket(fh *FixHeader, version Version, r io.Reader) (*Pubrec, erro
 
 // NewPubrel returns the Pubrel struct related to the Pubrec struct in QoS 2.
 func (p *Pubrec) NewPubrel() *Pubrel {
-	pub := &Pubrel{FixHeader: &FixHeader{PacketType: PUBREL, Flags: FlagPubrel}, Version: p.Version}
+	pub := &Pubrel{FixHeader: &FixHeader{PacketType: PUBREL, Flags: FlagPubrel}}
 	pub.PacketID = p.PacketID
 	return pub
 }
@@ -46,8 +41,8 @@ func (p *Pubrec) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBREC, Flags: RESERVED}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
-	bufw.WriteByte(p.Code)
-	if p.Properties != nil {
+	if p.Code != CodeSuccess || p.Properties != nil {
+		bufw.WriteByte(p.Code)
 		p.Properties.Pack(bufw, PUBREC)
 	}
 	p.FixHeader.RemainLength = bufw.Len()
@@ -71,17 +66,16 @@ func (p *Pubrec) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if p.Version == Version5 {
-		p.Properties = &Properties{}
-		if p.Code, err = bufr.ReadByte(); err != nil {
-			return err
-		}
-		if !ValidateCode(PUBREC, p.Code) {
-			return protocolErr(invalidReasonCode(p.Code))
-		}
-		if err := p.Properties.Unpack(bufr, PUBREC); err != nil {
-			return err
-		}
+	if p.FixHeader.RemainLength == 2 {
+		p.Code = CodeSuccess
+		return nil
 	}
-	return nil
+	p.Properties = &Properties{}
+	if p.Code, err = bufr.ReadByte(); err != nil {
+		return errMalformed(err)
+	}
+	if !ValidateCode(PUBREC, p.Code) {
+		return protocolErr(invalidReasonCode(p.Code))
+	}
+	return p.Properties.Unpack(bufr, PUBREC)
 }

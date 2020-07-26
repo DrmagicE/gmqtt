@@ -1,63 +1,14 @@
-package packets
+package v5
 
 import (
 	"bytes"
-	`errors`
 	"fmt"
 	"io"
 )
 
-
-
-
-// ErrorCode represent Reason Code greater than 0x80 in MQTT v5,
-// and Return Code greater than 0x00
-type ErrorCode interface {
-	Code() byte
-	error
-}
-
-type errCode struct {
-	code byte
-	error
-}
-func (c errCode) Error() string {
-	return fmt.Sprintf(c.error.Error()+", error code: %d", c.code)
-}
-func (c errCode) Code() byte {
-	return c.code
-}
-func newErrCode(code ReasonCode, err error) errCode {
-	return errCode{
-		code:code,
-		error:err,
-	}
-}
-func errMalformed(err error) ErrorCode {
-	return errCode{
-		code:ReasonCodeMalformedPacket,
-		error:err,
-	}
-}
-func protocolErr(err error) ErrorCode {
-	if err == nil {
-		err = errors.New("protocol error")
-	}
-	return errCode{
-		code:ReasonCodeProtocolError,
-		error:err,
-	}
-}
-func invalidReasonCode(code byte) error {
-	return fmt.Errorf("invalid reason code: %v", code)
-}
-
-
-
 // Connect represents the MQTT Connect  packet
 type Connect struct {
 	FixHeader *FixHeader
-	Version Version
 	//Variable header
 	ProtocolLevel byte
 	//Connect Flags
@@ -69,35 +20,31 @@ type Connect struct {
 	WillFlag     bool
 	WillTopic    []byte
 	WillMsg      []byte
-	//  CleanSession also represent CleanStart if using mqttv5
-	CleanSession bool
+	CleanStart   bool
 	KeepAlive    uint16 //如果非零，1.5倍时间没收到则断开连接[MQTT-3.1.2-24]
 	//if set
 	ClientID []byte
 	Username []byte
 	Password []byte
 
-	// v5
 	Properties     *Properties
 	WillProperties *Properties
 }
 
 // String is mainly used in logging, debugging and testing.
 func (c *Connect) String() string {
-	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanSession: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
+	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanStart: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
 		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
-		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanSession, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
+		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
-// TODO
 func (c *Connect) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNECT, Flags: FlagReserved}
 
 	bufw := &bytes.Buffer{}
-
-	bufw.Write([]byte{0x00,0x04})
+	bufw.Write([]byte{0x00, 0x04})
 	bufw.Write(c.ProtocolName)
 	bufw.WriteByte(c.ProtocolLevel)
 	// write flag
@@ -107,7 +54,7 @@ func (c *Connect) Pack(w io.Writer) error {
 		willRetain   = 0
 		willFlag     = 0
 		willQos      = 0
-		cleanSession = 0
+		CleanStart   = 0
 		reserved     = 0
 	)
 	if c.UsernameFlag {
@@ -127,25 +74,21 @@ func (c *Connect) Pack(w io.Writer) error {
 	if c.WillFlag {
 		willFlag = 4
 	}
-	if c.CleanSession {
-		cleanSession = 2
+	if c.CleanStart {
+		CleanStart = 2
 	}
-	connFlag := usenameFlag | passwordFlag | willRetain | willFlag | willQos | cleanSession | reserved
+	connFlag := usenameFlag | passwordFlag | willRetain | willFlag | willQos | CleanStart | reserved
 	bufw.Write([]byte{uint8(connFlag)})
 	writeUint16(bufw, c.KeepAlive)
-	if c.Version == Version5 {
-		c.Properties = &Properties{}
-		c.Properties.Pack(bufw,CONNECT)
-	}
+	c.Properties.Pack(bufw, CONNECT)
 	clienIDByte, _, err := EncodeUTF8String(c.ClientID)
 	if err != nil {
 		return err
 	}
 	bufw.Write(clienIDByte)
-	if c.Version == Version5 {
-		c.WillProperties.PackWillProperties(bufw)
-	}
+
 	if c.WillFlag {
+		c.WillProperties.PackWillProperties(bufw)
 		willTopicByte, _, err := EncodeUTF8String(c.WillTopic)
 		if err != nil {
 			return err
@@ -174,7 +117,7 @@ func (c *Connect) Pack(w io.Writer) error {
 
 	c.FixHeader.RemainLength = bufw.Len()
 	err = c.FixHeader.Pack(w)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 	_, err = bufw.WriteTo(w)
@@ -189,7 +132,7 @@ func (c *Connect) Unpack(r io.Reader) (err error) {
 		return errMalformed(err)
 	}
 	bufr := bytes.NewBuffer(restBuffer)
-	c.ProtocolName, err = readUTF8String(false,bufr)
+	c.ProtocolName, err = readUTF8String(false, bufr)
 	if err != nil {
 		return err
 	}
@@ -197,15 +140,11 @@ func (c *Connect) Unpack(r io.Reader) (err error) {
 	if err != nil {
 		return errMalformed(err)
 	}
-	c.Version = c.ProtocolLevel
-	switch c.ProtocolLevel {
-	case Version311:
-	case Version5:
-		if !bytes.Equal(c.ProtocolName, []byte{'M', 'Q', 'T', 'T'}) {
-			 return errMalformed(ErrInvalProtocolName)
-		}
-	default:
-		return errCode{code:ReasonCodeUnsupportedProtocolVersion}
+	if c.ProtocolLevel != Version5 {
+		return newErrCode(CodeUnsupportedProtocolVersion, fmt.Errorf("unsupported protocol level :%v", c.ProtocolLevel))
+	}
+	if !bytes.Equal(c.ProtocolName, []byte{'M', 'Q', 'T', 'T'}) {
+		return errMalformed(ErrInvalProtocolName)
 	}
 	connectFlags, err := bufr.ReadByte()
 	if err != nil {
@@ -215,7 +154,7 @@ func (c *Connect) Unpack(r io.Reader) (err error) {
 	if reserved != 0 { //[MQTT-3.1.2-3]
 		return errMalformed(ErrInvalConnFlags)
 	}
-	c.CleanSession = (1 & (connectFlags >> 1)) > 0
+	c.CleanStart = (1 & (connectFlags >> 1)) > 0
 	c.WillFlag = (1 & (connectFlags >> 2)) > 0
 	c.WillQos = 3 & (connectFlags >> 3)
 	if !c.WillFlag && c.WillQos != 0 { //[MQTT-3.1.2-11]
@@ -231,15 +170,12 @@ func (c *Connect) Unpack(r io.Reader) (err error) {
 	if err != nil {
 		return err
 	}
-	if c.Version == Version5 {
-		// resolve properties
-		c.Properties = &Properties{}
-		c.WillProperties = &Properties{}
-		if err := c.Properties.Unpack(bufr,CONNECT); err != nil {
-			return err
-		}
+	// resolve properties
+	c.Properties = &Properties{}
+	c.WillProperties = &Properties{}
+	if err := c.Properties.Unpack(bufr, CONNECT); err != nil {
+		return err
 	}
-
 	return c.unpackPayload(bufr)
 }
 
@@ -249,21 +185,12 @@ func (c *Connect) unpackPayload(bufr *bytes.Buffer) error {
 	if err != nil {
 		return errMalformed(err)
 	}
-	if c.Version == Version311 {
-		if len(c.ClientID) == 0 && !c.CleanSession { //[MQTT-3.1.3-7]
-			// use return code because this is version 3.1.1
-			return errCode{code:ReturnCodeIdentifierRejected}
-		}
-	}
-
-	if c.Version == Version5 && c.WillFlag {
+	if c.WillFlag {
 		// resolve properties
-		err := c.WillProperties.Unpack(bufr, CONNECT)
+		err := c.WillProperties.UnpackWillProperties(bufr)
 		if err != nil {
 			return err
 		}
-	}
-	if c.WillFlag {
 		c.WillTopic, err = readUTF8String(true, bufr)
 		if err != nil {
 			return err
@@ -295,7 +222,7 @@ func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	p := &Connect{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-2.2.2-2]
 	if fh.Flags != FlagReserved {
-		return nil, ErrInvalFlags
+		return nil, protocolErr(ErrInvalFlags)
 	}
 	err := p.Unpack(r)
 	if err != nil {
@@ -309,7 +236,7 @@ func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 //	//b1 := buffer[0] //一定是16
 //	ack := &Connack{}
 //	ack.Code = c.AckCode
-//	if c.CleanSession { //[MQTT-3.2.2-1]
+//	if c.CleanStart { //[MQTT-3.2.2-1]
 //		ack.SessionPresent = 0
 //	} else {
 //		if sessionReuse {

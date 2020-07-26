@@ -1,7 +1,7 @@
-package packets
+package v5
 
 import (
-	`bytes`
+	"bytes"
 	"fmt"
 	"io"
 )
@@ -17,15 +17,13 @@ type Message interface {
 
 // Publish represents the MQTT Publish  packet
 type Publish struct {
-	Version   Version
-	FixHeader *FixHeader
-	Dup       bool   //是否重发 [MQTT-3.3.1.-1]
-	Qos       uint8  //qos等级
-	Retain    bool   //是否保留消息
-	TopicName []byte //主题名
-	PacketID         //报文标识符
-	Payload   []byte
-
+	FixHeader  *FixHeader
+	Dup        bool   //是否重发 [MQTT-3.3.1.-1]
+	Qos        uint8  //qos等级
+	Retain     bool   //是否保留消息
+	TopicName  []byte //主题名
+	PacketID          //报文标识符
+	Payload    []byte
 	Properties *Properties
 }
 
@@ -94,9 +92,7 @@ func (p *Publish) Pack(w io.Writer) error {
 	if p.Qos == QOS_1 || p.Qos == QOS_2 {
 		writeUint16(bufw, p.PacketID)
 	}
-
 	p.Properties.Pack(bufw, PUBLISH)
-
 	bufw.Write(p.Payload)
 	p.FixHeader.RemainLength = bufw.Len()
 	err := p.FixHeader.Pack(w)
@@ -130,13 +126,10 @@ func (p *Publish) Unpack(r io.Reader) error {
 			return err
 		}
 	}
-	if p.Version ==Version5 {
-		// resolve properties
-		if err := p.Properties.Unpack(bufr, PUBLISH); err != nil {
-			return err
-		}
+	p.Properties = &Properties{}
+	if err := p.Properties.Unpack(bufr, PUBLISH); err != nil {
+		return err
 	}
-	// 判断Payload的类型
 	p.Payload = bufr.Next(bufr.Len())
 	return nil
 }

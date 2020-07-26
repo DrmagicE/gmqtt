@@ -1,4 +1,4 @@
-package packets
+package v5
 
 import (
 	"bytes"
@@ -8,10 +8,8 @@ import (
 
 // Pubcomp represents the MQTT Pubcomp  packet
 type Pubcomp struct {
-	Version   Version
 	FixHeader *FixHeader
 	PacketID
-
 	// V5
 	Code       byte
 	Properties *Properties
@@ -22,8 +20,8 @@ func (p *Pubcomp) String() string {
 }
 
 // NewPubcompPacket returns a Pubcomp instance by the given FixHeader and io.Reader
-func NewPubcompPacket(fh *FixHeader, version Version, r io.Reader) (*Pubcomp, error) {
-	p := &Pubcomp{FixHeader: fh, Version: version}
+func NewPubcompPacket(fh *FixHeader, r io.Reader) (*Pubcomp, error) {
+	p := &Pubcomp{FixHeader: fh}
 	err := p.Unpack(r)
 	if err != nil {
 		return nil, err
@@ -33,11 +31,11 @@ func NewPubcompPacket(fh *FixHeader, version Version, r io.Reader) (*Pubcomp, er
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubcomp) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: PUBCOMP, Flags: RESERVED}
+	p.FixHeader = &FixHeader{PacketType: PUBCOMP, Flags: FlagReserved}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
-	bufw.WriteByte(p.Code)
-	if p.Properties != nil {
+	if p.Code != CodeSuccess || p.Properties != nil {
+		bufw.WriteByte(p.Code)
 		p.Properties.Pack(bufw, PUBCOMP)
 	}
 	p.FixHeader.RemainLength = bufw.Len()
@@ -61,17 +59,16 @@ func (p *Pubcomp) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if p.Version == Version5 {
-		p.Properties = &Properties{}
-		if p.Code, err = bufr.ReadByte(); err != nil {
-			return err
-		}
-		if !ValidateCode(PUBCOMP, p.Code) {
-			return protocolErr(invalidReasonCode(p.Code))
-		}
-		if err := p.Properties.Unpack(bufr, PUBCOMP); err != nil {
-			return err
-		}
+	if p.FixHeader.RemainLength == 2 {
+		p.Code = CodeSuccess
+		return nil
 	}
-	return nil
+	p.Properties = &Properties{}
+	if p.Code, err = bufr.ReadByte(); err != nil {
+		return err
+	}
+	if !ValidateCode(PUBCOMP, p.Code) {
+		return protocolErr(invalidReasonCode(p.Code))
+	}
+	return p.Properties.Unpack(bufr, PUBCOMP)
 }

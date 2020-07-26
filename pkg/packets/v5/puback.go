@@ -1,4 +1,4 @@
-package packets
+package v5
 
 import (
 	"bytes"
@@ -8,10 +8,8 @@ import (
 
 // Puback represents the MQTT Puback  packet
 type Puback struct {
-	Version   Version
 	FixHeader *FixHeader
 	PacketID
-
 	// V5
 	Code       byte
 	Properties *Properties
@@ -23,11 +21,8 @@ func (p *Puback) String() string {
 }
 
 // NewPubackPacket returns a Puback instance by the given FixHeader and io.Reader
-func NewPubackPacket(fh *FixHeader, version Version, r io.Reader) (*Puback, error) {
-	p := &Puback{FixHeader: fh, Version: version}
-	if version == Version5 {
-		p.Properties = &Properties{}
-	}
+func NewPubackPacket(fh *FixHeader, r io.Reader) (*Puback, error) {
+	p := &Puback{FixHeader: fh}
 	err := p.Unpack(r)
 	if err != nil {
 		return nil, err
@@ -40,8 +35,8 @@ func (p *Puback) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBACK, Flags: RESERVED}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
-	bufw.WriteByte(p.Code)
-	if p.Properties != nil {
+	if p.Code != CodeSuccess || p.Properties != nil {
+		bufw.WriteByte(p.Code)
 		p.Properties.Pack(bufw, PUBACK)
 	}
 	p.FixHeader.RemainLength = bufw.Len()
@@ -66,17 +61,20 @@ func (p *Puback) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if p.Version == Version5 {
-		p.Properties = &Properties{}
-		if p.Code, err = bufr.ReadByte(); err != nil {
-			return errMalformed(err)
-		}
-		if !ValidateCode(PUBACK, p.Code) {
-			return protocolErr(invalidReasonCode(p.Code))
-		}
-		if err := p.Properties.Unpack(bufr, PUBACK); err != nil {
-			return err
-		}
+	if p.FixHeader.RemainLength == 2 {
+		p.Code = CodeSuccess
+		return nil
+	}
+
+	p.Properties = &Properties{}
+	if p.Code, err = bufr.ReadByte(); err != nil {
+		return errMalformed(err)
+	}
+	if !ValidateCode(PUBACK, p.Code) {
+		return protocolErr(invalidReasonCode(p.Code))
+	}
+	if err := p.Properties.Unpack(bufr, PUBACK); err != nil {
+		return err
 	}
 	return nil
 }

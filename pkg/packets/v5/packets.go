@@ -1,11 +1,11 @@
-package packets
+package v5
 
 import (
 	"bufio"
-	`bytes`
+	"bytes"
 	"encoding/binary"
 	"errors"
-	`fmt`
+	"fmt"
 	"io"
 	"unicode/utf8"
 )
@@ -26,21 +26,23 @@ var (
 	ErrInvalWillQos              = errors.New("invalid Will Qos")
 	ErrInvalWillRetain           = errors.New("invalid Will Retain")
 	ErrInvalUTF8String           = errors.New("invalid utf-8 string")
-	ErrInvalUint32  = errors.New("invalid uint32")
-	ErrInvalUint16  = errors.New("invalid uint16")
+	ErrInvalUint32               = errors.New("invalid uint32")
+	ErrInvalUint16               = errors.New("invalid uint16")
 )
+
 // MalformedErr is the error return when a control packet
 // that cannot be parsed according to MQTT specification.
 type MalformedErr struct {
 	// error is the underline error for debugging
 	error error
 }
+
 func (m MalformedErr) Error() string {
 	return fmt.Sprintf("malformed packet: %s", m.error)
 }
 func NewMalformedErr(error error) MalformedErr {
 	return MalformedErr{
-		error:error,
+		error: error,
 	}
 }
 
@@ -131,8 +133,6 @@ type SubOptions struct {
 	RetainAsPublished bool
 }
 
-
-
 // Reader is used to read data from bufio.Reader and create MQTT packet instance.
 type Reader struct {
 	bufr *bufio.Reader
@@ -221,6 +221,7 @@ func (fh *FixHeader) Pack(w io.Writer) error {
 	_, err = w.Write(b)
 	return err
 }
+
 //DecodeRemainLength 将remain length 转成byte表示
 //
 //DecodeRemainLength puts the length int into bytes
@@ -289,7 +290,7 @@ func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 
 func readUint16(r *bytes.Buffer) (uint16, error) {
 	if r.Len() < 2 {
-		return 0,errMalformed(ErrInvalUint16)
+		return 0, errMalformed(ErrInvalUint16)
 	}
 	return binary.BigEndian.Uint16(r.Next(2)), nil
 }
@@ -332,8 +333,6 @@ func readUTF8String(mustUTF8 bool, r *bytes.Buffer) (b []byte, err error) {
 	}
 	return payload, nil
 }
-
-
 
 // the length of s cannot be greater than 65535
 func writeUTF8String(w *bytes.Buffer, s []byte) {
@@ -611,5 +610,3 @@ func TotalBytes(p Packet) uint {
 	return headerLength + uint(header.RemainLength)
 
 }
-
-

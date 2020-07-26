@@ -1,16 +1,17 @@
-package packets
+package v5
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	"io"
 )
 
 // Suback represents the MQTT Suback  packet.
 type Suback struct {
-	FixHeader *FixHeader
-	PacketID  PacketID
-	Payload   []byte
+	FixHeader  *FixHeader
+	PacketID   PacketID
+	Payload    []ReasonCode
+	Properties *Properties
 }
 
 func (p *Suback) String() string {
@@ -30,12 +31,19 @@ func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Suback) Pack(w io.Writer) error {
-	p.FixHeader.Pack(w)
-	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketID)
-	w.Write(pid)
-	_, err := w.Write(p.Payload)
+	p.FixHeader = &FixHeader{PacketType: SUBACK, Flags: RESERVED}
+	bufw := &bytes.Buffer{}
+	writeUint16(bufw, p.PacketID)
+	p.Properties.Pack(bufw, SUBACK)
+	bufw.Write(p.Payload)
+	p.FixHeader.RemainLength = bufw.Len()
+	err := p.FixHeader.Pack(w)
+	if err != nil {
+		return err
+	}
+	_, err = bufw.WriteTo(w)
 	return err
+
 }
 
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
@@ -43,9 +51,30 @@ func (p *Suback) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
+		return errMalformed(err)
+	}
+	bufr := bytes.NewBuffer(restBuffer)
+
+	p.PacketID, err = readUint16(bufr)
+	if err != nil {
+		return errMalformed(err)
+	}
+	p.Properties = &Properties{}
+	err = p.Properties.Unpack(bufr, SUBACK)
+	if err != nil {
 		return err
 	}
-	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
-	p.Payload = restBuffer[2:]
-	return nil
+	for {
+		b, err := bufr.ReadByte()
+		if err != nil {
+			return errMalformed(err)
+		}
+		if !ValidateCode(SUBACK, b) {
+			return protocolErr(invalidReasonCode(b))
+		}
+		p.Payload = append(p.Payload, b)
+		if bufr.Len() == 0 {
+			return nil
+		}
+	}
 }

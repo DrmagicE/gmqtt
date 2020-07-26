@@ -1,4 +1,4 @@
-package packets
+package v5
 
 import (
 	"bytes"

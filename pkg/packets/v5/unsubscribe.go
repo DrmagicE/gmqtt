@@ -1,17 +1,17 @@
-package packets
+package v5
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	"io"
 )
 
 // Unsubscribe represents the MQTT Unsubscribe  packet.
 type Unsubscribe struct {
-	FixHeader *FixHeader
-	PacketID  PacketID
-
-	Topics []string
+	FixHeader  *FixHeader
+	PacketID   PacketID
+	Topics     []string
+	Properties *Properties
 }
 
 func (p *Unsubscribe) String() string {
@@ -30,32 +30,30 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	p := &Unsubscribe{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.10.1-1]
 	if fh.Flags != FlagUnsubscribe {
-		return nil, ErrInvalFlags
+		return nil, errMalformed(ErrInvalFlags)
 	}
 	err := p.Unpack(r)
+	if err != nil {
+		return nil, err
+	}
 	return p, err
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
-	buf := make([]byte, 0, 256)
-	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketID)
-	buf = append(buf, pid...)
+	bufw := &bytes.Buffer{}
+	writeUint16(bufw, p.PacketID)
+	p.Properties.Pack(bufw, UNSUBSCRIBE)
 	for _, topic := range p.Topics {
-		topicName, _, erro := EncodeUTF8String([]byte(topic))
-		buf = append(buf, topicName...)
-		if erro != nil {
-			return erro
-		}
+		writeUTF8String(bufw, []byte(topic))
 	}
-	p.FixHeader.RemainLength = len(buf)
+	p.FixHeader.RemainLength = bufw.Len()
 	err := p.FixHeader.Pack(w)
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(buf)
+	_, err = bufw.WriteTo(w)
 	return err
 }
 
@@ -64,25 +62,28 @@ func (p *Unsubscribe) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
+		return errMalformed(err)
+	}
+	bufr := bytes.NewBuffer(restBuffer)
+	p.PacketID, err = readUint16(bufr)
+	if err != nil {
 		return err
 	}
-	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
-
-	restBuffer = restBuffer[2:]
+	p.Properties = &Properties{}
+	if err := p.Properties.Unpack(bufr, UNSUBSCRIBE); err != nil {
+		return err
+	}
 	for {
-		topicName, size, err := DecodeUTF8String(restBuffer)
+		topicFilter, err := readUTF8String(true, bufr)
 		if err != nil {
 			return err
 		}
-		if !ValidTopicFilter(topicName) {
-			return ErrInvalTopicFilter
+		if !ValidTopicFilter(true, topicFilter) {
+			return protocolErr(ErrInvalTopicFilter)
 		}
-		restBuffer = restBuffer[size:]
-		p.Topics = append(p.Topics, string(topicName))
-		if len(restBuffer) == 0 {
-			break
+		p.Topics = append(p.Topics, string(topicFilter))
+		if bufr.Len() == 0 {
+			return nil
 		}
 	}
-
-	return nil
 }

@@ -1,10 +1,35 @@
-package packets
+package v5
 
 import (
 	"bufio"
 	"bytes"
 	"testing"
 )
+
+func appendPacket(firstByte byte, b ...[]byte) []byte {
+	var rs []byte
+	var l int
+	for _, v := range b {
+		l += len(v)
+	}
+	lb, _ := DecodeRemainLength(l)
+	rs = append(rs, firstByte)
+	rs = append(rs, lb...)
+	for _, v := range b {
+		rs = append(rs, v...)
+	}
+	return rs
+
+}
+func uint32P(v uint32) *uint32 {
+	return &v
+}
+func uint16P(v uint16) *uint16 {
+	return &v
+}
+func byteP(v byte) *byte {
+	return &v
+}
 
 var testDecodeUTF8String = []struct {
 	buf       []byte
@@ -166,7 +191,7 @@ func TestValidUTF8(t *testing.T) {
 //Subscribable Topic Filter
 func TestValidTopicFilter(t *testing.T) {
 	for _, v := range topicFilterTest {
-		if valid := ValidTopicFilter([]byte(v.input)); valid != v.want {
+		if valid := ValidTopicFilter(true, []byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}
@@ -174,7 +199,7 @@ func TestValidTopicFilter(t *testing.T) {
 
 func TestValidTopicName(t *testing.T) {
 	for _, v := range topicNameTest {
-		if valid := ValidTopicName([]byte(v.input)); valid != v.want {
+		if valid := ValidTopicName(true, []byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicName(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}
