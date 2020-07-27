@@ -393,6 +393,8 @@ func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
 		return NewUnsubackPacket(fh, r)
 	case PINGRESP:
 		return NewPingrespPacket(fh, r)
+	case AUTH:
+		return NewAuthPacket(fh, r)
 	default:
 		return nil, ErrInvalPacketType
 
