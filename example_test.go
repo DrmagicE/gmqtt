@@ -41,7 +41,7 @@ func Example() {
 			},
 			OnSubscribe: func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 				fmt.Println("register onSubscribe callback")
-				return packets.QOS_1
+				return packets.Qos1
 			},
 		}),
 		// add logger

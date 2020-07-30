@@ -37,7 +37,7 @@ func TestHooks(t *testing.T) {
 		},
 		OnSubscribe: func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
 			hooksStr += "OnSubscribe"
-			return packets.QOS_1
+			return packets.Qos1
 		},
 		OnMsgArrived: func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
 			hooksStr += "OnMsgArrived"
@@ -71,7 +71,7 @@ func TestHooks(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "name", Qos: packets.QOS_1},
+			{Name: "name", Qos: packets.Qos1},
 		},
 	}
 	w.WriteAndFlush(sub)
@@ -79,7 +79,7 @@ func TestHooks(t *testing.T) {
 
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_1,
+		Qos:       packets.Qos1,
 		Retain:    false,
 		TopicName: []byte("ok"),
 		PacketID:  10,

@@ -117,7 +117,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 		}
 		for e := s.msgQueue.Front(); e != nil; e = e.Next() {
 			if pub, ok := e.Value.(*packets.Publish); ok {
-				if pub.Qos == packets.QOS_0 {
+				if pub.Qos == packets.Qos0 {
 					removeMsg = e
 					break
 				}
@@ -126,16 +126,16 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
 			zaplog.Info("message queue is full, removing msg",
 				zap.String("clientID", client.opts.clientID),
-				zap.String("type", "QOS_0 in queue"),
+				zap.String("type", "Qos0 in queue"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
 			s.msgQueue.Remove(removeMsg)
 			client.server.statsManager.messageDropped(0)
 			client.statsManager.messageDropped(0)
-		} else if publish.Qos == packets.QOS_0 { //case2: removing qos0 message that is going to enqueue
+		} else if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
 			zaplog.Info("message queue is full, removing msg",
 				zap.String("clientID", client.opts.clientID),
-				zap.String("type", "QOS_0 enqueue"),
+				zap.String("type", "Qos0 enqueue"),
 				zap.String("packet", publish.String()),
 			)
 			client.server.statsManager.messageDropped(0)
@@ -221,13 +221,13 @@ func (client *client) unsetInflight(packet packets.Packet) {
 		if el, ok := e.Value.(*inflightElem); ok {
 			switch packet.(type) {
 			case *packets.Puback: //QOS1
-				if el.packet.Qos != packets.QOS_1 {
+				if el.packet.Qos != packets.Qos1 {
 					continue
 				}
 				pid = packet.(*packets.Puback).PacketID
 				freeID = true
 			case *packets.Pubrec: //QOS2
-				if el.packet.Qos != packets.QOS_2 {
+				if el.packet.Qos != packets.Qos2 {
 					continue
 				}
 				pid = packet.(*packets.Pubrec).PacketID
@@ -278,14 +278,14 @@ func (s *session) getPacketID() packets.PacketID {
 	defer s.pidMu.RUnlock()
 	for s.lockedPid[s.freePid] {
 		s.freePid++
-		if s.freePid > packets.MAX_PACKET_ID {
-			s.freePid = packets.MIN_PACKET_ID
+		if s.freePid > packets.MaxPacketId {
+			s.freePid = packets.MinPacketId
 		}
 	}
 	id := s.freePid
 	s.freePid++
-	if s.freePid > packets.MAX_PACKET_ID {
-		s.freePid = packets.MIN_PACKET_ID
+	if s.freePid > packets.MaxPacketId {
+		s.freePid = packets.MinPacketId
 	}
 	return id
 }

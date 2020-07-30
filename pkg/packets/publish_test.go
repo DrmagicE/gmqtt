@@ -25,7 +25,7 @@ func TestWritePublishPacket(t *testing.T) {
 			topicName: []byte("test topic name1"),
 			dup:       true,
 			retain:    false,
-			qos:       QOS_1,
+			qos:       Qos1,
 			pid:       10,
 			payload:   []byte("test payload1"),
 			properties: &Properties{
@@ -36,7 +36,7 @@ func TestWritePublishPacket(t *testing.T) {
 			topicName: []byte("test topic name2"),
 			dup:       false,
 			retain:    true,
-			qos:       QOS_0,
+			qos:       Qos0,
 			payload:   []byte("test payload2"),
 			properties: &Properties{
 				MessageExpiry: uint32P(100),
@@ -46,7 +46,7 @@ func TestWritePublishPacket(t *testing.T) {
 			topicName:  []byte("test topic name3"),
 			dup:        false,
 			retain:     true,
-			qos:        QOS_2,
+			qos:        Qos2,
 			pid:        11,
 			payload:    []byte("test payload3"),
 			properties: &Properties{},
@@ -56,7 +56,7 @@ func TestWritePublishPacket(t *testing.T) {
 			topicName:  []byte("test topic name4"),
 			dup:        false,
 			retain:     false,
-			qos:        QOS_1,
+			qos:        Qos1,
 			pid:        12,
 			payload:    []byte(""),
 			properties: &Properties{},
@@ -119,7 +119,7 @@ func TestReadPublishPacket(t *testing.T) {
 		packet, err = NewReader(publishPacketBytes).ReadPacket()
 		a.Nil(err)
 		pp := packet.(*Publish)
-		a.Equal(QOS_2, pp.Qos)
+		a.Equal(Qos2, pp.Qos)
 		a.Equal(true, pp.Retain)
 		a.Equal(topicName, pp.TopicName)
 		a.Equal(payload, pp.Payload)
@@ -137,7 +137,7 @@ func TestReadPublishPacket(t *testing.T) {
 func TestPublish_NewPuback(t *testing.T) {
 	pid := uint16(123)
 	pub := &Publish{
-		Qos:      QOS_1,
+		Qos:      Qos1,
 		PacketID: pid,
 	}
 	puback := pub.NewPuback()
@@ -149,7 +149,7 @@ func TestPublish_NewPuback(t *testing.T) {
 func TestPublish_NewPubrec(t *testing.T) {
 	pid := uint16(123)
 	pub := &Publish{
-		Qos:      QOS_2,
+		Qos:      Qos2,
 		PacketID: pid,
 	}
 	puback := pub.NewPubrec()

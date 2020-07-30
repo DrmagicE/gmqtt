@@ -41,15 +41,15 @@ var topicMatchQosTest = []struct {
 		topics: []packets.Topic{
 			{
 				Name: "a/b",
-				Qos:  packets.QOS_1,
+				Qos:  packets.Qos1,
 			},
 			{
 				Name: "a/#",
-				Qos:  packets.QOS_2,
+				Qos:  packets.Qos2,
 			},
 			{
 				Name: "a/+",
-				Qos:  packets.QOS_0,
+				Qos:  packets.Qos0,
 			},
 		},
 		matchTopic: struct {
@@ -57,7 +57,7 @@ var topicMatchQosTest = []struct {
 			qos  uint8
 		}{
 			name: "a/b",
-			qos:  packets.QOS_2,
+			qos:  packets.Qos2,
 		},
 	},
 }
@@ -72,14 +72,14 @@ var testSubscribeAndFind = struct {
 }{
 	subTopics: map[string][]packets.Topic{
 		"cid1": {
-			{packets.QOS_1, "t1/t2/+"},
-			{packets.QOS_2, "t1/t2/"},
-			{packets.QOS_0, "t1/t2/cid1"},
+			{packets.Qos1, "t1/t2/+"},
+			{packets.Qos2, "t1/t2/"},
+			{packets.Qos0, "t1/t2/cid1"},
 		},
 		"cid2": {
-			{packets.QOS_2, "t1/t2/+"},
-			{packets.QOS_1, "t1/t2/"},
-			{packets.QOS_0, "t1/t2/cid2"},
+			{packets.Qos2, "t1/t2/+"},
+			{packets.Qos1, "t1/t2/"},
+			{packets.Qos0, "t1/t2/cid2"},
 		},
 	},
 	findTopics: map[string][]struct { //key by clientID
@@ -88,14 +88,14 @@ var testSubscribeAndFind = struct {
 		wantQos   uint8
 	}{
 		"cid1": {
-			{exist: true, topicName: "t1/t2/+", wantQos: packets.QOS_1},
-			{exist: true, topicName: "t1/t2/", wantQos: packets.QOS_2},
+			{exist: true, topicName: "t1/t2/+", wantQos: packets.Qos1},
+			{exist: true, topicName: "t1/t2/", wantQos: packets.Qos2},
 			{exist: false, topicName: "t1/t2/cid2"},
 			{exist: false, topicName: "t1/t2/cid3"},
 		},
 		"cid2": {
-			{exist: true, topicName: "t1/t2/+", wantQos: packets.QOS_2},
-			{exist: true, topicName: "t1/t2/", wantQos: packets.QOS_1},
+			{exist: true, topicName: "t1/t2/+", wantQos: packets.Qos2},
+			{exist: true, topicName: "t1/t2/", wantQos: packets.Qos1},
 			{exist: false, topicName: "t1/t2/cid1"},
 		},
 	},
@@ -112,12 +112,12 @@ var testUnsubscribe = struct {
 }{
 	subTopics: map[string][]packets.Topic{
 		"cid1": {
-			{packets.QOS_1, "t1/t2/t3"},
-			{packets.QOS_2, "t1/t2"},
+			{packets.Qos1, "t1/t2/t3"},
+			{packets.Qos2, "t1/t2"},
 		},
 		"cid2": {
-			{packets.QOS_2, "t1/t2/t3"},
-			{packets.QOS_1, "t1/t2"},
+			{packets.Qos2, "t1/t2/t3"},
+			{packets.Qos1, "t1/t2"},
 		},
 	},
 	unsubscribe: map[string][]string{
@@ -131,11 +131,11 @@ var testUnsubscribe = struct {
 	}{
 		"cid1": {
 			{exist: false, topicName: "t1/t2/t3"},
-			{exist: true, topicName: "t1/t2", wantQos: packets.QOS_2},
+			{exist: true, topicName: "t1/t2", wantQos: packets.Qos2},
 		},
 		"cid2": {
 			{exist: false, topicName: "t1/t2/+"},
-			{exist: true, topicName: "t1/t2", wantQos: packets.QOS_1},
+			{exist: true, topicName: "t1/t2", wantQos: packets.Qos1},
 		},
 	},
 }

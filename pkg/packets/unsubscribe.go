@@ -25,7 +25,7 @@ func (p *Unsubscribe) NewUnSubBack() *Unsuback {
 	return unSuback
 }
 
-// NewUnsubscribePacket returns a Unsubscribe instance by the given FixHeader and io.Reader.
+// NewUnsubscribePacket returns a Unsubscribe instance by the given FixHeader and io.reader.
 func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	p := &Unsubscribe{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.10.1-1]
@@ -39,7 +39,7 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	return p, err
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
 	bufw := &bytes.Buffer{}
@@ -57,7 +57,7 @@ func (p *Unsubscribe) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (p *Unsubscribe) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)

@@ -94,13 +94,14 @@ type Client interface {
 
 // Client represents a MQTT client and implements the Client interface
 type client struct {
-	server        *server
-	wg            sync.WaitGroup
-	rwc           net.Conn //raw tcp connection
-	bufr          *bufio.Reader
-	bufw          *bufio.Writer
-	packetReader  *packets.Reader
-	packetWriter  *packets.Writer
+	server           *server
+	wg               sync.WaitGroup
+	rwc              net.Conn //raw tcp connection
+	bufr             *bufio.Reader
+	bufw             *bufio.Writer
+	packetReadWriter packets.ReadWriter
+	//packetReader  *packets.reader
+	//packetWriter  *packets.writer
 	in            chan packets.Packet
 	out           chan packets.Packet
 	close         chan struct{} //关闭chan
@@ -336,7 +337,7 @@ func (client *client) readLoop() {
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
-		packet, err = client.packetReader.ReadPacket()
+		packet, err = client.packetReadWriter.ReadPacket()
 		if err != nil {
 			return
 		}
@@ -512,7 +513,7 @@ func (client *client) internalClose() {
 // 这里的publish都是已经copy后的publish了
 // 从msgRouter过来的publish 的dup不可能是true
 func (client *client) onlinePublish(publish *packets.Publish) {
-	if publish.Qos >= packets.QOS_1 {
+	if publish.Qos >= packets.Qos1 {
 		if publish.Dup {
 			//redelivery on reconnect,use the original packet id
 			client.session.setPacketID(publish.PacketID)
@@ -567,7 +568,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 	var msgs []packets.Message
 	suback := sub.NewSubBack()
 	for k, v := range sub.Topics {
-		if v.Qos != packets.SUBSCRIBE_FAILURE {
+		if v.Qos != packets.SubscribeFailure {
 			topic := packets.Topic{
 				Name: v.Name,
 				Qos:  suback.Payload[k],
@@ -604,11 +605,11 @@ func (client *client) publishHandler(pub *packets.Publish) {
 	s := client.session
 	srv := client.server
 	var dup bool
-	if pub.Qos == packets.QOS_1 {
+	if pub.Qos == packets.Qos1 {
 		puback := pub.NewPuback()
 		client.write(puback)
 	}
-	if pub.Qos == packets.QOS_2 {
+	if pub.Qos == packets.Qos2 {
 		pubrec := pub.NewPubrec()
 		client.write(pubrec)
 		if _, ok := s.unackpublish[pub.PacketID]; ok {

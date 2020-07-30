@@ -18,7 +18,7 @@ func (p *Suback) String() string {
 	return fmt.Sprintf("Suback, Pid: %v, Payload: %v", p.PacketID, p.Payload)
 }
 
-// NewSubackPacket returns a Suback instance by the given FixHeader and io.Reader.
+// NewSubackPacket returns a Suback instance by the given FixHeader and io.reader.
 func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 	p := &Suback{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.8.1-1]
@@ -29,9 +29,9 @@ func NewSubackPacket(fh *FixHeader, r io.Reader) (*Suback, error) {
 	return p, err
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (p *Suback) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: SUBACK, Flags: RESERVED}
+	p.FixHeader = &FixHeader{PacketType: SUBACK, Flags: FlagReserved}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
 	p.Properties.Pack(bufw, SUBACK)
@@ -46,7 +46,7 @@ func (p *Suback) Pack(w io.Writer) error {
 
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (p *Suback) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)

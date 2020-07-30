@@ -17,7 +17,7 @@ func (d *Disconnect) String() string {
 	return fmt.Sprintf("Disconnect")
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (d *Disconnect) Pack(w io.Writer) error {
 	var err error
 	d.FixHeader = &FixHeader{PacketType: DISCONNECT, Flags: FlagReserved}
@@ -35,7 +35,7 @@ func (d *Disconnect) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (d *Disconnect) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, d.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
@@ -59,7 +59,7 @@ func (d *Disconnect) Unpack(r io.Reader) error {
 
 }
 
-// NewDisConnectPackets returns a Disconnect instance by the given FixHeader and io.Reader
+// NewDisConnectPackets returns a Disconnect instance by the given FixHeader and io.reader
 func NewDisConnectPackets(fh *FixHeader, r io.Reader) (*Disconnect, error) {
 	if fh.Flags != 0 {
 		return nil, errMalformed(ErrInvalFlags)

@@ -8,6 +8,7 @@ import (
 
 // Connect represents the MQTT Connect  packet
 type Connect struct {
+	Version   Version
 	FixHeader *FixHeader
 	//Variable header
 	ProtocolLevel byte
@@ -38,7 +39,7 @@ func (c *Connect) String() string {
 		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (c *Connect) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNECT, Flags: FlagReserved}
@@ -124,7 +125,7 @@ func (c *Connect) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (c *Connect) Unpack(r io.Reader) (err error) {
 	restBuffer := make([]byte, c.FixHeader.RemainLength)
 	_, err = io.ReadFull(r, restBuffer)
@@ -216,7 +217,7 @@ func (c *Connect) unpackPayload(bufr *bytes.Buffer) error {
 	return nil
 }
 
-// NewConnectPacket returns a Connect instance by the given FixHeader and io.Reader
+// NewConnectPacket returns a Connect instance by the given FixHeader and io.reader
 func NewConnectPacket(fh *FixHeader, r io.Reader) (*Connect, error) {
 	//b1 := buffer[0] //一定是16
 	p := &Connect{FixHeader: fh}

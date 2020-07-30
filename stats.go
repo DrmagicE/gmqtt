@@ -356,31 +356,31 @@ func (s *statsManager) addSessionExpired() {
 
 func (s *statsManager) messageDropped(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.messageStats.Qos0.DroppedTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.messageStats.Qos1.DroppedTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.messageStats.Qos2.DroppedTotal, 1)
 	}
 }
 func (s *statsManager) messageReceived(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.messageStats.Qos0.ReceivedTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.messageStats.Qos1.ReceivedTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.messageStats.Qos2.ReceivedTotal, 1)
 	}
 }
 func (s *statsManager) messageSent(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.messageStats.Qos0.SentTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.messageStats.Qos1.SentTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.messageStats.Qos2.SentTotal, 1)
 	}
 }
@@ -412,31 +412,31 @@ type sessionStatsManager struct {
 
 func (s *sessionStatsManager) messageDropped(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.Qos0.DroppedTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.Qos1.DroppedTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.Qos2.DroppedTotal, 1)
 	}
 }
 func (s *sessionStatsManager) messageReceived(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.Qos0.ReceivedTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.Qos1.ReceivedTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.Qos2.ReceivedTotal, 1)
 	}
 }
 func (s *sessionStatsManager) messageSent(qos uint8) {
 	switch qos {
-	case packets.QOS_0:
+	case packets.Qos0:
 		atomic.AddUint64(&s.Qos0.SentTotal, 1)
-	case packets.QOS_1:
+	case packets.Qos1:
 		atomic.AddUint64(&s.Qos1.SentTotal, 1)
-	case packets.QOS_2:
+	case packets.Qos2:
 		atomic.AddUint64(&s.Qos2.SentTotal, 1)
 	}
 }

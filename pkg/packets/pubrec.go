@@ -19,7 +19,7 @@ func (p *Pubrec) String() string {
 	return fmt.Sprintf("Pubrec, Pid: %v", p.PacketID)
 }
 
-// NewPubrecPacket returns a Pubrec instance by the given FixHeader and io.Reader.
+// NewPubrecPacket returns a Pubrec instance by the given FixHeader and io.reader.
 func NewPubrecPacket(fh *FixHeader, r io.Reader) (*Pubrec, error) {
 	p := &Pubrec{FixHeader: fh}
 	err := p.Unpack(r)
@@ -36,9 +36,9 @@ func (p *Pubrec) NewPubrel() *Pubrel {
 	return pub
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (p *Pubrec) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: PUBREC, Flags: RESERVED}
+	p.FixHeader = &FixHeader{PacketType: PUBREC, Flags: FlagReserved}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
 	if p.Code != CodeSuccess || p.Properties != nil {
@@ -54,7 +54,7 @@ func (p *Pubrec) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (p *Pubrec) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)

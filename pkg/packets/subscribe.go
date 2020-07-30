@@ -40,7 +40,7 @@ func (p *Subscribe) NewSuback(codes []uint8) *Suback {
 	return suback
 }
 
-// NewSubscribePacket returns a Subscribe instance by the given FixHeader and io.Reader.
+// NewSubscribePacket returns a Subscribe instance by the given FixHeader and io.reader.
 func NewSubscribePacket(fh *FixHeader, r io.Reader) (*Subscribe, error) {
 	p := &Subscribe{FixHeader: fh}
 	//判断 标志位 flags 是否合法[MQTT-3.8.1-1]
@@ -54,7 +54,7 @@ func NewSubscribePacket(fh *FixHeader, r io.Reader) (*Subscribe, error) {
 	return p, err
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.Writer.
+// Pack encodes the packet struct into bytes and writes it into io.writer.
 func (p *Subscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FlagSubscribe}
 	bufw := &bytes.Buffer{}
@@ -85,7 +85,7 @@ func (p *Subscribe) Pack(w io.Writer) error {
 
 }
 
-// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
 func (p *Subscribe) Unpack(r io.Reader) (err error) {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err = io.ReadFull(r, restBuffer)
@@ -126,7 +126,7 @@ func (p *Subscribe) Unpack(r io.Reader) (err error) {
 		if 3&(opts>>6) != 0 {
 			return protocolErr(nil)
 		}
-		if topic.Qos > QOS_2 {
+		if topic.Qos > Qos2 {
 			return protocolErr(ErrInvalQos)
 		}
 		p.Topics = append(p.Topics, topic)

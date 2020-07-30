@@ -145,7 +145,7 @@ func defaultConnectPacket() *packets.Connect {
 		WillFlag:      true,
 		WillTopic:     []byte{116, 101, 115, 116},
 		WillMsg:       []byte{84, 101, 115, 116, 32, 80, 97, 121, 108, 111, 97, 100},
-		WillQos:       packets.QOS_1,
+		WillQos:       packets.Qos1,
 		CleanSession:  true,
 		KeepAlive:     30,
 		ClientID:      []byte{77, 81, 84, 84}, //MQTT
@@ -494,8 +494,8 @@ func TestSubScribe(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "/a/b/c", Qos: packets.QOS_0},
-			{Name: "/a/b/+", Qos: packets.QOS_1},
+			{Name: "/a/b/c", Qos: packets.Qos0},
+			{Name: "/a/b/+", Qos: packets.Qos1},
 		},
 	}
 	err := writePacket(c, sub)
@@ -518,7 +518,7 @@ func TestSubScribe(t *testing.T) {
 	}
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("/a/b/cc"),
 		Payload:   []byte("payload"),
@@ -535,8 +535,8 @@ func TestSubScribe(t *testing.T) {
 		if p.Dup != false {
 			t.Fatalf("Dup error, want false,got %t", p.Dup)
 		}
-		if p.Qos != packets.QOS_0 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		if p.Qos != packets.Qos0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.Qos0, p.Qos)
 		}
 		if !bytes.Equal(p.Payload, pub.Payload) {
 			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
@@ -556,14 +556,14 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 	var err error
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
-		{Qos: packets.QOS_0, Name: "t0"},
-		{Qos: packets.QOS_1, Name: "t1"},
-		{Qos: packets.QOS_2, Name: "t2"},
+		{Qos: packets.Qos0, Name: "t0"},
+		{Qos: packets.Qos1, Name: "t1"},
+		{Qos: packets.Qos2, Name: "t2"},
 	}
 	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
@@ -580,8 +580,8 @@ func TestServer_Subscribe_UnSubscribe(t *testing.T) {
 		if p.Dup != false {
 			t.Fatalf("Dup error, want false,got %t", p.Dup)
 		}
-		if p.Qos != packets.QOS_0 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		if p.Qos != packets.Qos0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.Qos0, p.Qos)
 		}
 		if !bytes.Equal(p.Payload, pub.Payload) {
 			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
@@ -609,14 +609,14 @@ func TestServer_Publish(t *testing.T) {
 	var err error
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
-		{Qos: packets.QOS_0, Name: "t0"},
-		{Qos: packets.QOS_1, Name: "t1"},
-		{Qos: packets.QOS_2, Name: "t2"},
+		{Qos: packets.Qos0, Name: "t0"},
+		{Qos: packets.Qos1, Name: "t1"},
+		{Qos: packets.Qos2, Name: "t2"},
 	}
 	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
@@ -634,8 +634,8 @@ func TestServer_Publish(t *testing.T) {
 		if p.Dup != false {
 			t.Fatalf("Dup error, want false,got %t", p.Dup)
 		}
-		if p.Qos != packets.QOS_0 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		if p.Qos != packets.Qos0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.Qos0, p.Qos)
 		}
 		if !bytes.Equal(p.Payload, pub.Payload) {
 			t.Fatalf("Payload error, want %v, got %v", pub.Payload, p.Payload)
@@ -656,16 +656,16 @@ func TestServer_PublishToClientWithMatch(t *testing.T) {
 
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
-		{Qos: packets.QOS_0, Name: "t0"},
-		{Qos: packets.QOS_1, Name: "t1"},
-		{Qos: packets.QOS_2, Name: "t2"},
+		{Qos: packets.Qos0, Name: "t0"},
+		{Qos: packets.Qos1, Name: "t1"},
+		{Qos: packets.Qos2, Name: "t2"},
 	}
 	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 
 	// create a package for an unsubscribed channel
 	pubU := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("tu"),
 		Payload:   []byte("payload"),
@@ -676,7 +676,7 @@ func TestServer_PublishToClientWithMatch(t *testing.T) {
 
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
@@ -700,16 +700,16 @@ func TestServer_PublishToClientWithoutMatch(t *testing.T) {
 	defer srv.Stop(context.Background())
 	c := conn.(*rwTestConn)
 	tt := []packets.Topic{
-		{Qos: packets.QOS_0, Name: "t0"},
-		{Qos: packets.QOS_1, Name: "t1"},
-		{Qos: packets.QOS_2, Name: "t2"},
+		{Qos: packets.Qos0, Name: "t0"},
+		{Qos: packets.Qos1, Name: "t1"},
+		{Qos: packets.Qos2, Name: "t2"},
 	}
 	srv.subscriptionsDB.Subscribe("MQTT", tt...)
 
 	// create a package for an unsubscribed channel
 	pubU := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("tu"),
 		Payload:   []byte("payload"),
@@ -720,7 +720,7 @@ func TestServer_PublishToClientWithoutMatch(t *testing.T) {
 
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("t0"),
 		Payload:   []byte("payload"),
@@ -745,8 +745,8 @@ func TestUnsubscribe(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "/a/b/c", Qos: packets.QOS_0},
-			{Name: "/a/b/+", Qos: packets.QOS_1},
+			{Name: "/a/b/c", Qos: packets.Qos0},
+			{Name: "/a/b/+", Qos: packets.Qos1},
 		},
 	}
 	err := writePacket(c, sub)
@@ -777,7 +777,7 @@ func TestUnsubscribe(t *testing.T) {
 
 	pub := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    false,
 		TopicName: []byte("/a/b/cc"),
 		PacketID:  11,
@@ -796,11 +796,11 @@ func TestUnsubscribe(t *testing.T) {
 func TestOnSubscribe(t *testing.T) {
 	srv := newTestServer()
 	srv.hooks.OnSubscribe = func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
-		if topic.Qos == packets.QOS_0 {
-			return packets.QOS_1
+		if topic.Qos == packets.Qos0 {
+			return packets.Qos1
 		}
 		if topic.Name == "/a/b/+" {
-			return packets.SUBSCRIBE_FAILURE
+			return packets.SubscribeFailure
 		}
 		return topic.Qos
 	}
@@ -811,8 +811,8 @@ func TestOnSubscribe(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "/a/b/c", Qos: packets.QOS_0},
-			{Name: "/a/b/+", Qos: packets.QOS_1},
+			{Name: "/a/b/c", Qos: packets.Qos0},
+			{Name: "/a/b/+", Qos: packets.Qos1},
 		},
 	}
 	err := writePacket(c, sub)
@@ -825,8 +825,8 @@ func TestOnSubscribe(t *testing.T) {
 		if p.PacketID != sub.PacketID {
 			t.Fatalf("PacketID error, want %d, got %d", sub.PacketID, p.PacketID)
 		}
-		if !bytes.Equal(p.Payload, []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}) {
-			t.Fatalf("Payload error, want %v, got %v", []byte{packets.QOS_1, packets.SUBSCRIBE_FAILURE}, p.Payload)
+		if !bytes.Equal(p.Payload, []byte{packets.Qos1, packets.SubscribeFailure}) {
+			t.Fatalf("Payload error, want %v, got %v", []byte{packets.Qos1, packets.SubscribeFailure}, p.Payload)
 		}
 
 		m := srv.subscriptionsDB.GetTopicMatched("/a/b/+")
@@ -835,7 +835,7 @@ func TestOnSubscribe(t *testing.T) {
 		}
 		m = srv.subscriptionsDB.GetTopicMatched("/a/b/c")
 		if ts, ok := m["MQTT"]; ok {
-			if ts[0].Qos != packets.QOS_1 {
+			if ts[0].Qos != packets.Qos1 {
 				t.Fatalf("onSubscribe error, got %v", ts)
 			}
 		}
@@ -855,7 +855,7 @@ func TestRetainMsg(t *testing.T) {
 	payload := []byte("Payload")
 	pub := &packets.Publish{
 		Dup:       true,
-		Qos:       packets.QOS_1,
+		Qos:       packets.Qos1,
 		Retain:    true,
 		TopicName: topicName,
 		PacketID:  10,
@@ -869,7 +869,7 @@ func TestRetainMsg(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 11,
 		Topics: []packets.Topic{
-			{Name: string(topicName), Qos: packets.QOS_2},
+			{Name: string(topicName), Qos: packets.Qos2},
 		},
 	}
 	err = writePacket(c, sub)
@@ -902,8 +902,8 @@ func TestRetainMsg(t *testing.T) {
 			if pub.Dup != false {
 				t.Fatalf("Dup error, want %t, got %t", false, true)
 			}
-			if pub.Qos != packets.QOS_1 {
-				t.Fatalf("Qos error, want %d, got %d", packets.QOS_1, pub.Qos)
+			if pub.Qos != packets.Qos1 {
+				t.Fatalf("Qos error, want %d, got %d", packets.Qos1, pub.Qos)
 			}
 
 			if !pub.Retain {
@@ -918,7 +918,7 @@ func TestRetainMsg(t *testing.T) {
 	}
 	pub0 := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_0,
+		Qos:       packets.Qos0,
 		Retain:    true,
 		TopicName: topicName,
 		PacketID:  10,
@@ -933,8 +933,8 @@ func TestRetainMsg(t *testing.T) {
 		if p.Dup != false {
 			t.Fatalf("Dup error, want %t, got %t", false, true)
 		}
-		if p.Qos != packets.QOS_0 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_0, p.Qos)
+		if p.Qos != packets.Qos0 {
+			t.Fatalf("Qos error, want %d, got %d", packets.Qos0, p.Qos)
 		}
 
 		if p.Retain {
@@ -973,7 +973,7 @@ func TestQos1Redelivery(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "a/b", Qos: packets.QOS_2},
+			{Name: "a/b", Qos: packets.Qos2},
 		},
 	}
 	err := writePacket(c, sub)
@@ -985,7 +985,7 @@ func TestQos1Redelivery(t *testing.T) {
 
 	pub1 := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_1,
+		Qos:       packets.Qos1,
 		Retain:    false,
 		TopicName: topicName,
 		PacketID:  11,
@@ -1019,8 +1019,8 @@ func TestQos1Redelivery(t *testing.T) {
 		if !bytes.Equal(pub.Payload, payload) {
 			t.Fatalf("Payload error, want %v, got %v", payload, pub.Payload)
 		}
-		if pub.Qos != packets.QOS_1 {
-			t.Fatalf("Qos error, want %d, got %d", packets.QOS_1, pub.Qos)
+		if pub.Qos != packets.Qos1 {
+			t.Fatalf("Qos error, want %d, got %d", packets.Qos1, pub.Qos)
 		}
 		if pub.PacketID != originalPid {
 			t.Fatalf("PacketID error, want %d, got %d", originalPid, pub.PacketID)
@@ -1046,7 +1046,7 @@ func TestQos2Redelivery(t *testing.T) {
 	var senderPid uint16
 	sub := &packets.Subscribe{
 		Topics: []packets.Topic{
-			{Name: string(topicName), Qos: packets.QOS_2},
+			{Name: string(topicName), Qos: packets.Qos2},
 		},
 	}
 	err = writePacket(reciver, sub)
@@ -1057,7 +1057,7 @@ func TestQos2Redelivery(t *testing.T) {
 	senderPid = 10
 	pub2 := &packets.Publish{
 		Dup:       false,
-		Qos:       packets.QOS_2,
+		Qos:       packets.Qos2,
 		Retain:    false,
 		TopicName: topicName,
 		PacketID:  senderPid,
@@ -1077,7 +1077,7 @@ func TestQos2Redelivery(t *testing.T) {
 			t.Fatalf("unexpected error:%s", err)
 		}
 		pub := p.(*packets.Publish)
-		if pub.Qos != packets.QOS_2 {
+		if pub.Qos != packets.Qos2 {
 			if pub.Dup != false {
 				t.Fatalf("Dup error, want %t, got %t", false, true)
 			}
@@ -1087,8 +1087,8 @@ func TestQos2Redelivery(t *testing.T) {
 			if !bytes.Equal(pub.Payload, payload) {
 				t.Fatalf("Payload error, want %v, got %v", payload, pub.Payload)
 			}
-			if pub.Qos != packets.QOS_2 {
-				t.Fatalf("Qos error, want %d, got %d", packets.QOS_2, pub.Qos)
+			if pub.Qos != packets.Qos2 {
+				t.Fatalf("Qos error, want %d, got %d", packets.Qos2, pub.Qos)
 			}
 		}
 		err = writePacket(reciver, pub.NewPubrec())
@@ -1157,7 +1157,7 @@ func TestRedeliveryOnReconnect(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: string("#"), Qos: packets.QOS_1},
+			{Name: string("#"), Qos: packets.Qos1},
 		},
 	}
 	err = writePacket(c, sub)
@@ -1245,7 +1245,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: string("#"), Qos: packets.QOS_1},
+			{Name: string("#"), Qos: packets.Qos1},
 		},
 	}
 	err = writePacket(reciver, sub)
@@ -1260,7 +1260,7 @@ func TestOfflineMessageQueueing(t *testing.T) {
 	for i := 0x31; i <= 0x36; i++ { //assic 1 to 6,packet 1 will be dropped
 		pub := &packets.Publish{
 			Dup:       false,
-			Qos:       packets.QOS_1,
+			Qos:       packets.Qos1,
 			Retain:    false,
 			TopicName: []byte{byte(i)},
 			PacketID:  uint16(i),
@@ -1309,8 +1309,8 @@ func TestOfflineMessageQueueing(t *testing.T) {
 			if pub.Dup != false {
 				t.Fatalf("[%x]Dup error, want %t, got %t", i, false, true)
 			}
-			if pub.Qos != packets.QOS_1 {
-				t.Fatalf("[%x]Qos error, want %d, got %d", i, packets.QOS_1, pub.Qos)
+			if pub.Qos != packets.Qos1 {
+				t.Fatalf("[%x]Qos error, want %d, got %d", i, packets.Qos1, pub.Qos)
 			}
 		} else {
 			t.Fatalf("unexpected Packet Type, want %v, got %v", reflect.TypeOf(&packets.Publish{}), reflect.TypeOf(p))
@@ -1331,7 +1331,7 @@ func TestWillMsg(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "#", Qos: packets.QOS_1},
+			{Name: "#", Qos: packets.Qos1},
 		},
 	}
 	err = writePacket(reciver, sub)
@@ -1366,7 +1366,7 @@ func TestRemoveWillMsg(t *testing.T) {
 	sub := &packets.Subscribe{
 		PacketID: 10,
 		Topics: []packets.Topic{
-			{Name: "topicname", Qos: packets.QOS_1},
+			{Name: "topicname", Qos: packets.Qos1},
 		},
 	}
 	err = writePacket(reciver, sub)

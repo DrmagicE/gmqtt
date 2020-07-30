@@ -446,7 +446,7 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 				if t.Qos > maxQos {
 					maxQos = t.Qos
 				}
-				if maxQos == packets.QOS_2 {
+				if maxQos == packets.Qos2 {
 					break
 				}
 			}
@@ -614,7 +614,7 @@ var defaultUpgrader = &websocket.Upgrader{
 }
 
 //实现io.ReadWriter接口
-// wsConn implements the io.ReadWriter
+// wsConn implements the io.readWriter
 type wsConn struct {
 	net.Conn
 	c *websocket.Conn

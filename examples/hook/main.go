@@ -57,19 +57,19 @@ func main() {
 			return topic.Qos
 		}
 		if client.OptionsReader().Username() == "qos0" {
-			if topic.Qos <= packets.QOS_0 {
+			if topic.Qos <= packets.Qos0 {
 				return topic.Qos
 			}
-			return packets.QOS_0
+			return packets.Qos0
 		}
 		if client.OptionsReader().Username() == "qos1" {
-			if topic.Qos <= packets.QOS_1 {
+			if topic.Qos <= packets.Qos1 {
 				return topic.Qos
 			}
-			return packets.QOS_1
+			return packets.Qos1
 		}
 		if client.OptionsReader().Username() == "publishonly" {
-			return packets.SUBSCRIBE_FAILURE
+			return packets.SubscribeFailure
 		}
 		return topic.Qos
 	}
@@ -79,7 +79,7 @@ func main() {
 			return false
 		}
 		//Only qos1 & qos0 are acceptable(will be delivered)
-		if msg.Qos() == packets.QOS_2 {
+		if msg.Qos() == packets.Qos2 {
 			return false
 		}
 		return true

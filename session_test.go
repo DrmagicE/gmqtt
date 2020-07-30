@@ -32,7 +32,7 @@ func mockClient() *client {
 func fullInflightSessionQos1() *client {
 	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
-		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.QOS_1}
+		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos1}
 		c.setInflight(pub)
 	}
 	return c
@@ -40,7 +40,7 @@ func fullInflightSessionQos1() *client {
 func TestQos1Inflight(t *testing.T) {
 	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
-		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.QOS_1}
+		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos1}
 		if !c.setInflight(pub) {
 			t.Fatalf("setInflight error, want true, but false")
 		}
@@ -85,7 +85,7 @@ func TestQos1Inflight(t *testing.T) {
 func TestQos2Inflight(t *testing.T) {
 	c := mockClient()
 	for i := 1; i <= testMaxInflightLen; i++ {
-		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.QOS_2}
+		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos2}
 		if !c.setInflight(pub) {
 			t.Fatalf("setInflight error, want true, but false")
 		}
@@ -137,7 +137,7 @@ func TestMsgQueue(t *testing.T) {
 	j := 0
 	for i := beginPid; i < testMaxMsgQueueLen+beginPid; i++ {
 		j++
-		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.QOS_1}
+		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos1}
 		if c.setInflight(pub) {
 			t.Fatalf("setInflight error, want fase, but true")
 		}
@@ -170,14 +170,14 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	//case 1: removing qos0 message in msgQueue
 	c := fullInflightSessionQos1()
 	c.session.config.MaxMsgQueue = 3
-	pub1 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
+	pub1 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.Qos1}
 	c.msgEnQueue(pub1)
-	pub2 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}
+	pub2 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.Qos2}
 	c.msgEnQueue(pub2)
-	pub3 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.QOS_0}
+	pub3 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.Qos0}
 	c.msgEnQueue(pub3)
 	//msgQueue: pid:1;qos:1 | pid:2;qos:2 | pid:3;qos:0 |
-	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.QOS_1}
+	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos1}
 	c.msgEnQueue(pub4)
 	i := 1
 	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
@@ -204,14 +204,14 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	//case 2: dropping current qos0 message
 	c2 := fullInflightSessionQos1()
 	c2.session.config.MaxMsgQueue = 3
-	pub21 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
+	pub21 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.Qos1}
 	c2.msgEnQueue(pub21)
-	pub22 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}
+	pub22 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.Qos2}
 	c2.msgEnQueue(pub22)
-	pub23 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.QOS_1}
+	pub23 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.Qos1}
 	c2.msgEnQueue(pub23)
 	//msgQueue: pid:1;qos:1 | pid:2;qos:2 | pid:3;qos:1 |
-	pub24 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.QOS_0}
+	pub24 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos0}
 	c2.msgEnQueue(pub24)
 	i = 1
 	for e := c2.session.msgQueue.Front(); e != nil; e = e.Next() {
@@ -237,15 +237,15 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	//case 3:removing the front message of msgQueue
 	c3 := fullInflightSessionQos1()
 	c3.session.config.MaxMsgQueue = 3
-	pub31 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.QOS_1}
+	pub31 := &packets.Publish{PacketID: packets.PacketID(1), Qos: packets.Qos1}
 	c3.msgEnQueue(pub31)
-	pub32 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.QOS_2}
+	pub32 := &packets.Publish{PacketID: packets.PacketID(2), Qos: packets.Qos2}
 	c3.msgEnQueue(pub32)
-	pub33 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.QOS_1}
+	pub33 := &packets.Publish{PacketID: packets.PacketID(3), Qos: packets.Qos1}
 	c3.msgEnQueue(pub33)
 	//msgQueue: pid:1;qos:1 | pid:2;qos:2 | pid:3;qos:1 |
 
-	pub34 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.QOS_1}
+	pub34 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos1}
 	c3.msgEnQueue(pub34)
 	i = 1
 	//当缓存队列满

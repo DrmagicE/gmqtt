@@ -16,10 +16,10 @@ func TestTrieDB_UnsubscribeAll(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
 	}
 
 	for _, v := range tt {
@@ -52,11 +52,11 @@ func TestTrieDB_Subscribe_Unsubscribe(t *testing.T) {
 		topic          packets.Topic
 		alreadyExisted bool
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}, alreadyExisted: false},
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}, alreadyExisted: false},
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}, alreadyExisted: false},
-		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}, alreadyExisted: false},
-		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}, alreadyExisted: true},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}, alreadyExisted: false},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}, alreadyExisted: false},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}, alreadyExisted: false},
+		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}, alreadyExisted: false},
+		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}, alreadyExisted: true},
 	}
 	utt := []struct {
 		clientID  string
@@ -76,8 +76,8 @@ func TestTrieDB_Subscribe_Unsubscribe(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
 	}
 
 	var rs []struct {
@@ -102,10 +102,10 @@ func TestTrieDB_Iterate(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
@@ -136,18 +136,18 @@ func TestTrieDB_IterateWithTopicFilter(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
-		{clientID: "id4", topic: packets.Topic{Name: "name3/name4/name5", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
+		{clientID: "id4", topic: packets.Topic{Name: "name3/name4/name5", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
 	}
 	var expected = subscription.ClientTopics{
 		"id3": {packets.Topic{
-			Qos:  packets.QOS_2,
+			Qos:  packets.Qos2,
 			Name: "name3",
 		}},
 	}
@@ -164,20 +164,20 @@ func TestTrieDB_IterateWithTopicMatched(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "/a/b/c", Qos: packets.QOS_0}},
-		{clientID: "id1", topic: packets.Topic{Name: "/a/b/+", Qos: packets.QOS_1}},
-		{clientID: "id2", topic: packets.Topic{Name: "/a/b/c/d", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "/a/b/c", Qos: packets.Qos0}},
+		{clientID: "id1", topic: packets.Topic{Name: "/a/b/+", Qos: packets.Qos1}},
+		{clientID: "id2", topic: packets.Topic{Name: "/a/b/c/d", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
 	}
 	var expected = subscription.ClientTopics{
 		"id0": {{
-			Qos:  packets.QOS_0,
+			Qos:  packets.Qos0,
 			Name: "/a/b/c",
 		}},
 		"id1": {{
-			Qos:  packets.QOS_1,
+			Qos:  packets.Qos1,
 			Name: "/a/b/+",
 		}},
 	}
@@ -194,16 +194,16 @@ func TestTrieDB_GetStats(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
 
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
 
-		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
 
-		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
+		{clientID: "id3", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
 
-		{clientID: "id4", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
-		{clientID: "id4", topic: packets.Topic{Name: "name4", Qos: packets.QOS_2}},
+		{clientID: "id4", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
+		{clientID: "id4", topic: packets.Topic{Name: "name4", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
@@ -213,7 +213,7 @@ func TestTrieDB_GetStats(t *testing.T) {
 	a.EqualValues(len(tt), stats.SubscriptionsCurrent)
 
 	// If subscribe duplicated topic, total and current statistics should not increase
-	db.Subscribe("id0", packets.Topic{packets.QOS_0, "name0"})
+	db.Subscribe("id0", packets.Topic{packets.Qos0, "name0"})
 	stats = db.GetStats()
 	a.EqualValues(len(tt), stats.SubscriptionsTotal)
 	a.EqualValues(len(tt), stats.SubscriptionsCurrent)
@@ -222,8 +222,8 @@ func TestTrieDB_GetStats(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
 	}
 	for _, v := range utt {
 		db.Unsubscribe(v.clientID, v.topic.Name)
@@ -251,12 +251,12 @@ func TestTrieDB_GetClientStats(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id0", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{clientID: "id1", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id1", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
-		{clientID: "id2", topic: packets.Topic{Name: "name4", Qos: packets.QOS_2}},
-		{clientID: "id2", topic: packets.Topic{Name: "name5", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id0", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
+		{clientID: "id1", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id1", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name4", Qos: packets.Qos2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name5", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
@@ -278,19 +278,19 @@ func TestTrieDB_GetClientSubscriptions(t *testing.T) {
 		clientID string
 		topic    packets.Topic
 	}{
-		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.QOS_0}},
-		{clientID: "id0", topic: packets.Topic{Name: "name1", Qos: packets.QOS_1}},
-		{clientID: "id1", topic: packets.Topic{Name: "name2", Qos: packets.QOS_2}},
-		{clientID: "id1", topic: packets.Topic{Name: "name3", Qos: packets.QOS_2}},
-		{clientID: "id2", topic: packets.Topic{Name: "name4", Qos: packets.QOS_2}},
-		{clientID: "id2", topic: packets.Topic{Name: "name5", Qos: packets.QOS_2}},
+		{clientID: "id0", topic: packets.Topic{Name: "name0", Qos: packets.Qos0}},
+		{clientID: "id0", topic: packets.Topic{Name: "name1", Qos: packets.Qos1}},
+		{clientID: "id1", topic: packets.Topic{Name: "name2", Qos: packets.Qos2}},
+		{clientID: "id1", topic: packets.Topic{Name: "name3", Qos: packets.Qos2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name4", Qos: packets.Qos2}},
+		{clientID: "id2", topic: packets.Topic{Name: "name5", Qos: packets.Qos2}},
 	}
 	for _, v := range tt {
 		db.Subscribe(v.clientID, v.topic)
 	}
 	expected := []packets.Topic{
-		{Name: "name0", Qos: packets.QOS_0},
-		{Name: "name1", Qos: packets.QOS_1},
+		{Name: "name0", Qos: packets.Qos0},
+		{Name: "name1", Qos: packets.Qos1},
 	}
 	rs := db.GetClientSubscriptions("id0")
 	a.ElementsMatch(expected, rs)
