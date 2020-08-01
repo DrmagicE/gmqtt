@@ -235,6 +235,9 @@ type options struct {
 	responseTopic         []byte
 	correlationData       []byte
 	willUserProperty      packets.StringPair
+
+	// connack
+	retainAvailable bool
 }
 
 // ClientID return clientID
@@ -598,7 +601,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 				},
 				Name: v.Name,
 			}
-			srv.subscriptionsDB.Subscribe(client.opts.clientID, topic)
+			subRs := srv.subscriptionsDB.Subscribe(client.opts.clientID, topic)
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
@@ -609,8 +612,9 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
 			// TODO check this is a non-share subscription
-			if v.RetainHandling == 0 {
+			if (!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0 {
 				// matched retained messages
+				// TODO check retain as publish
 				msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
 			}
 		} else {
@@ -633,6 +637,12 @@ func (client *client) publishHandler(pub *packets.Publish) {
 	s := client.session
 	srv := client.server
 	var dup bool
+
+	// check retain available
+	if !client.opts.retainAvailable && pub.Retain {
+		client.setError(codes.NewError(codes.RetainNotSupported))
+	}
+
 	if pub.Qos == packets.Qos1 {
 		puback := pub.NewPuback()
 		client.write(puback)
