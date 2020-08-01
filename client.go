@@ -219,6 +219,22 @@ type options struct {
 	willPayload []byte
 	localAddr   net.Addr
 	remoteAddr  net.Addr
+
+	sessionExpiryInterval uint32
+	receiveMaximum        uint16
+	maximumPacketSize     uint32
+	topicAliasMaximum     uint16
+	requestResponseInfo   bool
+	requestProblemInfo    bool
+	userProperty          packets.StringPair
+
+	willDelayInterval     uint32
+	payloadFormat         byte
+	messageExpiryInterval uint32
+	contentType           []byte
+	responseTopic         []byte
+	correlationData       []byte
+	willUserProperty      packets.StringPair
 }
 
 // ClientID return clientID
@@ -373,7 +389,6 @@ func (client *client) errorWatch() {
 //
 // Close closes the client connection. The returned channel will be closed after unregister process has been done
 func (client *client) Close() <-chan struct{} {
-	client.setError(nil)
 	client.rwc.Close()
 	return client.closeComplete
 }
@@ -573,13 +588,13 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 
 	suback := sub.NewSuback()
 	for k, v := range sub.Topics {
-		if v.Qos != packets.SubscribeFailure {
+		if v.Qos < packets.SubscribeFailure {
 			topic := packets.Topic{
 				SubOptions: packets.SubOptions{
-					Qos:               sub.Topics[k].Qos,
-					RetainAsPublished: sub.Topics[k].RetainAsPublished,
-					NoLocal:           sub.Topics[k].NoLocal,
-					RetainHandling:    sub.Topics[k].RetainHandling,
+					Qos:               v.Qos,
+					RetainAsPublished: v.RetainAsPublished,
+					NoLocal:           v.NoLocal,
+					RetainHandling:    v.RetainHandling,
 				},
 				Name: v.Name,
 			}
@@ -593,8 +608,11 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 				zap.String("client_id", client.opts.clientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
-			// matched retained messages
-			msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
+			// TODO check this is a non-share subscription
+			if v.RetainHandling == 0 {
+				// matched retained messages
+				msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
+			}
 		} else {
 			zaplog.Info("subscribe failed",
 				zap.String("topic", v.Name),

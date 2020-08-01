@@ -15,7 +15,7 @@ type IterateFn func(message packets.Message) bool
 // This methods will not trigger any gmqtt hooks.
 type Store interface {
 	// GetRetainedMessage returns the message that equals the passed topic.
-	GetRetainedMessage(topicName string) packets.Message
+	GetRetainedMessage(topic packets.Topic) packets.Message
 	// ClearAll clears all retained messages.
 	ClearAll()
 	// AddOrReplace adds or replaces a retained message.

@@ -31,12 +31,14 @@ func (p *Publish) String() string {
 // CopyPublish returns the copied publish struct for distribution
 func (p *Publish) CopyPublish() *Publish {
 	pub := &Publish{
-		Dup:       p.Dup,
-		Qos:       p.Qos,
-		Retain:    p.Retain,
-		PacketID:  p.PacketID,
-		TopicName: p.TopicName,
-		Payload:   p.Payload,
+		Version:    p.Version,
+		Dup:        p.Dup,
+		Qos:        p.Qos,
+		Retain:     p.Retain,
+		PacketID:   p.PacketID,
+		TopicName:  p.TopicName,
+		Payload:    p.Payload,
+		Properties: p.Properties,
 	}
 	// TODO property Copy
 

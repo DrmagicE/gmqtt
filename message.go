@@ -57,5 +57,6 @@ func messageToPublish(msg packets.Message) *packets.Publish {
 		TopicName: []byte(msg.Topic()),
 		PacketID:  msg.PacketID(),
 		Payload:   msg.Payload(),
+		Version:   packets.Version5,
 	}
 }

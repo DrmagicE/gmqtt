@@ -229,6 +229,7 @@ func (srv *server) registerHandler(register *register) {
 				zap.String("client_id", client.OptionsReader().ClientID()),
 			)
 			oldClient.setSwitching()
+			oldClient.setError(codes.NewError(codes.SessionTakenOver))
 			<-oldClient.Close()
 			if oldClient.opts.willFlag {
 				willMsg := &packets.Publish{
@@ -351,6 +352,7 @@ clearIn:
 	}
 
 	if !client.cleanWillFlag && client.opts.willFlag {
+		// 起一个定时任务，
 		willMsg := &packets.Publish{
 			Dup:       false,
 			Qos:       client.opts.willQos,
