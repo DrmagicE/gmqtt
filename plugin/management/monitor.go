@@ -222,7 +222,7 @@ func newClientInfo(client gmqtt.Client) *ClientInfo {
 		Username:       optsReader.Username(),
 		Password:       optsReader.Password(),
 		KeepAlive:      optsReader.KeepAlive(),
-		CleanSession:   optsReader.CleanSession(),
+		CleanSession:   optsReader.CleanStart(),
 		WillFlag:       optsReader.WillFlag(),
 		WillRetain:     optsReader.WillRetain(),
 		WillQos:        optsReader.WillQos(),
@@ -242,7 +242,7 @@ func (m *monitor) newSessionInfo(client gmqtt.Client, c gmqtt.Config) *SessionIn
 	rs := &SessionInfo{
 		ClientID:              optsReader.ClientID(),
 		Status:                statusText(client),
-		CleanSession:          optsReader.CleanSession(),
+		CleanSession:          optsReader.CleanStart(),
 		Subscriptions:         subStats.SubscriptionsCurrent,
 		MaxInflight:           c.MaxInflight,
 		InflightLen:           stats.InflightCurrent,

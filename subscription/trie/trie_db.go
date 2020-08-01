@@ -38,13 +38,17 @@ func (db *trieDB) GetClientSubscriptions(clientID string) []packets.Topic {
 	var rs []packets.Topic
 	for topicName, v := range db.userIndex[clientID] {
 		rs = append(rs, packets.Topic{
-			Qos:  v.clients[clientID],
+			SubOptions: packets.SubOptions{
+				Qos: v.clients[clientID],
+			},
 			Name: topicName,
 		})
 	}
 	for topicName, v := range db.systemIndex[clientID] {
 		rs = append(rs, packets.Topic{
-			Qos:  v.clients[clientID],
+			SubOptions: packets.SubOptions{
+				Qos: v.clients[clientID],
+			},
 			Name: topicName,
 		})
 	}
@@ -84,7 +88,9 @@ func (db *trieDB) Get(topicFilter string) subscription.ClientTopics {
 		rs := make(subscription.ClientTopics)
 		for clientID, qos := range node.clients {
 			rs[clientID] = append(rs[clientID], packets.Topic{
-				Qos:  qos,
+				SubOptions: packets.SubOptions{
+					Qos: qos,
+				},
 				Name: node.topicName,
 			})
 		}

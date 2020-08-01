@@ -1,4 +1,4 @@
-package v5
+package packets
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWritePublishPacket(t *testing.T) {
+func TestReadWritePublishPacket_V5(t *testing.T) {
 	a := assert.New(t)
 	var tt = []struct {
 		topicName  []byte
@@ -67,6 +67,7 @@ func TestWritePublishPacket(t *testing.T) {
 		b := make([]byte, 0, 2048)
 		buf := bytes.NewBuffer(b)
 		pub := &Publish{
+			Version:    Version5,
 			Dup:        v.dup,
 			Qos:        v.qos,
 			Retain:     v.retain,
@@ -77,11 +78,14 @@ func TestWritePublishPacket(t *testing.T) {
 		}
 		err := NewWriter(buf).WriteAndFlush(pub)
 		a.Nil(err)
-		packet, err := NewReader(buf).ReadPacket()
+		bufr := bytes.NewBuffer(buf.Bytes())
+		r := NewReader(bufr)
+		r.SetVersion(Version5)
+		p, err := r.ReadPacket()
 		a.Nil(err)
-		_, err = buf.ReadByte()
+		_, err = bufr.ReadByte()
 		a.Equal(io.EOF, err)
-		if p, ok := packet.(*Publish); ok {
+		if p, ok := p.(*Publish); ok {
 			a.Equal(pub.TopicName, p.TopicName)
 			a.Equal(pub.PacketID, p.PacketID)
 			a.Equal(pub.Payload, p.Payload)
@@ -90,13 +94,13 @@ func TestWritePublishPacket(t *testing.T) {
 			a.Equal(pub.Dup, p.Dup)
 			a.Equal(pub.Properties, p.Properties)
 		} else {
-			t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Publish{}), reflect.TypeOf(packet))
+			t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Publish{}), reflect.TypeOf(p))
 		}
 	}
 
 }
 
-func TestReadPublishPacket(t *testing.T) {
+func TestReadPublishPacket_V5(t *testing.T) {
 	a := assert.New(t)
 	firstByte := byte(0x3d) // dup=1,qos=2,retain =1
 	topicName := []byte("test Topic Name")
@@ -116,7 +120,9 @@ func TestReadPublishPacket(t *testing.T) {
 	var packet Packet
 	var err error
 	t.Run("unpack", func(t *testing.T) {
-		packet, err = NewReader(publishPacketBytes).ReadPacket()
+		r := NewReader(publishPacketBytes)
+		r.SetVersion(Version5)
+		packet, err = r.ReadPacket()
 		a.Nil(err)
 		pp := packet.(*Publish)
 		a.Equal(Qos2, pp.Qos)
@@ -132,6 +138,72 @@ func TestReadPublishPacket(t *testing.T) {
 		a.Nil(err)
 		a.Equal(pb, bufw.Bytes())
 	})
+}
+
+func TestReadWritePublishPacket_V311(t *testing.T) {
+	a := assert.New(t)
+	var tt = []struct {
+		topicName  []byte
+		dup        bool
+		retain     bool
+		qos        uint8
+		pid        uint16
+		payload    []byte
+		properties *Properties
+	}{
+		{
+			topicName: []byte("abc"),
+			dup:       true,
+			retain:    false,
+			qos:       Qos1, pid: 10,
+			payload: []byte("a")},
+		{
+			topicName: []byte("test topic name2"),
+			dup:       false,
+			retain:    true,
+			qos:       Qos0,
+			payload:   []byte("test payload2")},
+		{
+			topicName: []byte("test topic name3"),
+			dup:       false,
+			retain:    true,
+			qos:       Qos2,
+			pid:       11,
+			payload:   []byte("test payload3"),
+		},
+	}
+
+	for _, v := range tt {
+		b := make([]byte, 0, 2048)
+		buf := bytes.NewBuffer(b)
+		pub := &Publish{
+			Version:    Version311,
+			Dup:        v.dup,
+			Qos:        v.qos,
+			Retain:     v.retain,
+			TopicName:  v.topicName,
+			PacketID:   v.pid,
+			Payload:    v.payload,
+			Properties: v.properties,
+		}
+		a.Nil(NewWriter(buf).WriteAndFlush(pub))
+		packet, err := NewReader(buf).ReadPacket()
+		a.Nil(err, string(v.topicName))
+		_, err = buf.ReadByte()
+		a.Equal(io.EOF, err, string(v.topicName))
+		if p, ok := packet.(*Publish); ok {
+			a.Equal(p.TopicName, pub.TopicName)
+			a.Equal(p.PacketID, pub.PacketID)
+			a.Equal(p.Payload, pub.Payload)
+			a.Equal(p.Retain, pub.Retain)
+			a.Equal(p.Qos, pub.Qos)
+			a.Equal(p.Dup, pub.Dup)
+			a.Equal(p.Properties, pub.Properties)
+		} else {
+			t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Publish{}), reflect.TypeOf(packet))
+		}
+	}
+
 }
 
 func TestPublish_NewPuback(t *testing.T) {

@@ -1,4 +1,4 @@
-package v5
+package packets
 
 import (
 	"bufio"

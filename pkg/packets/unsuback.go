@@ -1,31 +1,34 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Unsuback represents the MQTT Unsuback  packet.
 type Unsuback struct {
+	Version    Version
 	FixHeader  *FixHeader
 	PacketID   PacketID
 	Properties *Properties
-	Payload    []ReasonCode
+	Payload    []codes.Code
 }
 
 func (p *Unsuback) String() string {
 	return fmt.Sprintf("Unsuback, Pid: %v", p.PacketID)
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.writer.
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsuback) Pack(w io.Writer) error {
-	if p.FixHeader == nil {
-		p.FixHeader = &FixHeader{PacketType: UNSUBACK, Flags: FlagReserved}
-	}
+	p.FixHeader = &FixHeader{PacketType: UNSUBACK, Flags: FlagReserved}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
-	p.Properties.Pack(bufw, UNSUBACK)
+	if p.Version == Version5 {
+		p.Properties.Pack(bufw, UNSUBACK)
+	}
 	bufw.Write(p.Payload)
 	p.FixHeader.RemainLength = bufw.Len()
 	err := p.FixHeader.Pack(w)
@@ -36,18 +39,22 @@ func (p *Unsuback) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Unsuback) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
-		return errMalformed(err)
+		return codes.ErrMalformed
 	}
 	bufr := bytes.NewBuffer(restBuffer)
 	p.PacketID, err = readUint16(bufr)
 	if err != nil {
 		return err
 	}
+	if p.Version == Version311 {
+		return nil
+	}
+
 	p.Properties = &Properties{}
 	err = p.Properties.Unpack(bufr, UNSUBACK)
 	if err != nil {
@@ -56,10 +63,10 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	for {
 		b, err := bufr.ReadByte()
 		if err != nil {
-			return errMalformed(err)
+			return codes.ErrMalformed
 		}
-		if !ValidateCode(UNSUBACK, b) {
-			return protocolErr(invalidReasonCode(b))
+		if p.Version == Version5 && !ValidateCode(UNSUBACK, b) {
+			return codes.ErrProtocol
 		}
 		p.Payload = append(p.Payload, b)
 		if bufr.Len() == 0 {
@@ -68,11 +75,11 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	}
 }
 
-// NewUnsubackPacket returns a Unsuback instance by the given FixHeader and io.reader.
-func NewUnsubackPacket(fh *FixHeader, r io.Reader) (*Unsuback, error) {
-	p := &Unsuback{FixHeader: fh}
+// NewUnsubackPacket returns a Unsuback instance by the given FixHeader and io.Reader.
+func NewUnsubackPacket(fh *FixHeader, version Version, r io.Reader) (*Unsuback, error) {
+	p := &Unsuback{FixHeader: fh, Version: version}
 	if fh.Flags != FlagReserved {
-		return nil, ErrInvalFlags
+		return nil, codes.ErrMalformed
 	}
 	err := p.Unpack(r)
 	if err != nil {

@@ -1,31 +1,34 @@
-package v5
+package packets
 
 import (
 	"bytes"
+	"io"
+	"reflect"
 	"testing"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReadWritePubrecPacket(t *testing.T) {
+func TestReadWritePubrecPacket_V5(t *testing.T) {
 	tt := []struct {
 		testname   string
 		pid        PacketID
-		code       ReasonCode
+		code       codes.Code
 		properties *Properties
 		want       []byte
 	}{
 		{
 			testname:   "omit properties when code = 0",
 			pid:        10,
-			code:       CodeSuccess,
+			code:       codes.Success,
 			properties: nil,
 			want:       []byte{80, 2, 0, 10},
 		},
 		{
 			testname: "code = 0 with properties",
 			pid:      10,
-			code:     CodeSuccess,
+			code:     codes.Success,
 			properties: &Properties{
 				ReasonString: []byte("a"),
 			},
@@ -33,9 +36,9 @@ func TestReadWritePubrecPacket(t *testing.T) {
 		}, {
 			testname:   "code != 0 with properties",
 			pid:        10,
-			code:       CodeNotAuthorized,
+			code:       codes.NotAuthorized,
 			properties: &Properties{},
-			want:       []byte{80, 4, 0, 10, CodeNotAuthorized, 0},
+			want:       []byte{80, 4, 0, 10, codes.NotAuthorized, 0},
 		},
 	}
 
@@ -45,6 +48,7 @@ func TestReadWritePubrecPacket(t *testing.T) {
 			b := make([]byte, 0, 2048)
 			buf := bytes.NewBuffer(b)
 			puback := &Pubrec{
+				Version:    Version5,
 				PacketID:   v.pid,
 				Properties: v.properties,
 				Code:       v.code,
@@ -54,8 +58,9 @@ func TestReadWritePubrecPacket(t *testing.T) {
 			a.Equal(v.want, buf.Bytes())
 
 			bufr := bytes.NewBuffer(buf.Bytes())
-
-			p, err := NewReader(bufr).ReadPacket()
+			r := NewReader(bufr)
+			r.SetVersion(Version5)
+			p, err := r.ReadPacket()
 			a.Nil(err)
 			rp := p.(*Pubrec)
 
@@ -66,6 +71,43 @@ func TestReadWritePubrecPacket(t *testing.T) {
 		})
 	}
 
+}
+
+func TestWritePubrecPacket_V311(t *testing.T) {
+	a := assert.New(t)
+	b := make([]byte, 0, 2048)
+	buf := bytes.NewBuffer(b)
+	pid := uint16(65535)
+	pubrec := &Pubrec{
+		Version:  Version311,
+		PacketID: pid,
+	}
+	err := NewWriter(buf).WriteAndFlush(pubrec)
+	a.Nil(err)
+
+	packet, err := NewReader(buf).ReadPacket()
+	a.Nil(err)
+	_, err = buf.ReadByte()
+	a.Equal(io.EOF, err)
+
+	if p, ok := packet.(*Pubrec); ok {
+		a.EqualValues(pid, p.PacketID)
+	} else {
+		t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Pubrec{}), reflect.TypeOf(packet))
+	}
+
+}
+
+func TestReadPubrecPacket(t *testing.T) {
+	a := assert.New(t)
+	pubrecBytes := bytes.NewBuffer([]byte{0x50, 2, 0, 1})
+	packet, err := NewReader(pubrecBytes).ReadPacket()
+	a.Nil(err)
+	if p, ok := packet.(*Pubrec); ok {
+		a.EqualValues(1, p.PacketID)
+	} else {
+		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Pubrec{}), reflect.TypeOf(packet))
+	}
 }
 
 func TestPubrec_NewPubrel(t *testing.T) {

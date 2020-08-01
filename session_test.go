@@ -25,7 +25,7 @@ func mockClient() *client {
 	config.MaxAwaitRel = testMaxAwaitRelLen
 	b := NewServer(WithConfig(config))
 	c := b.newClient(nil)
-	c.opts.cleanSession = true
+	c.opts.clearStart = true
 	c.newSession()
 	return c
 }

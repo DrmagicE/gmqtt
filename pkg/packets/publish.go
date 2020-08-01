@@ -1,23 +1,24 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"fmt"
 	"io"
 
-	packets "github.com/DrmagicE/gmqtt/pkg/packets1"
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Publish represents the MQTT Publish  packet
 type Publish struct {
-	FixHeader        *FixHeader
-	Dup              bool   //是否重发 [MQTT-3.3.1.-1]
-	Qos              uint8  //qos等级
-	Retain           bool   //是否保留消息
-	TopicName        []byte //主题名
-	packets.PacketID        //报文标识符
-	Payload          []byte
-	Properties       *Properties
+	Version    Version
+	FixHeader  *FixHeader
+	Dup        bool   //是否重发 [MQTT-3.3.1.-1]
+	Qos        uint8  //qos等级
+	Retain     bool   //是否保留消息
+	TopicName  []byte //主题名
+	PacketID          //报文标识符
+	Payload    []byte
+	Properties *Properties
 }
 
 func (p *Publish) String() string {
@@ -46,16 +47,16 @@ func (p *Publish) CopyPublish() *Publish {
 	return pub
 }
 
-// NewPublishPacket returns a Publish instance by the given FixHeader and io.reader.
-func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
-	p := &Publish{FixHeader: fh}
+// NewPublishPacket returns a Publish instance by the given FixHeader and io.Reader.
+func NewPublishPacket(fh *FixHeader, version Version, r io.Reader) (*Publish, error) {
+	p := &Publish{FixHeader: fh, Version: version}
 	p.Dup = (1 & (fh.Flags >> 3)) > 0
 	p.Qos = (fh.Flags >> 1) & 3
 	if p.Qos == 0 && p.Dup { //[MQTT-3.3.1-2]、 [MQTT-4.3.1-1]
-		return nil, errMalformed(ErrInvalFlags)
+		return nil, codes.ErrMalformed
 	}
-	if p.Qos > packets.Qos2 {
-		return nil, errMalformed(ErrInvalQos)
+	if p.Qos > Qos2 {
+		return nil, codes.ErrMalformed
 	}
 	if fh.Flags&1 == 1 { //保留标志
 		p.Retain = true
@@ -67,9 +68,9 @@ func NewPublishPacket(fh *FixHeader, r io.Reader) (*Publish, error) {
 	return p, nil
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.writer.
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Publish) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: packets.PUBLISH}
+	p.FixHeader = &FixHeader{PacketType: PUBLISH}
 	bufw := &bytes.Buffer{}
 	var dup, retain byte
 	dup = 0
@@ -82,10 +83,12 @@ func (p *Publish) Pack(w io.Writer) error {
 	}
 	p.FixHeader.Flags = dup | retain | (p.Qos << 1)
 	writeBinary(bufw, p.TopicName)
-	if p.Qos == packets.Qos1 || p.Qos == packets.Qos2 {
+	if p.Qos == Qos1 || p.Qos == Qos2 {
 		writeUint16(bufw, p.PacketID)
 	}
-	p.Properties.Pack(bufw, packets.PUBLISH)
+	if p.Version == Version5 {
+		p.Properties.Pack(bufw, PUBLISH)
+	}
 	bufw.Write(p.Payload)
 	p.FixHeader.RemainLength = bufw.Len()
 	err := p.FixHeader.Pack(w)
@@ -97,13 +100,13 @@ func (p *Publish) Pack(w io.Writer) error {
 
 }
 
-// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Publish) Unpack(r io.Reader) error {
 	var err error
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err = io.ReadFull(r, restBuffer)
 	if err != nil {
-		return errMalformed(err)
+		return codes.ErrMalformed
 	}
 	bufr := bytes.NewBuffer(restBuffer)
 	p.TopicName, err = readUTF8String(true, bufr)
@@ -111,32 +114,36 @@ func (p *Publish) Unpack(r io.Reader) error {
 		return err
 	}
 	if !ValidTopicName(true, p.TopicName) {
-		return errMalformed(ErrInvalTopicName)
+		return codes.ErrMalformed
 	}
-	if p.Qos > packets.Qos0 {
+	if p.Qos > Qos0 {
 		p.PacketID, err = readUint16(bufr)
 		if err != nil {
 			return err
 		}
 	}
-	p.Properties = &Properties{}
-	if err := p.Properties.Unpack(bufr, packets.PUBLISH); err != nil {
-		return err
+	if p.Version == Version5 {
+		p.Properties = &Properties{}
+		if err := p.Properties.Unpack(bufr, PUBLISH); err != nil {
+			return err
+		}
 	}
 	p.Payload = bufr.Next(bufr.Len())
 	return nil
 }
 
 // NewPuback returns the puback struct related to the publish struct in QoS 1
+// TODO version
 func (p *Publish) NewPuback() *Puback {
-	pub := &Puback{FixHeader: &FixHeader{PacketType: packets.PUBACK, Flags: packets.FlagReserved, RemainLength: 2}}
+	pub := &Puback{FixHeader: &FixHeader{PacketType: PUBACK, Flags: FlagReserved, RemainLength: 2}}
 	pub.PacketID = p.PacketID
 	return pub
 }
 
 // NewPubrec returns the pubrec struct related to the publish struct in QoS 2
+// TODO version
 func (p *Publish) NewPubrec() *Pubrec {
-	pub := &Pubrec{FixHeader: &FixHeader{PacketType: packets.PUBREC, Flags: packets.FlagReserved, RemainLength: 2}}
+	pub := &Pubrec{FixHeader: &FixHeader{PacketType: PUBREC, Flags: FlagReserved, RemainLength: 2}}
 	pub.PacketID = p.PacketID
 	return pub
 }

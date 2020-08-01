@@ -1,13 +1,16 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Unsubscribe represents the MQTT Unsubscribe  packet.
 type Unsubscribe struct {
+	Version    Version
 	FixHeader  *FixHeader
 	PacketID   PacketID
 	Topics     []string
@@ -25,12 +28,12 @@ func (p *Unsubscribe) NewUnSubBack() *Unsuback {
 	return unSuback
 }
 
-// NewUnsubscribePacket returns a Unsubscribe instance by the given FixHeader and io.reader.
-func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
-	p := &Unsubscribe{FixHeader: fh}
+// NewUnsubscribePacket returns a Unsubscribe instance by the given FixHeader and io.Reader.
+func NewUnsubscribePacket(fh *FixHeader, version Version, r io.Reader) (*Unsubscribe, error) {
+	p := &Unsubscribe{FixHeader: fh, Version: version}
 	//判断 标志位 flags 是否合法[MQTT-3.10.1-1]
 	if fh.Flags != FlagUnsubscribe {
-		return nil, errMalformed(ErrInvalFlags)
+		return nil, codes.ErrMalformed
 	}
 	err := p.Unpack(r)
 	if err != nil {
@@ -39,12 +42,14 @@ func NewUnsubscribePacket(fh *FixHeader, r io.Reader) (*Unsubscribe, error) {
 	return p, err
 }
 
-// Pack encodes the packet struct into bytes and writes it into io.writer.
+// Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Unsubscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
 	bufw := &bytes.Buffer{}
 	writeUint16(bufw, p.PacketID)
-	p.Properties.Pack(bufw, UNSUBSCRIBE)
+	if p.Version == Version5 {
+		p.Properties.Pack(bufw, UNSUBSCRIBE)
+	}
 	for _, topic := range p.Topics {
 		writeUTF8String(bufw, []byte(topic))
 	}
@@ -57,21 +62,24 @@ func (p *Unsubscribe) Pack(w io.Writer) error {
 	return err
 }
 
-// Unpack read the packet bytes from io.reader and decodes it into the packet struct.
+// Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Unsubscribe) Unpack(r io.Reader) error {
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
-		return errMalformed(err)
+		return codes.ErrMalformed
 	}
 	bufr := bytes.NewBuffer(restBuffer)
 	p.PacketID, err = readUint16(bufr)
 	if err != nil {
 		return err
 	}
-	p.Properties = &Properties{}
-	if err := p.Properties.Unpack(bufr, UNSUBSCRIBE); err != nil {
-		return err
+
+	if p.Version == Version5 {
+		p.Properties = &Properties{}
+		if err := p.Properties.Unpack(bufr, UNSUBSCRIBE); err != nil {
+			return err
+		}
 	}
 	for {
 		topicFilter, err := readUTF8String(true, bufr)
@@ -79,7 +87,7 @@ func (p *Unsubscribe) Unpack(r io.Reader) error {
 			return err
 		}
 		if !ValidTopicFilter(true, topicFilter) {
-			return protocolErr(ErrInvalTopicFilter)
+			return codes.ErrProtocol
 		}
 		p.Topics = append(p.Topics, string(topicFilter))
 		if bufr.Len() == 0 {

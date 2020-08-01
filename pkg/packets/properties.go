@@ -1,9 +1,11 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 const (
@@ -266,15 +268,15 @@ func (p *Properties) UnpackWillProperties(bufr *bytes.Buffer) error {
 		case PropUser:
 			k, err := readUTF8String(true, newBufr)
 			if err != nil {
-				return errMalformed(err)
+				return codes.ErrMalformed
 			}
 			v, err := readUTF8String(true, newBufr)
 			if err != nil {
-				return errMalformed(err)
+				return codes.ErrMalformed
 			}
 			p.User = append(p.User, StringPair{K: k, V: v})
 		default:
-			return errMalformed(err)
+			return codes.ErrMalformed
 		}
 	}
 	return nil
@@ -307,7 +309,7 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 			break
 		}
 		if !ValidateID(packetType, propType) {
-			return protocolErr(ErrInvalPacketType)
+			return codes.ErrProtocol
 		}
 		switch propType {
 		case PropPayloadFormat:
@@ -324,14 +326,14 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 			p.CorrelationData, err = propertyReadBinary(p.CorrelationData, newBufr, propType, nil)
 		case PropSubscriptionIdentifier:
 			if len(p.SubscriptionIdentifier) != 0 {
-				return protocolErr(errMorethanOnce(propType))
+				return codes.ErrProtocol
 			}
 			si, err := EncodeRemainLength(newBufr)
 			if err != nil {
-				return errMalformed(err)
+				return codes.ErrMalformed
 			}
 			if si == 0 {
-				return protocolErr(errInvalidValue(propType, si))
+				return codes.ErrProtocol
 			}
 			p.SubscriptionIdentifier = append(p.SubscriptionIdentifier, uint32(si))
 		case PropSessionExpiryInterval:
@@ -373,11 +375,11 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 		case PropUser:
 			k, err := readUTF8String(true, newBufr)
 			if err != nil {
-				return errMalformed(err)
+				return codes.ErrMalformed
 			}
 			v, err := readUTF8String(true, newBufr)
 			if err != nil {
-				return errMalformed(err)
+				return codes.ErrMalformed
 			}
 			p.User = append(p.User, StringPair{K: k, V: v})
 		case PropMaximumPacketSize:
@@ -391,11 +393,11 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 		case PropSharedSubAvailable:
 			p.SharedSubAvailable, err = propertyReadBool(p.SharedSubAvailable, newBufr, propType)
 		default:
-			return errMalformed(err)
+			return codes.ErrMalformed
 		}
 	}
 	if p.AuthData != nil && p.AuthMethod == nil {
-		return errMalformed(err)
+		return codes.ErrMalformed
 	}
 	return nil
 }
@@ -446,14 +448,14 @@ func ValidateCode(packType byte, code byte) bool {
 
 func propertyReadBool(i *byte, r *bytes.Buffer, propType byte) (*byte, error) {
 	if i != nil {
-		return nil, protocolErr(errMorethanOnce(propType))
+		return nil, codes.ErrProtocol
 	}
 	o, err := r.ReadByte()
 	if err != nil {
-		return nil, errMalformed(err)
+		return nil, codes.ErrMalformed
 	}
 	if o != 0 && o != 1 {
-		return nil, protocolErr(errInvalidValue(propType, o))
+		return nil, codes.ErrProtocol
 	}
 	return &o, nil
 }
@@ -465,11 +467,11 @@ func propertyReadUint32(i *uint32, r *bytes.Buffer, propType byte,
 	}
 	o, err := readUint32(r)
 	if err != nil {
-		return nil, errMalformed(err)
+		return nil, codes.ErrMalformed
 	}
 	if validate != nil {
 		if !validate(o) {
-			return nil, protocolErr(errInvalidValue(propType, o))
+			return nil, codes.ErrProtocol
 		}
 	}
 	return &o, nil
@@ -477,15 +479,15 @@ func propertyReadUint32(i *uint32, r *bytes.Buffer, propType byte,
 
 func propertyReadUint16(i *uint16, r *bytes.Buffer, propType byte, validate func(u uint16) bool) (*uint16, error) {
 	if i != nil {
-		return nil, errMorethanOnce(propType)
+		return nil, codes.ErrProtocol
 	}
 	o, err := readUint16(r)
 	if err != nil {
-		return nil, errMalformed(err)
+		return nil, codes.ErrMalformed
 	}
 	if validate != nil {
 		if !validate(o) {
-			return nil, protocolErr(errInvalidValue(propType, o))
+			return nil, codes.ErrProtocol
 		}
 	}
 	return &o, nil
@@ -496,11 +498,11 @@ func propertyReadUTF8String(i []byte, r *bytes.Buffer, propType byte, validate f
 	}
 	o, err := readUTF8String(true, r)
 	if err != nil {
-		return nil, errMalformed(err)
+		return nil, err
 	}
 	if validate != nil {
 		if !validate(o) {
-			return nil, protocolErr(errInvalidValue(propType, o))
+			return nil, codes.ErrProtocol
 		}
 	}
 	return o, nil
@@ -512,11 +514,11 @@ func propertyReadBinary(i []byte, r *bytes.Buffer, propType byte,
 	}
 	o, err := readUTF8String(false, r)
 	if err != nil {
-		return nil, errMalformed(err)
+		return nil, codes.ErrMalformed
 	}
 	if validate != nil {
 		if !validate(o) {
-			return nil, protocolErr(errInvalidValue(propType, o))
+			return nil, codes.ErrProtocol
 		}
 	}
 	return o, nil

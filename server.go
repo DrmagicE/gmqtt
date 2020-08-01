@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
 	subscription_trie "github.com/DrmagicE/gmqtt/subscription/trie"
 
@@ -193,22 +194,17 @@ func (srv *server) registerHandler(register *register) {
 	client := register.client
 	defer close(client.ready)
 	connect := register.connect
+	client.version = connect.Version
+
 	var sessionReuse bool
-	if connect.AckCode != packets.CodeAccepted {
-		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(connect.AckCode)))
-		ack := connect.NewConnackPacket(false)
-		client.writePacket(ack)
-		register.error = err
-		return
-	}
+
 	if srv.hooks.OnConnect != nil {
 		code = srv.hooks.OnConnect(context.Background(), client)
 	}
-	connect.AckCode = code
-	if code != packets.CodeAccepted {
+	if code != codes.Success {
 		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
-		ack := connect.NewConnackPacket(false)
-		client.writePacket(ack)
+		ack := connect.NewConnackPacket(code, false)
+		_ = client.writePacket(ack)
 		client.setError(err)
 		register.error = err
 		return
@@ -247,11 +243,11 @@ func (srv *server) registerHandler(register *register) {
 					srv.msgRouter <- msgRouter
 				}()
 			}
-			if !client.opts.cleanSession && !oldClient.opts.cleanSession { //reuse old session
+			if !client.opts.cleanStart && !oldClient.opts.cleanStart { //reuse old session
 				sessionReuse = true
 			}
 		} else if oldClient.IsDisConnected() {
-			if !client.opts.cleanSession {
+			if !client.opts.cleanStart {
 				sessionReuse = true
 			} else if srv.hooks.OnSessionTerminated != nil {
 				srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
@@ -260,7 +256,7 @@ func (srv *server) registerHandler(register *register) {
 			srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 		}
 	}
-	ack := connect.NewConnackPacket(sessionReuse)
+	ack := connect.NewConnackPacket(codes.Success, sessionReuse)
 	client.out <- ack
 	client.setConnected()
 	if sessionReuse { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
@@ -368,7 +364,7 @@ clearIn:
 			client.server.msgRouter <- msgRouter
 		}()
 	}
-	if client.opts.cleanSession {
+	if client.opts.cleanStart {
 		zaplog.Info("logged out and cleaning session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.OptionsReader().ClientID()),
@@ -421,7 +417,9 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 		// no need to search in subscriptionsDB.
 		matched = make(subscription.ClientTopics)
 		matched[m.clientID] = append(matched[m.clientID], packets.Topic{
-			Qos:  msg.Qos(),
+			SubOptions: packets.SubOptions{
+				Qos: msg.Qos(),
+			},
 			Name: msg.Topic(),
 		})
 	}
@@ -764,7 +762,7 @@ func (srv *server) loadPlugins() error {
 	// onConnect
 	if onConnectWrappers != nil {
 		onConnect := func(ctx context.Context, client Client) (code uint8) {
-			return packets.CodeAccepted
+			return codes.Success
 		}
 		for i := len(onConnectWrappers); i > 0; i-- {
 			onConnect = onConnectWrappers[i-1](onConnect)

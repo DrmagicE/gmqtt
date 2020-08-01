@@ -278,14 +278,14 @@ func (s *session) getPacketID() packets.PacketID {
 	defer s.pidMu.RUnlock()
 	for s.lockedPid[s.freePid] {
 		s.freePid++
-		if s.freePid > packets.MaxPacketId {
-			s.freePid = packets.MinPacketId
+		if s.freePid > packets.MaxPacketID {
+			s.freePid = packets.MinPacketID
 		}
 	}
 	id := s.freePid
 	s.freePid++
-	if s.freePid > packets.MaxPacketId {
-		s.freePid = packets.MinPacketId
+	if s.freePid > packets.MaxPacketID {
+		s.freePid = packets.MinPacketID
 	}
 	return id
 }

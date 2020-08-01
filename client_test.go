@@ -278,8 +278,8 @@ func TestConnect(t *testing.T) {
 			t.Fatalf("Password error,want %s, got %s", passwordWant, opts.password)
 		}
 
-		if opts.cleanSession != true {
-			t.Fatalf("CleanSession error,want true, got %v", opts.cleanSession)
+		if opts.clearStart != true {
+			t.Fatalf("CleanSession error,want true, got %v", opts.clearStart)
 		}
 
 		if opts.clientID != "MQTT" {

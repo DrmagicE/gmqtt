@@ -1,37 +1,38 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReadWriteAuthPacket(t *testing.T) {
 	tt := []struct {
 		testname   string
-		code       ReasonCode
+		code       codes.Code
 		properties *Properties
 		want       []byte
 	}{
 		{
 			testname:   "omit properties when code = 0",
-			code:       CodeSuccess,
+			code:       codes.Success,
 			properties: nil,
 			want:       []byte{0xF0, 0},
 		},
 		{
 			testname: "code = 0 with properties",
-			code:     CodeSuccess,
+			code:     codes.Success,
 			properties: &Properties{
 				ReasonString: []byte("a"),
 			},
 			want: []byte{0xF0, 6, 0, 4, 0x1F, 0, 1, 'a'},
 		}, {
 			testname:   "code != 0 with properties",
-			code:       CodeNotAuthorized,
+			code:       codes.NotAuthorized,
 			properties: &Properties{},
-			want:       []byte{0xF0, 2, CodeNotAuthorized, 0},
+			want:       []byte{0xF0, 2, codes.NotAuthorized, 0},
 		},
 	}
 

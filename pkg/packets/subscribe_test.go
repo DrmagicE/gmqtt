@@ -1,4 +1,4 @@
-package v5
+package packets
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReadWriteSubscribe(t *testing.T) {
+func TestReadWriteSubscribe_V5(t *testing.T) {
 	a := assert.New(t)
 	firstByte := byte(0x82)
 	pid := []byte{0, 10}
@@ -31,7 +31,9 @@ func TestReadWriteSubscribe(t *testing.T) {
 	var packet Packet
 	var err error
 	t.Run("unpack", func(t *testing.T) {
-		packet, err = NewReader(subBytes).ReadPacket()
+		r := NewReader(subBytes)
+		r.SetVersion(Version5)
+		packet, err = r.ReadPacket()
 		a.Nil(err)
 		if p, ok := packet.(*Subscribe); ok {
 			a.Equal(binary.BigEndian.Uint16(pid), p.PacketID)
@@ -63,7 +65,7 @@ func TestReadWriteSubscribe(t *testing.T) {
 
 }
 
-func TestSubscribeNoTopics(t *testing.T) {
+func TestSubscribeNoTopics_V5(t *testing.T) {
 	a := assert.New(t)
 	firstByte := byte(0x82)
 	pid := []byte{0, 10}
@@ -75,7 +77,53 @@ func TestSubscribeNoTopics(t *testing.T) {
 	pb := appendPacket(firstByte, pid, properties)
 
 	subBytes := bytes.NewBuffer(pb)
-	packet, err := NewReader(subBytes).ReadPacket()
+
+	r := NewReader(subBytes)
+	r.SetVersion(Version5)
+	packet, err := r.ReadPacket()
 	a.Nil(packet)
 	a.NotNil(err)
+}
+
+func TestReadWriteSubscribe_V311(t *testing.T) {
+	a := assert.New(t)
+	firstByte := byte(0x82)
+	pid := []byte{0, 10}
+	topicFilter1 := []byte("/topic/A")
+	topicFilter1Bytes, _, _ := EncodeUTF8String(topicFilter1)
+	qos1 := []byte{0x01}
+	topicFilter2 := []byte("/topic/B")
+	topicFilter2Bytes, _, _ := EncodeUTF8String(topicFilter2)
+	qos2 := []byte{0x02}
+
+	pb := appendPacket(firstByte, pid, topicFilter1Bytes, qos1, topicFilter2Bytes, qos2)
+
+	subBytes := bytes.NewBuffer(pb)
+
+	var packet Packet
+	var err error
+	t.Run("unpack", func(t *testing.T) {
+		r := NewReader(subBytes)
+		r.SetVersion(Version311)
+		packet, err = r.ReadPacket()
+		a.Nil(err)
+		if p, ok := packet.(*Subscribe); ok {
+			a.Equal(binary.BigEndian.Uint16(pid), p.PacketID)
+			a.EqualValues(topicFilter1, p.Topics[0].Name)
+			a.EqualValues(1, p.Topics[0].Qos)
+			a.EqualValues(2, p.Topics[1].Qos)
+			a.Len(p.Topics, 2)
+
+		} else {
+			t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
+		}
+	})
+
+	t.Run("pack", func(t *testing.T) {
+		bufw := &bytes.Buffer{}
+		err = packet.Pack(bufw)
+		a.Nil(err)
+		a.Equal(pb, bufw.Bytes())
+	})
+
 }

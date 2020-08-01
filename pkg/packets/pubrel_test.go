@@ -1,9 +1,10 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -11,21 +12,21 @@ func TestReadWritePubrelPacket(t *testing.T) {
 	tt := []struct {
 		testname   string
 		pid        PacketID
-		code       ReasonCode
+		code       codes.Code
 		properties *Properties
 		want       []byte
 	}{
 		{
 			testname:   "omit properties when code = 0",
 			pid:        10,
-			code:       CodeSuccess,
+			code:       codes.Success,
 			properties: nil,
 			want:       []byte{98, 2, 0, 10},
 		},
 		{
 			testname: "code = 0 with properties",
 			pid:      10,
-			code:     CodeSuccess,
+			code:     codes.Success,
 			properties: &Properties{
 				ReasonString: []byte("a"),
 			},
@@ -33,9 +34,9 @@ func TestReadWritePubrelPacket(t *testing.T) {
 		}, {
 			testname:   "code != 0 with properties",
 			pid:        10,
-			code:       CodeNotAuthorized,
+			code:       codes.NotAuthorized,
 			properties: &Properties{},
-			want:       []byte{98, 4, 0, 10, CodeNotAuthorized, 0},
+			want:       []byte{98, 4, 0, 10, codes.NotAuthorized, 0},
 		},
 	}
 

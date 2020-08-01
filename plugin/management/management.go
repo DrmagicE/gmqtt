@@ -14,6 +14,24 @@ import (
 const CodeOK = 0
 const CodeErr = -1
 
+// Error type
+var (
+	ErrInvalPacketType           = errors.New("invalid Packet Type")
+	ErrInvalFlags                = errors.New("invalid Flags")
+	ErrInvalConnFlags            = errors.New("invalid Connect Flags")
+	ErrInvalConnAcknowledgeFlags = errors.New("invalid Connect Acknowledge Flags")
+	ErrInvalSessionPresent       = errors.New("invalid Session Present")
+	ErrInvalRemainLength         = errors.New("Malformed Remaining Length")
+	ErrInvalProtocolName         = errors.New("invalid protocol name")
+	ErrInvalUtf8                 = errors.New("invalid utf-8 string")
+	ErrInvalTopicName            = errors.New("invalid topic name")
+	ErrInvalTopicFilter          = errors.New("invalid topic filter")
+	ErrInvalQos                  = errors.New("invalid Qos,only support qos0 | qos1 | qos2")
+	ErrInvalWillQos              = errors.New("invalid Will Qos")
+	ErrInvalWillRetain           = errors.New("invalid Will Retain")
+	ErrInvalUTF8String           = errors.New("invalid utf-8 string")
+)
+
 // Response is the response for the api server
 type Response struct {
 	Code    int         `json:"code"`
@@ -222,11 +240,11 @@ func (m *Management) Subscribe(c *gin.Context) {
 	cid := c.PostForm("clientID")
 	qos, err := strconv.Atoi(qosParam)
 	if err != nil || qos < 0 || qos > 2 {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalQos))
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalQos))
 		return
 	}
-	if !packets.ValidTopicFilter([]byte(topic)) {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalTopicFilter))
+	if !packets.ValidTopicFilter(true, []byte(topic)) {
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalTopicFilter))
 		return
 	}
 
@@ -235,7 +253,10 @@ func (m *Management) Subscribe(c *gin.Context) {
 		return
 	}
 	m.server.SubscriptionStore().Subscribe(cid, packets.Topic{
-		Qos: uint8(qos), Name: topic,
+		SubOptions: packets.SubOptions{
+			Qos: uint8(qos),
+		},
+		Name: topic,
 	})
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
@@ -245,8 +266,8 @@ func (m *Management) Unsubscribe(c *gin.Context) {
 	topic := c.PostForm("topic")
 	cid := c.PostForm("clientID")
 
-	if !packets.ValidTopicFilter([]byte(topic)) {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalTopicFilter))
+	if !packets.ValidTopicFilter(false, []byte(topic)) {
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalTopicFilter))
 		return
 	}
 
@@ -270,15 +291,15 @@ func (m *Management) Publish(c *gin.Context) {
 	}
 	qos, err := strconv.Atoi(qosParam)
 	if err != nil || qos < 0 || qos > 2 {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalQos))
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalQos))
 		return
 	}
-	if !packets.ValidTopicName([]byte(topic)) {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalTopicFilter))
+	if !packets.ValidTopicName(false, []byte(topic)) {
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalTopicFilter))
 		return
 	}
 	if !packets.ValidUTF8([]byte(payload)) {
-		c.JSON(http.StatusOK, newResponse(nil, nil, packets.ErrInvalUtf8))
+		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalUtf8))
 		return
 	}
 	msg := gmqtt.NewMessage(topic, []byte(payload), uint8(qos), gmqtt.Retained(retain))

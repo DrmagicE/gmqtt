@@ -102,7 +102,9 @@ func setRs(node *topicNode, rs subscription.ClientTopics) {
 			rs[cid] = make([]packets.Topic, 0)
 		}
 		rs[cid] = append(rs[cid], packets.Topic{
-			Qos:  qos,
+			SubOptions: packets.SubOptions{
+				Qos: qos,
+			},
 			Name: node.topicName,
 		})
 	}
@@ -155,7 +157,9 @@ func (t *topicTrie) preOrderTraverse(fn subscription.IterateFn) bool {
 	if t.topicName != "" {
 		for clientID, qos := range t.clients {
 			if !fn(clientID, packets.Topic{
-				Qos:  qos,
+				SubOptions: packets.SubOptions{
+					Qos: qos,
+				},
 				Name: t.topicName,
 			}) {
 				return false

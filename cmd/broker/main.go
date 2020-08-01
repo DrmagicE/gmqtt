@@ -31,8 +31,8 @@ func main() {
 		panic(err)
 	}
 
-	l, _ := zap.NewProduction()
-	//l, _ := zap.NewDevelopment()
+	//l, _ := zap.NewProduction()
+	l, _ := zap.NewDevelopment()
 	s := gmqtt.NewServer(
 		gmqtt.WithTCPListener(ln),
 		gmqtt.WithWebsocketServer(ws),

@@ -19,6 +19,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -94,14 +95,13 @@ type Client interface {
 
 // Client represents a MQTT client and implements the Client interface
 type client struct {
-	server           *server
-	wg               sync.WaitGroup
-	rwc              net.Conn //raw tcp connection
-	bufr             *bufio.Reader
-	bufw             *bufio.Writer
-	packetReadWriter packets.ReadWriter
-	//packetReader  *packets.reader
-	//packetWriter  *packets.writer
+	server        *server
+	wg            sync.WaitGroup
+	rwc           net.Conn //raw tcp connection
+	bufr          *bufio.Reader
+	bufw          *bufio.Writer
+	packetReader  *packets.Reader
+	packetWriter  *packets.Writer
 	in            chan packets.Packet
 	out           chan packets.Packet
 	close         chan struct{} //关闭chan
@@ -120,6 +120,7 @@ type client struct {
 	disconnectedAt int64
 
 	statsManager SessionStatsManager
+	version      packets.Version
 }
 
 func (client *client) GetSessionStatsManager() SessionStatsManager {
@@ -194,7 +195,7 @@ type ClientOptionsReader interface {
 	Username() string
 	Password() string
 	KeepAlive() uint16
-	CleanSession() bool
+	CleanStart() bool
 	WillFlag() bool
 	WillRetain() bool
 	WillQos() uint8
@@ -206,18 +207,18 @@ type ClientOptionsReader interface {
 
 // options client options
 type options struct {
-	clientID     string
-	username     string
-	password     string
-	keepAlive    uint16
-	cleanSession bool
-	willFlag     bool
-	willRetain   bool
-	willQos      uint8
-	willTopic    string
-	willPayload  []byte
-	localAddr    net.Addr
-	remoteAddr   net.Addr
+	clientID    string
+	username    string
+	password    string
+	keepAlive   uint16
+	cleanStart  bool
+	willFlag    bool
+	willRetain  bool
+	willQos     uint8
+	willTopic   string
+	willPayload []byte
+	localAddr   net.Addr
+	remoteAddr  net.Addr
 }
 
 // ClientID return clientID
@@ -240,9 +241,9 @@ func (o *options) KeepAlive() uint16 {
 	return o.keepAlive
 }
 
-// CleanSession return cleanSession
-func (o *options) CleanSession() bool {
-	return o.cleanSession
+// CleanStart return CleanStart
+func (o *options) CleanStart() bool {
+	return o.cleanStart
 }
 
 // WillFlag return willflag
@@ -294,11 +295,6 @@ func (client *client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
-			zaplog.Debug("sending packet",
-				zap.String("packet", packet.String()),
-				zap.String("client_id", client.opts.clientID),
-				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			)
 			err = client.writePacket(packet)
 			if err != nil {
 				return
@@ -314,6 +310,11 @@ func (client *client) writeLoop() {
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
+	zaplog.Debug("sending packet",
+		zap.String("packet", packet.String()),
+		zap.String("client_id", client.opts.clientID),
+		zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+	)
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
@@ -337,7 +338,7 @@ func (client *client) readLoop() {
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
-		packet, err = client.packetReadWriter.ReadPacket()
+		packet, err = client.packetReader.ReadPacket()
 		if err != nil {
 			return
 		}
@@ -363,7 +364,6 @@ func (client *client) errorWatch() {
 		return
 	case err := <-client.error: //有错误关闭
 		client.err = err
-		client.rwc.Close()
 		close(client.close) //退出chanel
 		return
 	}
@@ -374,6 +374,7 @@ func (client *client) errorWatch() {
 // Close closes the client connection. The returned channel will be closed after unregister process has been done
 func (client *client) Close() <-chan struct{} {
 	client.setError(nil)
+	client.rwc.Close()
 	return client.closeComplete
 }
 
@@ -437,7 +438,9 @@ func (client *client) connectWithTimeOut() (ok bool) {
 		err = ErrConnectTimeOut
 		return
 	}
+
 	conn, flag := p.(*packets.Connect)
+
 	if !flag {
 		err = ErrInvalStatus
 		return
@@ -447,7 +450,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 		client.opts.clientID = getRandomUUID()
 	}
 	client.opts.keepAlive = conn.KeepAlive
-	client.opts.cleanSession = conn.CleanSession
+	client.opts.cleanStart = conn.CleanStart
 	client.opts.username = string(conn.Username)
 	client.opts.password = string(conn.Password)
 	client.opts.willFlag = conn.WillFlag
@@ -492,6 +495,7 @@ func (client *client) newSession() {
 }
 
 func (client *client) internalClose() {
+	client.rwc.Close()
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
 		unregister := &unregister{client: client, done: make(chan struct{})}
@@ -566,12 +570,18 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 		}
 	}
 	var msgs []packets.Message
-	suback := sub.NewSubBack()
+
+	suback := sub.NewSuback()
 	for k, v := range sub.Topics {
 		if v.Qos != packets.SubscribeFailure {
 			topic := packets.Topic{
+				SubOptions: packets.SubOptions{
+					Qos:               sub.Topics[k].Qos,
+					RetainAsPublished: sub.Topics[k].RetainAsPublished,
+					NoLocal:           sub.Topics[k].NoLocal,
+					RetainHandling:    sub.Topics[k].RetainHandling,
+				},
 				Name: v.Name,
-				Qos:  suback.Payload[k],
 			}
 			srv.subscriptionsDB.Subscribe(client.opts.clientID, topic)
 			if srv.hooks.OnSubscribed != nil {
@@ -643,6 +653,7 @@ func (client *client) publishHandler(pub *packets.Publish) {
 	}
 }
 func (client *client) pubackHandler(puback *packets.Puback) {
+
 	client.unsetInflight(puback)
 }
 func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
@@ -700,6 +711,8 @@ func (client *client) readHandle() {
 			case *packets.Subscribe:
 				client.subscribeHandler(packet.(*packets.Subscribe))
 			case *packets.Publish:
+				// 判断qos，qos不过直接return 一个 error
+				// publishHandler加一个error返回值
 				client.publishHandler(packet.(*packets.Publish))
 			case *packets.Puback:
 				client.pubackHandler(packet.(*packets.Puback))
@@ -792,5 +805,23 @@ func (client *client) serve() {
 		go client.readHandle()
 		go client.redeliver()
 	}
+
 	client.wg.Wait()
+	if client.version == packets.Version5 && (client.err == codes.ErrMalformed || client.err == codes.ErrProtocol) {
+		code := client.err.(*codes.Error).Code()
+		// 发 Disconnect 或者 connack
+		if client.IsConnected() {
+			// send Disconnect
+			_ = client.writePacket(&packets.Disconnect{
+				Version: packets.Version5,
+				Code:    code,
+			})
+		} else {
+			// send connack
+			_ = client.writePacket(&packets.Connack{
+				Version: client.version,
+				Code:    code,
+			})
+		}
+	}
 }

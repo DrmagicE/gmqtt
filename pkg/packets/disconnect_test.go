@@ -1,37 +1,38 @@
-package v5
+package packets
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReadWriteDisconnectPacket(t *testing.T) {
+func TestReadWriteDisconnectPacket_V5(t *testing.T) {
 	tt := []struct {
 		testname   string
-		code       ReasonCode
+		code       codes.Code
 		properties *Properties
 		want       []byte
 	}{
 		{
 			testname:   "omit properties when code = 0",
-			code:       CodeSuccess,
+			code:       codes.Success,
 			properties: nil,
 			want:       []byte{0xe0, 0},
 		},
 		{
 			testname: "code = 0 with properties",
-			code:     CodeSuccess,
+			code:     codes.Success,
 			properties: &Properties{
 				ReasonString: []byte("a"),
 			},
 			want: []byte{0xe0, 6, 0, 4, 0x1f, 0, 1, 'a'},
 		}, {
 			testname:   "code != 0 with properties",
-			code:       CodeNotAuthorized,
+			code:       codes.NotAuthorized,
 			properties: &Properties{},
-			want:       []byte{0xe0, 2, CodeNotAuthorized, 0},
+			want:       []byte{0xe0, 2, codes.NotAuthorized, 0},
 		},
 	}
 
@@ -49,7 +50,9 @@ func TestReadWriteDisconnectPacket(t *testing.T) {
 			a.Equal(v.want, buf.Bytes())
 
 			bufr := bytes.NewBuffer(buf.Bytes())
-			p, err := NewReader(bufr).ReadPacket()
+			r := NewReader(bufr)
+			r.SetVersion(Version5)
+			p, err := r.ReadPacket()
 			a.Nil(err)
 			rp := p.(*Disconnect)
 
@@ -59,4 +62,25 @@ func TestReadWriteDisconnectPacket(t *testing.T) {
 		})
 	}
 
+}
+
+func TestReadDisconnect_V311(t *testing.T) {
+	a := assert.New(t)
+	b := []byte{0xe0, 0}
+	buf := bytes.NewBuffer(b)
+	packet, err := NewReader(buf).ReadPacket()
+	a.Nil(err)
+
+	_, ok := packet.(*Disconnect)
+	a.True(ok)
+}
+
+func TestWriteDisconnect_V311(t *testing.T) {
+	a := assert.New(t)
+	disconnect := &Disconnect{Version: Version311}
+	buf := bytes.NewBuffer(make([]byte, 0, 2048))
+	err := NewWriter(buf).WriteAndFlush(disconnect)
+	a.Nil(err)
+	want := []byte{0xe0, 0}
+	a.Equal(want, buf.Bytes())
 }

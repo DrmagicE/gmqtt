@@ -1,13 +1,19 @@
-package v5
+package packets
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"unicode/utf8"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
+)
+
+// Error type
+var (
+	ErrInvalUTF8String = errors.New("invalid utf-8 string")
 )
 
 // MQTT Version
@@ -72,60 +78,6 @@ type Message interface {
 	Payload() []byte
 }
 
-// Error type
-var (
-	ErrInvalPacketType           = errors.New("invalid Packet Type")
-	ErrInvalFlags                = errors.New("invalid Flags")
-	ErrInvalConnFlags            = errors.New("invalid Connect Flags")
-	ErrInvalConnAcknowledgeFlags = errors.New("invalid Connect Acknowledge Flags")
-	ErrInvalSessionPresent       = errors.New("invalid Session Present")
-	ErrInvalRemainLength         = errors.New("Malformed Remaining Length")
-	ErrInvalProtocolName         = errors.New("invalid protocol name")
-	ErrInvalUtf8                 = errors.New("invalid utf-8 string")
-	ErrInvalTopicName            = errors.New("invalid topic name")
-	ErrInvalTopicFilter          = errors.New("invalid topic filter")
-	ErrInvalQos                  = errors.New("invalid Qos,only support qos0 | qos1 | qos2")
-	ErrInvalWillQos              = errors.New("invalid Will Qos")
-	ErrInvalWillRetain           = errors.New("invalid Will Retain")
-	ErrInvalUTF8String           = errors.New("invalid utf-8 string")
-	ErrInvalUint32               = errors.New("invalid uint32")
-	ErrInvalUint16               = errors.New("invalid uint16")
-)
-
-// MalformedErr is the error return when a control packet
-// that cannot be parsed according to MQTT specification.
-type MalformedErr struct {
-	// error is the underline error for debugging
-	error error
-}
-
-func (m MalformedErr) Error() string {
-	return fmt.Sprintf("malformed packet: %s", m.error)
-}
-func NewMalformedErr(error error) MalformedErr {
-	return MalformedErr{
-		error: error,
-	}
-}
-
-// Reader is the interface for reading MQTT packet.
-type Reader interface {
-	// ReadPacket reads MQTT packet, return nil,error if any error occur.
-	ReadPacket() (Packet, error)
-}
-
-//  Writer is the interface for writing MQTT packet.
-type Writer interface {
-	// WritePacket decode the packet into bytes and then writes them into underline writer.
-	WritePacket(packet Packet) error
-}
-
-// ReadWriter is the interface that groups the Reader and Writer interfaces.
-type ReadWriter interface {
-	Reader
-	Writer
-}
-
 // FixHeader represents the FixHeader of the MQTT packet
 type FixHeader struct {
 	PacketType   byte
@@ -137,9 +89,9 @@ type FixHeader struct {
 // decoded MQTT packets, either from being read or before being
 // written
 type Packet interface {
-	// Pack encodes the packet struct into bytes and writes it into io.writer.
+	// Pack encodes the packet struct into bytes and writes it into io.Writer.
 	Pack(w io.Writer) error
-	// Unpack read the packet bytes from io.reader and decodes it into the packet struct
+	// Unpack read the packet bytes from io.Reader and decodes it into the packet struct
 	Unpack(r io.Reader) error
 	// String is mainly used in logging, debugging and testing.
 	String() string
@@ -160,48 +112,52 @@ type SubOptions struct {
 	RetainAsPublished bool
 }
 
-// reader is used to read data from bufio.reader and create MQTT packet instance.
-type reader struct {
-	bufr *bufio.Reader
+// Reader is used to read data from bufio.Reader and create MQTT packet instance.
+type Reader struct {
+	bufr    *bufio.Reader
+	version Version
 }
 
-// writer is used to encode MQTT packet into bytes and write it to bufio.writer.
-type writer struct {
+// Writer is used to encode MQTT packet into bytes and write it to bufio.Writer.
+type Writer struct {
 	bufw *bufio.Writer
 }
 
-// Flush writes any buffered data to the underlying io.writer.
-func (w *writer) Flush() error {
+// Flush writes any buffered data to the underlying io.Writer.
+func (w *Writer) Flush() error {
 	return w.bufw.Flush()
 }
 
-// readWriter warps reader and writer.
-type readWriter struct {
-	*reader
-	*writer
+// ReadWriter warps Reader and Writer.
+type ReadWriter struct {
+	*Reader
+	*Writer
 }
 
-// NewReader returns a new reader.
-func NewReader(r io.Reader) *reader {
+// NewReader returns a new Reader.
+func NewReader(r io.Reader) *Reader {
 	if bufr, ok := r.(*bufio.Reader); ok {
-		return &reader{bufr: bufr}
+		return &Reader{bufr: bufr, version: Version311}
 	}
-	return &reader{bufr: bufio.NewReaderSize(r, 2048)}
+	return &Reader{bufr: bufio.NewReaderSize(r, 2048), version: Version311}
 }
 
-// NewWriter returns a new writer.
-func NewWriter(w io.Writer) *writer {
+func (r *Reader) SetVersion(version Version) {
+	r.version = version
+}
+
+// NewWriter returns a new Writer.
+func NewWriter(w io.Writer) *Writer {
 	if bufw, ok := w.(*bufio.Writer); ok {
-		return &writer{bufw: bufw}
+		return &Writer{bufw: bufw}
 	}
-	return &writer{bufw: bufio.NewWriterSize(w, 2048)}
+	return &Writer{bufw: bufio.NewWriterSize(w, 2048)}
 }
 
-// ReadPacket reads data from reader and returns a  Packet instance.
+// ReadPacket reads data from Reader and returns a  Packet instance.
 // If any errors occurs, returns nil, error
-func (r *reader) ReadPacket() (Packet, error) {
+func (r *Reader) ReadPacket() (Packet, error) {
 	first, err := r.bufr.ReadByte()
-
 	if err != nil {
 		return nil, err
 	}
@@ -211,13 +167,19 @@ func (r *reader) ReadPacket() (Packet, error) {
 		return nil, err
 	}
 	fh.RemainLength = length
-	packet, err := NewPacket(fh, r.bufr)
+	packet, err := NewPacket(fh, r.version, r.bufr)
+	if err != nil {
+		return nil, err
+	}
+	if p, ok := packet.(*Connect); ok {
+		r.version = p.Version
+	}
 	return packet, err
 }
 
-// WritePacket writes the packet bytes to the writer.
-// Call Flush after WritePacket to flush buffered data to the underlying io.writer.
-func (w *writer) WritePacket(packet Packet) error {
+// WritePacket writes the packet bytes to the Writer.
+// Call Flush after WritePacket to flush buffered data to the underlying io.Writer.
+func (w *Writer) WritePacket(packet Packet) error {
 	err := packet.Pack(w.bufw)
 	if err != nil {
 		return err
@@ -225,8 +187,8 @@ func (w *writer) WritePacket(packet Packet) error {
 	return nil
 }
 
-// WriteAndFlush writes and flush the packet bytes to the underlying io.writer.
-func (w *writer) WriteAndFlush(packet Packet) error {
+// WriteAndFlush writes and flush the packet bytes to the underlying io.Writer.
+func (w *Writer) WriteAndFlush(packet Packet) error {
 	err := packet.Pack(w.bufw)
 	if err != nil {
 		return err
@@ -234,7 +196,7 @@ func (w *writer) WriteAndFlush(packet Packet) error {
 	return w.Flush()
 }
 
-// Pack encodes the FixHeader struct into bytes and writes it into io.writer.
+// Pack encodes the FixHeader struct into bytes and writes it into io.Writer.
 func (fh *FixHeader) Pack(w io.Writer) error {
 	var err error
 	b := make([]byte, 1)
@@ -263,7 +225,7 @@ func DecodeRemainLength(length int) ([]byte, error) {
 	} else if length < 268435456 {
 		result = make([]byte, 4)
 	} else {
-		return nil, ErrInvalRemainLength
+		return nil, codes.ErrMalformed
 	}
 	var i int
 	for {
@@ -284,7 +246,7 @@ func DecodeRemainLength(length int) ([]byte, error) {
 
 // EncodeRemainLength 读remainLength,如果格式错误返回 error
 //
-// EncodeRemainLength reads the remain length bytes from bufio.reader and returns length int.
+// EncodeRemainLength reads the remain length bytes from bufio.Reader and returns length int.
 func EncodeRemainLength(r io.ByteReader) (int, error) {
 	var vbi uint32
 	var multiplier uint32
@@ -306,7 +268,7 @@ func EncodeRemainLength(r io.ByteReader) (int, error) {
 func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	buflen := len(buf)
 	if buflen > 65535 {
-		return nil, 0, ErrInvalUTF8String
+		return nil, 0, codes.ErrMalformed
 	}
 	//length := int(binary.BigEndian.Uint16(buf[0:2]))
 	bufw := make([]byte, 2, 2+buflen)
@@ -317,7 +279,7 @@ func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 
 func readUint16(r *bytes.Buffer) (uint16, error) {
 	if r.Len() < 2 {
-		return 0, errMalformed(ErrInvalUint16)
+		return 0, codes.ErrMalformed
 	}
 	return binary.BigEndian.Uint16(r.Next(2)), nil
 }
@@ -335,7 +297,7 @@ func writeUint32(w *bytes.Buffer, i uint32) {
 
 func readUint32(r *bytes.Buffer) (uint32, error) {
 	if r.Len() < 4 {
-		return 0, errMalformed(ErrInvalUint32)
+		return 0, codes.ErrMalformed
 	}
 	return binary.BigEndian.Uint32(r.Next(4)), nil
 }
@@ -346,16 +308,16 @@ func readBinary(r *bytes.Buffer) (b []byte, err error) {
 
 func readUTF8String(mustUTF8 bool, r *bytes.Buffer) (b []byte, err error) {
 	if r.Len() < 2 {
-		return nil, errMalformed(ErrInvalUTF8String)
+		return nil, codes.ErrMalformed
 	}
 	length := int(binary.BigEndian.Uint16(r.Next(2)))
 	if r.Len() < length {
-		return nil, errMalformed(ErrInvalUTF8String)
+		return nil, codes.ErrMalformed
 	}
 	payload := r.Next(length)
 	if mustUTF8 {
 		if !ValidUTF8(payload) {
-			return nil, errMalformed(ErrInvalUTF8String)
+			return nil, codes.ErrMalformed
 		}
 	}
 	return payload, nil
@@ -390,40 +352,40 @@ func DecodeUTF8String(buf []byte) (b []byte, size int, err error) {
 }
 
 // NewPacket returns a packet representing the decoded MQTT packet and an error.
-func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
+func NewPacket(fh *FixHeader, version Version, r io.Reader) (Packet, error) {
 	switch fh.PacketType {
 	case CONNECT:
-		return NewConnectPacket(fh, r)
+		return NewConnectPacket(fh, version, r)
 	case CONNACK:
-		return NewConnackPacket(fh, r)
+		return NewConnackPacket(fh, version, r)
 	case PUBLISH:
-		return NewPublishPacket(fh, r)
+		return NewPublishPacket(fh, version, r)
 	case PUBACK:
-		return NewPubackPacket(fh, r)
+		return NewPubackPacket(fh, version, r)
 	case PUBREC:
-		return NewPubrecPacket(fh, r)
+		return NewPubrecPacket(fh, version, r)
 	case PUBREL:
 		return NewPubrelPacket(fh, r)
 	case PUBCOMP:
-		return NewPubcompPacket(fh, r)
+		return NewPubcompPacket(fh, version, r)
 	case SUBSCRIBE:
-		return NewSubscribePacket(fh, r)
+		return NewSubscribePacket(fh, version, r)
 	case SUBACK:
-		return NewSubackPacket(fh, r)
+		return NewSubackPacket(fh, version, r)
 	case UNSUBSCRIBE:
-		return NewUnsubscribePacket(fh, r)
+		return NewUnsubscribePacket(fh, version, r)
 	case PINGREQ:
 		return NewPingreqPacket(fh, r)
 	case DISCONNECT:
-		return NewDisConnectPackets(fh, r)
+		return NewDisConnectPackets(fh, version, r)
 	case UNSUBACK:
-		return NewUnsubackPacket(fh, r)
+		return NewUnsubackPacket(fh, version, r)
 	case PINGRESP:
 		return NewPingrespPacket(fh, r)
 	case AUTH:
 		return NewAuthPacket(fh, r)
 	default:
-		return nil, ErrInvalPacketType
+		return nil, codes.ErrProtocol
 
 	}
 }
@@ -591,51 +553,54 @@ func TopicMatch(topic []byte, topicFilter []byte) bool {
 }
 
 // TotalBytes returns how many bytes of the packet
-//func TotalBytes(p Packet) uint {
-//	var header *FixHeader
-//	switch pt := p.(type) {
-//	case *Connect:
-//		header = pt.FixHeader
-//	case *Connack:
-//		header = pt.FixHeader
-//	case *Disconnect:
-//		header = pt.FixHeader
-//	case *Pingreq:
-//		header = pt.FixHeader
-//	case *Pingresp:
-//		header = pt.FixHeader
-//	case *Puback:
-//		header = pt.FixHeader
-//	case *Pubcomp:
-//		header = pt.FixHeader
-//	case *Publish:
-//		header = pt.FixHeader
-//	case *Pubrec:
-//		header = pt.FixHeader
-//	case *Pubrel:
-//		header = pt.FixHeader
-//	case *Suback:
-//		header = pt.FixHeader
-//	case *Subscribe:
-//		header = pt.FixHeader
-//	case *Unsuback:
-//		header = pt.FixHeader
-//	case *Unsubscribe:
-//		header = pt.FixHeader
-//	}
-//	if header == nil {
-//		return 0
-//	}
-//	var headerLength uint
-//	if header.RemainLength <= 127 {
-//		headerLength = 2
-//	} else if header.RemainLength <= 16383 {
-//		headerLength = 3
-//	} else if header.RemainLength <= 2097151 {
-//		headerLength = 4
-//	} else if header.RemainLength <= 268435455 {
-//		headerLength = 5
-//	}
-//	return headerLength + uint(header.RemainLength)
-//
-//}
+// TODO 计算Properties
+func TotalBytes(p Packet) uint {
+	var header *FixHeader
+	switch pt := p.(type) {
+	case *Auth:
+		header = pt.FixHeader
+	case *Connect:
+		header = pt.FixHeader
+	case *Connack:
+		header = pt.FixHeader
+	case *Disconnect:
+		header = pt.FixHeader
+	case *Pingreq:
+		header = pt.FixHeader
+	case *Pingresp:
+		header = pt.FixHeader
+	case *Puback:
+		header = pt.FixHeader
+	case *Pubcomp:
+		header = pt.FixHeader
+	case *Publish:
+		header = pt.FixHeader
+	case *Pubrec:
+		header = pt.FixHeader
+	case *Pubrel:
+		header = pt.FixHeader
+	case *Suback:
+		header = pt.FixHeader
+	case *Subscribe:
+		header = pt.FixHeader
+	case *Unsuback:
+		header = pt.FixHeader
+	case *Unsubscribe:
+		header = pt.FixHeader
+	}
+	if header == nil {
+		return 0
+	}
+	var headerLength uint
+	if header.RemainLength <= 127 {
+		headerLength = 2
+	} else if header.RemainLength <= 16383 {
+		headerLength = 3
+	} else if header.RemainLength <= 2097151 {
+		headerLength = 4
+	} else if header.RemainLength <= 268435455 {
+		headerLength = 5
+	}
+	return headerLength + uint(header.RemainLength)
+
+}
