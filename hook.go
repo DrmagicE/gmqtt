@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -15,6 +16,7 @@ type Hooks struct {
 	OnUnsubscribed
 	OnMsgArrived
 	OnConnect
+	OnAuth
 	OnConnected
 	OnSessionCreated
 	OnSessionResumed
@@ -79,9 +81,34 @@ type OnCloseWrapper func(OnClose) OnClose
 //
 // OnConnect will be called when a valid connect packet is received.
 // It returns the code of the connack packet
-type OnConnect func(ctx context.Context, client Client) (code uint8)
+type OnConnect func(ctx context.Context, req ConnectRequest, client Client) *AuthResponse
+
+type ConnectRequest interface {
+	Packet() *packets.Connect
+	DefaultConnackProperties() *packets.Properties
+}
+type AuthRequest interface {
+	Packet() *packets.Auth
+	ConnectRequest() ConnectRequest
+}
+
+type AuthResponseType byte
+
+const (
+	BasicAuth AuthResponseType = iota
+	EnhancedAuth
+)
+
+type AuthResponse struct {
+	Code       codes.Code
+	Properties *packets.Properties
+}
 
 type OnConnectWrapper func(OnConnect) OnConnect
+
+type OnAuth func(ctx context.Context, authRequest AuthRequest, client Client) *AuthResponse
+
+type OnAuthWrapper func(OnAuth) OnAuth
 
 // OnConnected 当客户端成功连接后触发
 //

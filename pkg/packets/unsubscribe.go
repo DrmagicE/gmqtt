@@ -23,8 +23,8 @@ func (p *Unsubscribe) String() string {
 
 // NewUnSubBack returns the Unsuback struct which is the ack packet of the Unsubscribe packet.
 func (p *Unsubscribe) NewUnSubBack() *Unsuback {
-	fh := &FixHeader{PacketType: UNSUBACK, Flags: 0, RemainLength: 2}
-	unSuback := &Unsuback{FixHeader: fh, PacketID: p.PacketID}
+	fh := &FixHeader{PacketType: UNSUBACK, Flags: 0}
+	unSuback := &Unsuback{FixHeader: fh, PacketID: p.PacketID, Version: p.Version}
 	return unSuback
 }
 

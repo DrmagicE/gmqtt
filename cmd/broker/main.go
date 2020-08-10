@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/plugin/management"
 	"github.com/DrmagicE/gmqtt/plugin/prometheus"
 )
 
@@ -31,12 +30,12 @@ func main() {
 		panic(err)
 	}
 
-	//l, _ := zap.NewProduction()
-	l, _ := zap.NewDevelopment()
+	l, _ := zap.NewProduction()
+	//l, _ := zap.NewDevelopment()
 	s := gmqtt.NewServer(
 		gmqtt.WithTCPListener(ln),
 		gmqtt.WithWebsocketServer(ws),
-		gmqtt.WithPlugin(management.New(":8081", nil)),
+		//gmqtt.WithPlugin(management.New(":8081", nil)),
 		gmqtt.WithPlugin(prometheus.New(&http.Server{
 			Addr: ":8082",
 		}, "/metrics")),

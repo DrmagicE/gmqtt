@@ -46,10 +46,7 @@ func errInvalidValue(property byte, invalid interface{}) error {
 	return fmt.Errorf("property %v contains invalid value: %v", property, invalid)
 }
 
-const PayloadBytes byte = 0
-const PayloadUTF8 byte = 1
-
-type StringPair struct {
+type UserProperty struct {
 	K []byte
 	V []byte
 }
@@ -135,7 +132,7 @@ type Properties struct {
 	// retain flag set
 	RetainAvailable *byte
 	// User is a map of user provided properties
-	User []StringPair
+	User []UserProperty
 
 	// MaximumPacketSize allows the client or server to specify the maximum packet
 	// size in bytes that they support
@@ -166,6 +163,7 @@ func (p *Properties) PackWillProperties(bufw *bytes.Buffer) {
 	propertyWriteUint32(PropWillDelayInterval, p.WillDelayInterval, newBufw)
 	if len(p.User) != 0 {
 		for _, v := range p.User {
+			newBufw.WriteByte(PropUser)
 			writeBinary(newBufw, v.K)
 			writeBinary(newBufw, v.V)
 		}
@@ -191,8 +189,8 @@ func (p *Properties) Pack(bufw *bytes.Buffer, packetType byte) {
 	propertyWriteString(PropCorrelationData, p.CorrelationData, newBufw)
 
 	if len(p.SubscriptionIdentifier) != 0 {
-		newBufw.WriteByte(PropSubscriptionIdentifier)
 		for _, v := range p.SubscriptionIdentifier {
+			newBufw.WriteByte(PropSubscriptionIdentifier)
 			b, _ := DecodeRemainLength(int(v))
 			newBufw.Write(b)
 		}
@@ -216,6 +214,7 @@ func (p *Properties) Pack(bufw *bytes.Buffer, packetType byte) {
 
 	if len(p.User) != 0 {
 		for _, v := range p.User {
+			newBufw.WriteByte(PropUser)
 			writeBinary(newBufw, v.K)
 			writeBinary(newBufw, v.V)
 		}
@@ -274,7 +273,7 @@ func (p *Properties) UnpackWillProperties(bufr *bytes.Buffer) error {
 			if err != nil {
 				return codes.ErrMalformed
 			}
-			p.User = append(p.User, StringPair{K: k, V: v})
+			p.User = append(p.User, UserProperty{K: k, V: v})
 		default:
 			return codes.ErrMalformed
 		}
@@ -381,7 +380,7 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 			if err != nil {
 				return codes.ErrMalformed
 			}
-			p.User = append(p.User, StringPair{K: k, V: v})
+			p.User = append(p.User, UserProperty{K: k, V: v})
 		case PropMaximumPacketSize:
 			p.MaximumPacketSize, err = propertyReadUint32(p.MaximumPacketSize, newBufr, propType, func(u uint32) bool {
 				return u != 0

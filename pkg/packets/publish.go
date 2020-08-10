@@ -22,8 +22,8 @@ type Publish struct {
 }
 
 func (p *Publish) String() string {
-	return fmt.Sprintf("Publish, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
-		p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload)
+	return fmt.Sprintf("Publish, Version: %v, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
+		p.Version, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload)
 }
 
 // CopyPublish 将 publish 复制一份
@@ -98,6 +98,7 @@ func (p *Publish) Pack(w io.Writer) error {
 		return err
 	}
 	_, err = bufw.WriteTo(w)
+
 	return err
 
 }

@@ -3,7 +3,6 @@ package trie
 import (
 	"strings"
 
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
@@ -13,11 +12,44 @@ type topicTrie = topicNode
 // children
 type children = map[string]*topicNode
 
+type subOpts struct {
+	shareName      string
+	qos            byte
+	noLocal        bool
+	rap            bool
+	retainHandling byte
+	// subscription identifier
+	id uint32
+}
+
+func fromSubscription(sub subscription.Subscription) subOpts {
+	return subOpts{
+		shareName:      sub.ShareName(),
+		qos:            sub.QoS(),
+		noLocal:        sub.NoLocal(),
+		rap:            sub.RetainAsPublished(),
+		retainHandling: sub.RetainHandling(),
+		id:             sub.ID(),
+	}
+}
+
+func (s *subOpts) subscription(topicFilter string) subscription.Subscription {
+	return subscription.New(
+		topicFilter,
+		s.qos,
+		subscription.ShareName(s.shareName),
+		subscription.NoLocal(s.noLocal),
+		subscription.ID(s.id),
+		subscription.RetainHandling(s.retainHandling),
+		subscription.RetainAsPublished(s.rap),
+	)
+}
+
 // topicNode
 type topicNode struct {
 	children  children
-	clients   map[string]uint8 // clientID => qos
-	parent    *topicNode       // pointer of parent node
+	clients   map[string]subOpts
+	parent    *topicNode // pointer of parent node
 	topicName string
 }
 
@@ -30,7 +62,7 @@ func newTopicTrie() *topicTrie {
 func newNode() *topicNode {
 	return &topicNode{
 		children: children{},
-		clients:  make(map[string]uint8),
+		clients:  make(map[string]subOpts),
 	}
 }
 
@@ -38,14 +70,14 @@ func newNode() *topicNode {
 func (t *topicNode) newChild() *topicNode {
 	return &topicNode{
 		children: children{},
-		clients:  make(map[string]uint8),
+		clients:  make(map[string]subOpts),
 		parent:   t,
 	}
 }
 
 // subscribe add a subscription and return the added node
-func (t *topicTrie) subscribe(clientID string, topic packets.Topic) *topicNode {
-	topicSlice := strings.Split(topic.Name, "/")
+func (t *topicTrie) subscribe(clientID string, topicName string, opts subOpts) *topicNode {
+	topicSlice := strings.Split(topicName, "/")
 	var pNode = t
 	for _, lv := range topicSlice {
 		if _, ok := pNode.children[lv]; !ok {
@@ -53,8 +85,8 @@ func (t *topicTrie) subscribe(clientID string, topic packets.Topic) *topicNode {
 		}
 		pNode = pNode.children[lv]
 	}
-	pNode.clients[clientID] = topic.Qos
-	pNode.topicName = topic.Name
+	pNode.clients[clientID] = opts
+	pNode.topicName = topicName
 	return pNode
 }
 
@@ -95,23 +127,17 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string) {
 }
 
 // setRs set the node into rs
-func setRs(node *topicNode, rs subscription.ClientTopics) {
-	for cid, qos := range node.clients {
-
+func setRs(node *topicNode, rs subscription.ClientSubscriptions) {
+	for cid, subOpts := range node.clients {
 		if _, ok := rs[cid]; !ok {
-			rs[cid] = make([]packets.Topic, 0)
+			rs[cid] = make([]subscription.Subscription, 0)
 		}
-		rs[cid] = append(rs[cid], packets.Topic{
-			SubOptions: packets.SubOptions{
-				Qos: qos,
-			},
-			Name: node.topicName,
-		})
+		rs[cid] = append(rs[cid], subOpts.subscription(node.topicName))
 	}
 }
 
 // matchTopic get all matched topic for given topicSlice, and set into rs
-func (t *topicTrie) matchTopic(topicSlice []string, rs subscription.ClientTopics) {
+func (t *topicTrie) matchTopic(topicSlice []string, rs subscription.ClientSubscriptions) {
 	endFlag := len(topicSlice) == 1
 	if cnode := t.children["#"]; cnode != nil {
 		setRs(cnode, rs)
@@ -139,11 +165,11 @@ func (t *topicTrie) matchTopic(topicSlice []string, rs subscription.ClientTopics
 }
 
 // getMatchedTopicFilter return a map key by clientID that contain all matched topic for the given topicName.
-func (t *topicTrie) getMatchedTopicFilter(topicName string) map[string][]packets.Topic {
+func (t *topicTrie) getMatchedTopicFilter(topicName string) subscription.ClientSubscriptions {
 	topicLv := strings.Split(topicName, "/")
-	qos := make(map[string][]packets.Topic)
-	t.matchTopic(topicLv, qos)
-	return qos
+	subs := make(subscription.ClientSubscriptions)
+	t.matchTopic(topicLv, subs)
+	return subs
 }
 
 func isSystemTopic(topicName string) bool {
@@ -155,13 +181,8 @@ func (t *topicTrie) preOrderTraverse(fn subscription.IterateFn) bool {
 		return false
 	}
 	if t.topicName != "" {
-		for clientID, qos := range t.clients {
-			if !fn(clientID, packets.Topic{
-				SubOptions: packets.SubOptions{
-					Qos: qos,
-				},
-				Name: t.topicName,
-			}) {
+		for clientID, subOpts := range t.clients {
+			if !fn(clientID, subOpts.subscription(t.topicName)) {
 				return false
 			}
 		}

@@ -36,7 +36,7 @@ const (
 	ReAuthenticate              Code = 0x19
 	UnspecifiedError            Code = 0x80
 	MalformedPacket             Code = 0x81
-	ProtocolError               Code = 0x02
+	ProtocolError               Code = 0x82
 	ImplementationSpecificError Code = 0x83
 	UnsupportedProtocolVersion  Code = 0x84
 	ClientIdentifierNotValid    Code = 0x85

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
@@ -18,6 +17,10 @@ type trieDB struct {
 	// system topic which begin with "$"
 	systemIndex map[string]map[string]*topicNode // [clientID][topicName]
 	systemTrie  *topicTrie
+
+	// shared subscription which begin with "$share"
+	sharedIndex map[string]map[string]*topicNode // [clientID][topicName]
+	sharedTrie  *topicTrie
 
 	// statistics of the server and each client
 	stats       subscription.Stats
@@ -32,36 +35,98 @@ func (t *trieDB) getTrie(topicName string) *topicTrie {
 	return t.userTrie
 }
 
-func (db *trieDB) GetClientSubscriptions(clientID string) []packets.Topic {
-	db.RLock()
-	defer db.RUnlock()
-	var rs []packets.Topic
-	for topicName, v := range db.userIndex[clientID] {
-		rs = append(rs, packets.Topic{
-			SubOptions: packets.SubOptions{
-				Qos: v.clients[clientID],
-			},
-			Name: topicName,
-		})
+func iterate(fn subscription.IterateFn, options subscription.IterationOptions, index map[string]map[string]*topicNode, trie *topicTrie) bool {
+	// 查询指定topicFilter
+	if options.TopicName != "" && options.MatchType == subscription.MatchName { //寻找指定topicName
+		node := trie.find(options.TopicName)
+		if node == nil {
+			return true
+		}
+		if options.ClientID != "" { // 指定topicName & 指定clientID
+			if subOpts, ok := node.clients[options.ClientID]; ok {
+				if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+					return false
+				}
+			}
+		} else {
+			// 指定topic name 不指定clientid
+			for clientID, subOpts := range node.clients {
+				if !fn(clientID, subOpts.subscription(node.topicName)) {
+					return false
+				}
+			}
+		}
+		return true
 	}
-	for topicName, v := range db.systemIndex[clientID] {
-		rs = append(rs, packets.Topic{
-			SubOptions: packets.SubOptions{
-				Qos: v.clients[clientID],
-			},
-			Name: topicName,
-		})
+	// 查询Match指定topicFilter
+	if options.TopicName != "" && options.MatchType == subscription.MatchFilter { // match指定的topicfilter
+		node := trie.getMatchedTopicFilter(options.TopicName)
+		if node == nil {
+			return true
+		}
+		if options.ClientID != "" {
+			for _, v := range node[options.ClientID] {
+				if !fn(options.ClientID, v) {
+					return false
+				}
+			}
+		} else {
+			for clientID, subs := range node {
+				for _, v := range subs {
+					if !fn(clientID, v) {
+						return false
+					}
+				}
+			}
+		}
+		return true
 	}
-	return rs
+	// 查询指定clientID下的所有topic
+	if options.ClientID != "" {
+		for topicFilter, v := range index[options.ClientID] {
+			subOpts := v.clients[options.ClientID]
+			if !fn(options.ClientID, subOpts.subscription(topicFilter)) {
+				return false
+			}
+		}
+		return true
+	}
+	// 遍历
+	return trie.preOrderTraverse(fn)
+
 }
 
-func (db *trieDB) Iterate(fn subscription.IterateFn) {
+func (db *trieDB) Iterate(fn subscription.IterateFn, options subscription.IterationOptions) {
 	db.RLock()
 	defer db.RUnlock()
-	if !db.userTrie.preOrderTraverse(fn) {
-		return
+	if options.Type&subscription.TypeShared == subscription.TypeShared {
+		// TODO test case
+		if options.MatchType == options.MatchType && options.TopicName != "" {
+			if isSystemTopic(options.TopicName) {
+				return
+			}
+		}
+		if !iterate(fn, options, db.sharedIndex, db.sharedTrie) {
+			return
+		}
 	}
-	db.systemTrie.preOrderTraverse(fn)
+	if options.Type&subscription.TypeNonShared == subscription.TypeNonShared {
+		// TODO test case
+		if options.MatchType == options.MatchType && options.TopicName != "" {
+			if isSystemTopic(options.TopicName) {
+				return
+			}
+		}
+		if !iterate(fn, options, db.userIndex, db.userTrie) {
+			return
+		}
+	}
+	if options.Type&subscription.TypeSYS == subscription.TypeSYS {
+		if !iterate(fn, options, db.systemIndex, db.systemTrie) {
+			return
+		}
+	}
+
 }
 
 func (db *trieDB) GetStats() subscription.Stats {
@@ -80,31 +145,6 @@ func (db *trieDB) GetClientStats(clientID string) (subscription.Stats, error) {
 	}
 }
 
-func (db *trieDB) Get(topicFilter string) subscription.ClientTopics {
-	db.RLock()
-	defer db.RUnlock()
-	node := db.getTrie(topicFilter).find(topicFilter)
-	if node != nil {
-		rs := make(subscription.ClientTopics)
-		for clientID, qos := range node.clients {
-			rs[clientID] = append(rs[clientID], packets.Topic{
-				SubOptions: packets.SubOptions{
-					Qos: qos,
-				},
-				Name: node.topicName,
-			})
-		}
-		return rs
-	}
-	return nil
-}
-
-func (db *trieDB) GetTopicMatched(topicName string) subscription.ClientTopics {
-	db.RLock()
-	defer db.RUnlock()
-	return db.getTrie(topicName).getMatchedTopicFilter(topicName)
-}
-
 // NewStore create a new trieDB instance
 func NewStore() *trieDB {
 	return &trieDB{
@@ -114,31 +154,38 @@ func NewStore() *trieDB {
 		systemIndex: make(map[string]map[string]*topicNode),
 		systemTrie:  newTopicTrie(),
 
+		sharedIndex: make(map[string]map[string]*topicNode),
+		sharedTrie:  newTopicTrie(),
+
 		clientStats: make(map[string]*subscription.Stats),
 	}
 }
 
 // Subscribe add subscriptions
-func (db *trieDB) Subscribe(clientID string, topics ...packets.Topic) subscription.SubscribeResult {
+func (db *trieDB) Subscribe(clientID string, subscriptions ...subscription.Subscription) subscription.SubscribeResult {
 	db.Lock()
 	defer db.Unlock()
 	var node *topicNode
 	var index map[string]map[string]*topicNode
-	rs := make(subscription.SubscribeResult, len(topics))
-	for k, topic := range topics {
-		rs[k].Topic = topic
-		if isSystemTopic(topic.Name) {
-			node = db.systemTrie.subscribe(clientID, topic)
+	rs := make(subscription.SubscribeResult, len(subscriptions))
+	for k, sub := range subscriptions {
+		topicName := sub.TopicFilter()
+		rs[k].Subscription = sub
+		if sub.ShareName() != "" {
+			node = db.sharedTrie.subscribe(clientID, topicName, fromSubscription(sub))
+			index = db.sharedIndex
+		} else if isSystemTopic(topicName) {
+			node = db.systemTrie.subscribe(clientID, topicName, fromSubscription(sub))
 			index = db.systemIndex
 		} else {
-			node = db.userTrie.subscribe(clientID, topic)
+			node = db.userTrie.subscribe(clientID, topicName, fromSubscription(sub))
 			index = db.userIndex
 		}
 		if index[clientID] == nil {
 			index[clientID] = make(map[string]*topicNode)
 			db.clientStats[clientID] = &subscription.Stats{}
 		}
-		if _, ok := index[clientID][topic.Name]; !ok {
+		if _, ok := index[clientID][topicName]; !ok {
 			db.stats.SubscriptionsTotal++
 			db.stats.SubscriptionsCurrent++
 			db.clientStats[clientID].SubscriptionsTotal++
@@ -146,7 +193,7 @@ func (db *trieDB) Subscribe(clientID string, topics ...packets.Topic) subscripti
 		} else {
 			rs[k].AlreadyExisted = true
 		}
-		index[clientID][topic.Name] = node
+		index[clientID][topicName] = node
 	}
 	return rs
 }
@@ -199,7 +246,7 @@ func (db *trieDB) UnsubscribeAll(clientID string) {
 }
 
 // getMatchedTopicFilter return a map key by clientID that contain all matched topic for the given topicName.
-func (db *trieDB) getMatchedTopicFilter(topicName string) map[string][]packets.Topic {
+func (db *trieDB) getMatchedTopicFilter(topicName string) subscription.ClientSubscriptions {
 	// system topic
 	if isSystemTopic(topicName) {
 		return db.systemTrie.getMatchedTopicFilter(topicName)

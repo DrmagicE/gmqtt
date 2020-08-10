@@ -8,6 +8,8 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -252,12 +254,12 @@ func (m *Management) Subscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, errors.New("invalid clientID")))
 		return
 	}
-	m.server.SubscriptionStore().Subscribe(cid, packets.Topic{
+	m.server.SubscriptionStore().Subscribe(cid, subscription.FromTopic(packets.Topic{
 		SubOptions: packets.SubOptions{
 			Qos: uint8(qos),
 		},
 		Name: topic,
-	})
+	}, 0))
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 

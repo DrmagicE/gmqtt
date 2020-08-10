@@ -3,8 +3,10 @@ package trie
 import (
 	"testing"
 
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 var testTopicMatch = []struct {
@@ -40,16 +42,22 @@ var topicMatchQosTest = []struct {
 	{
 		topics: []packets.Topic{
 			{
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos1,
+				},
 				Name: "a/b",
-				Qos:  packets.Qos1,
 			},
 			{
 				Name: "a/#",
-				Qos:  packets.Qos2,
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos2,
+				},
 			},
 			{
 				Name: "a/+",
-				Qos:  packets.Qos0,
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos0,
+				},
 			},
 		},
 		matchTopic: struct {
@@ -72,14 +80,27 @@ var testSubscribeAndFind = struct {
 }{
 	subTopics: map[string][]packets.Topic{
 		"cid1": {
-			{packets.Qos1, "t1/t2/+"},
-			{packets.Qos2, "t1/t2/"},
-			{packets.Qos0, "t1/t2/cid1"},
+			{
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos1,
+				}, Name: "t1/t2/+"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos2,
+			}, Name: "t1/t2/"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos0,
+			}, Name: "t1/t2/cid1"},
 		},
 		"cid2": {
-			{packets.Qos2, "t1/t2/+"},
-			{packets.Qos1, "t1/t2/"},
-			{packets.Qos0, "t1/t2/cid2"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos2,
+			}, Name: "t1/t2/+"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos1,
+			}, Name: "t1/t2/"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos0,
+			}, Name: "t1/t2/cid2"},
 		},
 	},
 	findTopics: map[string][]struct { //key by clientID
@@ -112,12 +133,23 @@ var testUnsubscribe = struct {
 }{
 	subTopics: map[string][]packets.Topic{
 		"cid1": {
-			{packets.Qos1, "t1/t2/t3"},
-			{packets.Qos2, "t1/t2"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos1,
+			}, Name: "t1/t2/t3"},
+			{SubOptions: packets.SubOptions{
+				Qos: packets.Qos2,
+			}, Name: "t1/t2"},
 		},
 		"cid2": {
-			{packets.Qos2, "t1/t2/t3"},
-			{packets.Qos1, "t1/t2"},
+			{
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos2,
+				},
+				Name: "t1/t2/t3"},
+			{
+				SubOptions: packets.SubOptions{
+					Qos: packets.Qos1,
+				}, Name: "t1/t2"},
 		},
 	},
 	unsubscribe: map[string][]string{
@@ -146,15 +178,21 @@ var testPreOrderTraverse = struct {
 }{
 	topics: []packets.Topic{
 		{
-			Qos:  0,
+			SubOptions: packets.SubOptions{
+				Qos: packets.Qos0,
+			},
 			Name: "a/b/c",
 		},
 		{
-			Qos:  1,
+			SubOptions: packets.SubOptions{
+				Qos: packets.Qos1,
+			},
 			Name: "/a/b/c",
 		},
 		{
-			Qos:  2,
+			SubOptions: packets.SubOptions{
+				Qos: packets.Qos2,
+			},
 			Name: "b/c/d",
 		},
 	},
@@ -165,11 +203,10 @@ func TestTopicTrie_matchedClients(t *testing.T) {
 	a := assert.New(t)
 	for _, v := range testTopicMatch {
 		trie := newTopicTrie()
-		topic := packets.Topic{Qos: 1, Name: v.subTopic}
-		trie.subscribe("cid", topic)
+		trie.subscribe("cid", v.subTopic, subOpts{})
 		qos := trie.getMatchedTopicFilter(v.topic)
 		if v.isMatch {
-			a.Equal(qos["cid"][0].Qos, topic.Qos)
+			a.EqualValues(qos["cid"][0].QoS(), 0)
 		} else {
 			_, ok := qos["cid"]
 			a.False(ok)
@@ -182,25 +219,30 @@ func TestTopicTrie_matchedClients_Qos(t *testing.T) {
 	for _, v := range topicMatchQosTest {
 		trie := newTopicTrie()
 		for _, tt := range v.topics {
-			trie.subscribe("cid", tt)
+			trie.subscribe("cid", tt.Name, subOpts{
+				qos: tt.Qos,
+			})
 		}
 		rs := trie.getMatchedTopicFilter(v.matchTopic.name)
-		a.Equal(v.matchTopic.qos, rs["cid"][0].Qos)
+		a.EqualValues(v.matchTopic.qos, rs["cid"][0].QoS())
 	}
 }
+
 func TestTopicTrie_subscribeAndFind(t *testing.T) {
 	a := assert.New(t)
 	trie := newTopicTrie()
 	for cid, v := range testSubscribeAndFind.subTopics {
 		for _, topic := range v {
-			trie.subscribe(cid, topic)
+			trie.subscribe(cid, topic.Name, subOpts{
+				qos: topic.Qos,
+			})
 		}
 	}
 	for cid, v := range testSubscribeAndFind.findTopics {
 		for _, tt := range v {
 			node := trie.find(tt.topicName)
 			if tt.exist {
-				a.Equal(tt.wantQos, node.clients[cid])
+				a.Equal(tt.wantQos, node.clients[cid].qos)
 			} else {
 				if node != nil {
 					_, ok := node.clients[cid]
@@ -216,7 +258,9 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 	trie := newTopicTrie()
 	for cid, v := range testUnsubscribe.subTopics {
 		for _, topic := range v {
-			trie.subscribe(cid, topic)
+			trie.subscribe(cid, topic.Name, subOpts{
+				qos: topic.Qos,
+			})
 		}
 	}
 	for cid, v := range testUnsubscribe.unsubscribe {
@@ -228,7 +272,7 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 		for _, tt := range v {
 			matched := trie.getMatchedTopicFilter(tt.topicName)
 			if tt.exist {
-				a.Equal(matched[cid][0].Qos, tt.wantQos)
+				a.EqualValues(matched[cid][0].QoS(), tt.wantQos)
 			} else {
 				a.Equal(0, len(matched))
 			}
@@ -237,16 +281,23 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 }
 
 func TestTopicTrie_preOrderTraverse(t *testing.T) {
-	//a := assert.New(t)
+	a := assert.New(t)
 	trie := newTopicTrie()
 	for _, v := range testPreOrderTraverse.topics {
-		trie.subscribe(testPreOrderTraverse.clientID, v)
+		trie.subscribe(testPreOrderTraverse.clientID, v.Name, subOpts{
+			qos: v.Qos,
+		})
 	}
-	trie.subscribe("abcd", packets.Topic{
-		Qos:  2,
-		Name: "a/b/c",
-	})
-	trie.preOrderTraverse(func(clientID string, topic packets.Topic) bool {
+	var rs []packets.Topic
+	trie.preOrderTraverse(func(clientID string, subscription subscription.Subscription) bool {
+		a.Equal(testPreOrderTraverse.clientID, clientID)
+		rs = append(rs, packets.Topic{
+			SubOptions: packets.SubOptions{
+				Qos: subscription.QoS(),
+			},
+			Name: subscription.TopicFilter(),
+		})
 		return true
 	})
+	a.ElementsMatch(testPreOrderTraverse.topics, rs)
 }

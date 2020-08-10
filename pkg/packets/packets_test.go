@@ -100,6 +100,23 @@ var topicFilterTest = []struct {
 	{input: "/1/+/+/1234", want: true},
 }
 
+var sharedTopicFilterTest = []struct {
+	input string
+	want  bool
+}{
+	{input: "$share/sport/tennis#", want: false},
+	{input: "$share/sport/tennis/#/rank", want: false},
+	{input: "$share//1", want: false},
+	{input: "$share/+1", want: false},
+	{input: "$share/a/", want: false},
+	{input: "$share/a/+", want: true},
+	{input: "$share/a/#", want: true},
+	{input: "$share/1/+/#", want: true},
+	{input: "$share/+/1", want: false},
+	{input: "$share/#/2", want: false},
+	{input: "$share/a/b", want: true},
+}
+
 var topicNameTest = []struct {
 	input string
 	want  bool
@@ -192,6 +209,15 @@ func TestValidUTF8(t *testing.T) {
 func TestValidTopicFilter(t *testing.T) {
 	for _, v := range topicFilterTest {
 		if valid := ValidTopicFilter(true, []byte(v.input)); valid != v.want {
+			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
+		}
+	}
+}
+
+//Subscribable Topic Filter
+func TestValidV5TopicFilter(t *testing.T) {
+	for _, v := range sharedTopicFilterTest {
+		if valid := ValidV5TopicFilter([]byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}

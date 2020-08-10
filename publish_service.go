@@ -22,30 +22,8 @@ type publishService struct {
 }
 
 func (p *publishService) Publish(message packets.Message) {
-	p.server.msgRouter <- &msgRouter{msg: message, match: true}
+	p.server.msgRouter <- &msgRouter{msg: message}
 }
 func (p *publishService) PublishToClient(clientID string, message packets.Message, match bool) {
-	p.server.msgRouter <- &msgRouter{msg: message, clientID: clientID, match: match}
-}
-
-type msgOptions func(msg *msg)
-
-// Retained sets retained flag to the message
-func Retained(retained bool) msgOptions {
-	return func(msg *msg) {
-		msg.retained = retained
-	}
-}
-
-// NewMessage creates a message for publish service.
-func NewMessage(topic string, payload []byte, qos uint8, opts ...msgOptions) packets.Message {
-	m := &msg{
-		topic:   topic,
-		qos:     qos,
-		payload: payload,
-	}
-	for _, v := range opts {
-		v(m)
-	}
-	return m
+	p.server.msgRouter <- &msgRouter{msg: message, clientID: clientID}
 }

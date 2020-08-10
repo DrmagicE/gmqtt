@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 // Error
@@ -77,8 +79,12 @@ func putBufioWriter(bw *bufio.Writer) {
 
 // Client represent
 type Client interface {
-	// OptionsReader returns ClientOptionsReader for reading options data.
-	OptionsReader() ClientOptionsReader
+
+	// ClientOptions return a reference of ClientOptions. Do not edit.
+	// This is mainly used in callback functions.
+	ClientOptions() *ClientOptions
+	// Version return the protocol version of the current client.
+	Version() packets.Version
 	// IsConnected returns whether the client is connected.
 	IsConnected() bool
 	// ConnectedAt returns the connected time
@@ -89,8 +95,13 @@ type Client interface {
 	Connection() net.Conn
 	// Close closes the client connection. The returned channel will be closed after unregister process has been done
 	Close() <-chan struct{}
+	Disconnect(disconnect *packets.Disconnect)
 
 	GetSessionStatsManager() SessionStatsManager
+}
+
+func (client *client) ClientOptions() *ClientOptions {
+	return client.opts
 }
 
 // Client represents a MQTT client and implements the Client interface
@@ -110,17 +121,57 @@ type client struct {
 	session       *session
 	error         chan error //错误
 	err           error
-	opts          *options //OnConnect之前填充,set up before OnConnect()
-	cleanWillFlag bool     //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
-	//自定义数据
-	keys  map[string]interface{}
-	ready chan struct{} //close after session prepared
+	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
+	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
+	ready         chan struct{}  //close after session prepared
 
 	connectedAt    int64
 	disconnectedAt int64
 
 	statsManager SessionStatsManager
 	version      packets.Version
+	aliasMapper  *aliasMapper
+
+	// gard serverReceiveMaximumQuota
+	serverQuotaMu             sync.Mutex
+	serverReceiveMaximumQuota uint16
+
+	// gard clientReceiveMaximumQuota
+	clientQuotaMu             sync.Mutex
+	clientReceiveMaximumQuota uint16
+}
+
+func (client *client) Version() packets.Version {
+	return client.version
+}
+
+func (client *client) Disconnect(disconnect *packets.Disconnect) {
+	panic("implement me")
+}
+
+type ClientSettings struct {
+	SessionExpiry                 uint32
+	ReceiveMaximum                uint16
+	MaximumQoS                    byte
+	RetainAvailable               bool
+	MaximumPacketSize             uint32
+	AssignedClientID              []byte
+	TopicAliasMaximum             uint16
+	ReasonString                  string
+	UserProperties                []packets.UserProperty
+	WildcardSubscriptionAvailable bool
+	SubscriptionIDAvailable       bool
+	SharedSubscriptionAvailable   bool
+	ServerKeepAlive               uint16
+	ResponseInformation           string
+	ServerReference               string
+}
+
+type aliasMapper struct {
+	server [][]byte
+	client map[string]uint16
+	// next alias will be send to client
+	nextAlias uint16
 }
 
 func (client *client) GetSessionStatsManager() SessionStatsManager {
@@ -147,15 +198,6 @@ func (client *client) DisconnectedAt() time.Time {
 // Connection returns the raw net.Conn
 func (client *client) Connection() net.Conn {
 	return client.rwc
-}
-
-//OptionsReader returns the ClientOptionsReader. This is mainly used in callback functions.
-//See ./example/hook
-func (client *client) OptionsReader() ClientOptionsReader {
-	return client.opts
-	/*opts.WillPayload = make([]byte, len(client.opts.WillPayload))
-	copy(opts.WillPayload, client.opts.WillPayload)
-	return opts*/
 }
 
 func (client *client) setConnecting() {
@@ -189,105 +231,46 @@ func (client *client) IsDisConnected() bool {
 	return client.Status() == Disconnected
 }
 
-//ClientOptionsReader is mainly used in callback functions.
-type ClientOptionsReader interface {
-	ClientID() string
-	Username() string
-	Password() string
-	KeepAlive() uint16
-	CleanStart() bool
-	WillFlag() bool
-	WillRetain() bool
-	WillQos() uint8
-	WillTopic() string
-	WillPayload() []byte
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
-}
+// ClientOptions will be set after the client connected successfully
+type ClientOptions struct {
+	ClientID string
+	Username string
 
-// options client options
-type options struct {
-	clientID    string
-	username    string
-	password    string
-	keepAlive   uint16
-	cleanStart  bool
-	willFlag    bool
-	willRetain  bool
-	willQos     uint8
-	willTopic   string
-	willPayload []byte
-	localAddr   net.Addr
-	remoteAddr  net.Addr
+	KeepAlive     uint16
+	CleanStart    bool
+	SessionExpiry uint32
 
-	sessionExpiryInterval uint32
-	receiveMaximum        uint16
-	maximumPacketSize     uint32
-	topicAliasMaximum     uint16
-	requestResponseInfo   bool
-	requestProblemInfo    bool
-	userProperty          packets.StringPair
+	ClientReceiveMax uint16
+	ServerReceiveMax uint16
 
-	willDelayInterval     uint32
-	payloadFormat         byte
-	messageExpiryInterval uint32
-	contentType           []byte
-	responseTopic         []byte
-	correlationData       []byte
-	willUserProperty      packets.StringPair
+	ClientMaxPacketSize uint32
+	ServerMaxPacketSize uint32
 
-	// connack
-	retainAvailable bool
-}
+	ClientTopicAliasMax uint16
+	ServerTopicAliasMax uint16
 
-// ClientID return clientID
-func (o *options) ClientID() string {
-	return o.clientID
-}
+	RequestResponseInfo bool
+	RequestProblemInfo  bool
+	UserProperties      []*packets.UserProperty
 
-// Username return username
-func (o *options) Username() string {
-	return o.username
-}
+	RetainAvailable      bool
+	WildcardSubAvailable bool
+	SubIDAvailable       bool
+	SharedSubAvailable   bool
 
-// Password return Password
-func (o *options) Password() string {
-	return o.password
-}
-
-// KeepAlive return keepalive
-func (o *options) KeepAlive() uint16 {
-	return o.keepAlive
-}
-
-// CleanStart return CleanStart
-func (o *options) CleanStart() bool {
-	return o.cleanStart
-}
-
-// WillFlag return willflag
-func (o *options) WillFlag() bool {
-	return o.willFlag
-}
-
-// WillRetain return willRetain
-func (o *options) WillRetain() bool {
-	return o.willRetain
-}
-func (o *options) WillQos() uint8 {
-	return o.willQos
-}
-func (o *options) WillTopic() string {
-	return o.willTopic
-}
-func (o *options) WillPayload() []byte {
-	return o.willPayload
-}
-func (o *options) LocalAddr() net.Addr {
-	return o.localAddr
-}
-func (o *options) RemoteAddr() net.Addr {
-	return o.remoteAddr
+	Will struct {
+		Flag          bool
+		Retain        bool
+		Qos           uint8
+		Topic         []byte
+		Payload       []byte
+		DelayInterval uint32
+		PayloadFormat byte
+		MessageExpiry uint32
+		ContentType   []byte
+		ResponseTopic []byte
+		Properties    *packets.Properties
+	}
 }
 
 func (client *client) setError(err error) {
@@ -314,15 +297,48 @@ func (client *client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
+			switch p := packet.(type) {
+			case *packets.Publish:
+				client.server.statsManager.messageSent(p.Qos)
+				client.statsManager.messageSent(p.Qos)
+
+				if client.version == packets.Version5 {
+					if client.opts.ClientTopicAliasMax > 0 {
+						// use topic alias if exist
+						if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
+							p.TopicName = []byte{}
+							p.Properties.TopicAlias = &id
+						} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
+							// create new alias
+							// TODO
+							//  增加钩子函数决定是否对当前topic 使用topicAlias
+							//  可能的input: packets.Message， 以及当前的alias情况。
+							next := client.aliasMapper.nextAlias
+							p.Properties.TopicAlias = &next
+							client.aliasMapper.nextAlias++
+							client.aliasMapper.client[string(p.TopicName)] = next
+						}
+					}
+				}
+				// onDeliver hook
+				if client.server.hooks.OnDeliver != nil {
+					client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(p))
+				}
+
+			case *packets.Puback, *packets.Pubcomp:
+				if client.version == packets.Version5 {
+					client.addServerQuota()
+				}
+			case *packets.Pubrel:
+				if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
+					client.addServerQuota()
+				}
+			}
 			err = client.writePacket(packet)
 			if err != nil {
 				return
 			}
 			client.server.statsManager.packetSent(packet)
-			if pub, ok := packet.(*packets.Publish); ok {
-				client.server.statsManager.messageSent(pub.Qos)
-				client.statsManager.messageSent(pub.Qos)
-			}
 		}
 
 	}
@@ -331,7 +347,7 @@ func (client *client) writeLoop() {
 func (client *client) writePacket(packet packets.Packet) error {
 	zaplog.Debug("sending packet",
 		zap.String("packet", packet.String()),
-		zap.String("client_id", client.opts.clientID),
+		zap.String("client_id", client.opts.ClientID),
 		zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 	)
 	err := client.packetWriter.WritePacket(packet)
@@ -339,6 +355,49 @@ func (client *client) writePacket(packet packets.Packet) error {
 		return err
 	}
 	return client.packetWriter.Flush()
+}
+func (client *client) addServerQuota() {
+	client.serverQuotaMu.Lock()
+	if client.serverReceiveMaximumQuota < client.opts.ServerReceiveMax {
+		client.serverReceiveMaximumQuota++
+	}
+	client.serverQuotaMu.Unlock()
+}
+func (client *client) tryDecServerQuota() error {
+	client.serverQuotaMu.Lock()
+	defer client.serverQuotaMu.Unlock()
+	if client.serverReceiveMaximumQuota == 0 {
+		return codes.NewError(codes.RecvMaxExceeded)
+	}
+	client.serverReceiveMaximumQuota--
+	return nil
+}
+
+func (client *client) addClientQuota() {
+
+	client.clientQuotaMu.Lock()
+	if client.clientReceiveMaximumQuota < client.opts.ClientReceiveMax {
+		client.clientReceiveMaximumQuota++
+	}
+	zaplog.Debug("add client quota",
+		zap.String("client_id", client.opts.ClientID),
+		zap.Uint16("quota", client.clientReceiveMaximumQuota),
+		zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+	)
+	client.clientQuotaMu.Unlock()
+}
+func (client *client) tryDecClientQuota() bool {
+	client.clientQuotaMu.Lock()
+	defer client.clientQuotaMu.Unlock()
+	if client.clientReceiveMaximumQuota == 0 {
+		return false
+	}
+	client.clientReceiveMaximumQuota--
+	zaplog.Debug("dec client quota",
+		zap.String("client_id", client.opts.ClientID),
+		zap.Uint16("quota", client.clientReceiveMaximumQuota),
+		zap.String("remote_addr", client.rwc.RemoteAddr().String()))
+	return true
 }
 
 func (client *client) readLoop() {
@@ -353,10 +412,11 @@ func (client *client) readLoop() {
 	for {
 		var packet packets.Packet
 		if client.IsConnected() {
-			if keepAlive := client.opts.keepAlive; keepAlive != 0 { //KeepAlive
+			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
+		// TODO validate Options
 		packet, err = client.packetReader.ReadPacket()
 		if err != nil {
 			return
@@ -364,12 +424,19 @@ func (client *client) readLoop() {
 		zaplog.Debug("received packet",
 			zap.String("packet", packet.String()),
 			zap.String("remote", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.clientID),
+			zap.String("client_id", client.opts.ClientID),
 		)
 		client.server.statsManager.packetReceived(packet)
 		if pub, ok := packet.(*packets.Publish); ok {
 			client.server.statsManager.messageReceived(pub.Qos)
+			if client.version == packets.Version5 {
+				err = client.tryDecServerQuota()
+				if err != nil {
+					return
+				}
+			}
 		}
+
 		client.in <- packet
 	}
 }
@@ -382,8 +449,29 @@ func (client *client) errorWatch() {
 	case <-client.close:
 		return
 	case err := <-client.error: //有错误关闭
+		//time.Sleep(2 * time.Second)
 		client.err = err
 		close(client.close) //退出chanel
+		if client.version == packets.Version5 {
+			if code, ok := client.err.(*codes.Error); ok {
+				// 发 Disconnect 或者 connack
+				if client.IsConnected() {
+					// send Disconnect
+					_ = client.writePacket(&packets.Disconnect{
+						Version: packets.Version5,
+						Code:    code.Code(),
+					})
+
+				} else {
+					// send connack
+					_ = client.writePacket(&packets.Connack{
+						Version: client.version,
+						Code:    code.Code(),
+					})
+				}
+			}
+		}
+		client.rwc.Close()
 		return
 	}
 }
@@ -435,8 +523,91 @@ func getRandomUUID() string {
 	return fmt.Sprintf(`%x`, string(b[:]))
 }
 
+type authRequest struct {
+	connectRequest *connectRequest
+	auth           *packets.Auth
+}
+
+func (a *authRequest) Packet() *packets.Auth {
+	return a.auth
+}
+
+func (a *authRequest) ConnectRequest() ConnectRequest {
+	return a.connectRequest
+}
+
+type connectRequest struct {
+	connect *packets.Connect
+	ppt     *packets.Properties
+	config  *Config
+}
+
+func (c *connectRequest) Packet() *packets.Connect {
+	return c.connect
+}
+
+func bool2Byte(bo bool) *byte {
+	var b byte
+	if bo {
+		b = 1
+	} else {
+		b = 0
+	}
+	return &b
+}
+
+func byte2bool(b *byte) bool {
+	if b == nil || *b == 0 {
+		return false
+	}
+	return true
+}
+
+func convertUint16(u *uint16, defaultValue uint16) uint16 {
+	if u == nil {
+		return defaultValue
+	}
+	return *u
+}
+
+func convertUint32(u *uint32, defaultValue uint32) uint32 {
+	if u == nil {
+		return defaultValue
+	}
+	return *u
+
+}
+
+func (c *connectRequest) DefaultConnackProperties() *packets.Properties {
+	if c.connect.Version != packets.Version5 {
+		return nil
+	}
+	if c.ppt == nil {
+		ppt := &packets.Properties{
+			SessionExpiryInterval: c.connect.Properties.SessionExpiryInterval,
+			ReceiveMaximum:        &c.config.MQTT.ReceiveMax,
+			MaximumQOS:            &c.config.MQTT.MaximumQOS,
+			RetainAvailable:       bool2Byte(c.config.MQTT.RetainAvailable),
+			MaximumPacketSize:     &c.config.MQTT.MaxPacketSize,
+			TopicAliasMaximum:     &c.config.MQTT.TopicAliasMax,
+			WildcardSubAvailable:  bool2Byte(c.config.MQTT.WildcardAvailable),
+			SubIDAvailable:        bool2Byte(c.config.MQTT.SubscriptionIDAvailable),
+			SharedSubAvailable:    bool2Byte(c.config.MQTT.SharedSubAvailable),
+		}
+		if i := ppt.SessionExpiryInterval; i != nil && *i < c.config.SessionExpiryInterval {
+			ppt.SessionExpiryInterval = i
+		}
+		if c.connect.KeepAlive > c.config.MQTT.MaxKeepAlive {
+			ppt.ServerKeepAlive = &c.config.MQTT.MaxKeepAlive
+		}
+		c.ppt = ppt
+	}
+	return c.ppt
+}
+
 func (client *client) connectWithTimeOut() (ok bool) {
 	var err error
+	srv := client.server
 	defer func() {
 		if err != nil {
 			client.setError(err)
@@ -447,56 +618,130 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	}()
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
-	var p packets.Packet
-	select {
-	case <-client.close:
-		return
-	case p = <-client.in: //first packet
-	case <-timeout.C:
-		err = ErrConnectTimeOut
-		return
+	var conn *packets.Connect
+	var connRequest *connectRequest
+	for {
+		select {
+		case <-client.close:
+			return
+		case p := <-client.in:
+			var ack *AuthResponse
+			switch p.(type) {
+			case *packets.Connect:
+				if conn != nil {
+					err = codes.ErrProtocol
+					return
+				}
+
+				// set default options.
+				client.opts.RetainAvailable = srv.config.MQTT.RetainAvailable
+				client.opts.WildcardSubAvailable = srv.config.MQTT.WildcardAvailable
+				client.opts.SubIDAvailable = srv.config.MQTT.SubscriptionIDAvailable
+				client.opts.SharedSubAvailable = srv.config.MQTT.SharedSubAvailable
+
+				conn = p.(*packets.Connect)
+				client.version = conn.Version
+				connRequest = &connectRequest{
+					config:  &client.server.config,
+					connect: conn,
+				}
+				if srv.hooks.OnConnect != nil {
+					ack = client.server.hooks.OnConnect(context.Background(), connRequest, client)
+				} else {
+					ack = &AuthResponse{
+						Code:       codes.Success,
+						Properties: connRequest.DefaultConnackProperties(),
+					}
+				}
+			case *packets.Auth:
+				if conn == nil {
+					err = codes.ErrProtocol
+					return
+				}
+				if srv.hooks.OnAuth != nil {
+					ack = client.server.hooks.OnAuth(context.Background(), &authRequest{
+						connectRequest: connRequest,
+						auth:           p.(*packets.Auth),
+					}, client)
+				}
+			}
+			if ack.Code == codes.ContinueAuthentication {
+				client.out <- &packets.Auth{
+					Code:       ack.Code,
+					Properties: ack.Properties,
+				}
+				continue
+			}
+			if ack.Code == codes.Success {
+				if client.version == packets.Version5 {
+					ppt := ack.Properties
+					client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
+					client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
+					client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
+					client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
+
+					client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, 0)
+
+					client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, 65535)
+					client.opts.ServerReceiveMax = convertUint16(ack.Properties.ReceiveMaximum, 65535)
+
+					client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, 0)
+					client.opts.ServerMaxPacketSize = convertUint32(ack.Properties.MaximumPacketSize, 0)
+
+					client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, 0)
+					client.opts.ServerTopicAliasMax = convertUint16(ack.Properties.TopicAliasMaximum, 0)
+
+					client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
+					client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
+
+					client.aliasMapper.client = make(map[string]uint16)
+					client.aliasMapper.server = make([][]byte, client.opts.ServerReceiveMax+1)
+
+					if len(conn.ClientID) == 0 {
+						if len(ppt.AssignedClientID) != 0 {
+							client.opts.ClientID = string(ppt.AssignedClientID)
+						} else {
+							client.opts.ClientID = getRandomUUID()
+							ppt.AssignedClientID = []byte(client.opts.ClientID)
+						}
+					} else {
+						client.opts.ClientID = string(conn.ClientID)
+					}
+					client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
+
+				} else {
+					if len(conn.ClientID) == 0 {
+						client.opts.ClientID = getRandomUUID()
+					} else {
+						client.opts.ClientID = string(conn.ClientID)
+					}
+					client.opts.KeepAlive = conn.KeepAlive
+				}
+				if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
+					client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
+				}
+
+				client.opts.CleanStart = conn.CleanStart
+
+				client.opts.Will.Flag = conn.WillFlag
+				client.opts.Will.Payload = conn.WillMsg
+				client.opts.Will.Qos = conn.WillQos
+				client.opts.Will.Retain = conn.WillRetain
+				client.opts.Will.Topic = conn.WillTopic
+				client.opts.Will.Properties = conn.WillProperties
+
+				client.server.registerClient(conn, ack, client)
+
+				return
+			}
+			err = codes.NewError(ack.Code)
+			return
+		case <-timeout.C:
+			err = ErrConnectTimeOut
+			return
+		}
 	}
 
-	conn, flag := p.(*packets.Connect)
-
-	if !flag {
-		err = ErrInvalStatus
-		return
-	}
-	client.opts.clientID = string(conn.ClientID)
-	if client.opts.clientID == "" {
-		client.opts.clientID = getRandomUUID()
-	}
-	client.opts.keepAlive = conn.KeepAlive
-	client.opts.cleanStart = conn.CleanStart
-	client.opts.username = string(conn.Username)
-	client.opts.password = string(conn.Password)
-	client.opts.willFlag = conn.WillFlag
-	client.opts.willPayload = conn.WillMsg
-	client.opts.willQos = conn.WillQos
-	client.opts.willTopic = string(conn.WillTopic)
-	client.opts.willRetain = conn.WillRetain
-	client.opts.remoteAddr = client.rwc.RemoteAddr()
-	client.opts.localAddr = client.rwc.LocalAddr()
-	if keepAlive := client.opts.keepAlive; keepAlive != 0 { //KeepAlive
-		client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
-	}
-	register := &register{
-		client:  client,
-		connect: conn,
-	}
-	select {
-	case client.server.register <- register:
-	case <-client.close:
-		return
-	}
-	select {
-	case <-client.close:
-		return
-	case <-client.ready:
-	}
-	err = register.error
-	return
 }
 
 func (client *client) newSession() {
@@ -513,12 +758,9 @@ func (client *client) newSession() {
 }
 
 func (client *client) internalClose() {
-	client.rwc.Close()
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
-		unregister := &unregister{client: client, done: make(chan struct{})}
-		client.server.unregister <- unregister
-		<-unregister.done
+		client.server.unregisterClient(client)
 	}
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
@@ -534,6 +776,7 @@ func (client *client) internalClose() {
 
 // 这里的publish都是已经copy后的publish了
 // 从msgRouter过来的publish 的dup不可能是true
+// goroutine safe
 func (client *client) onlinePublish(publish *packets.Publish) {
 	if publish.Qos >= packets.Qos1 {
 		if publish.Dup {
@@ -546,24 +789,16 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 			return
 		}
 	}
-	client.sendMsg(publish)
-}
 
-// sendMsg wrap the hook function and session stats
-func (client *client) sendMsg(publish *packets.Publish) {
 	select {
 	case <-client.close:
-		return
 	case client.out <- publish:
-		// onDeliver hook
-		if client.server.hooks.OnDeliver != nil {
-			client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(publish))
-		}
 	}
 }
 
 func (client *client) publish(publish *packets.Publish) {
 	if client.IsConnected() { //在线消息
+		// set topic alias
 		client.onlinePublish(publish)
 	} else { //离线消息
 		client.msgEnQueue(publish)
@@ -579,7 +814,7 @@ func (client *client) write(packets packets.Packet) {
 }
 
 //Subscribe handler
-func (client *client) subscribeHandler(sub *packets.Subscribe) {
+func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	srv := client.server
 	if srv.hooks.OnSubscribe != nil {
 		for k, v := range sub.Topics {
@@ -590,7 +825,40 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 	var msgs []packets.Message
 
 	suback := sub.NewSuback()
+	var subID uint32
+
+	if client.version == packets.Version5 {
+		if client.opts.SubIDAvailable && len(sub.Properties.SubscriptionIdentifier) != 0 {
+			subID = sub.Properties.SubscriptionIdentifier[0]
+		}
+		if !srv.config.MQTT.SubscriptionIDAvailable && subID != 0 {
+			return codes.NewError(codes.SubIDNotSupported)
+		}
+	}
+
 	for k, v := range sub.Topics {
+		var isShared bool
+		if client.version == packets.Version5 {
+
+			if strings.HasPrefix(v.Name, "$share/") {
+				isShared = true
+				if !client.opts.SharedSubAvailable {
+					v.Qos = codes.SharedSubNotSupported
+				}
+			}
+			if !client.opts.SubIDAvailable && subID != 0 {
+				v.Qos = codes.SubIDNotSupported
+			}
+
+			if !client.opts.WildcardSubAvailable {
+				for _, c := range v.Name {
+					if c == '+' || c == '#' {
+						v.Qos = codes.WildcardSubNotSupported
+						break
+					}
+				}
+			}
+		}
 		if v.Qos < packets.SubscribeFailure {
 			topic := packets.Topic{
 				SubOptions: packets.SubOptions{
@@ -601,46 +869,76 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) {
 				},
 				Name: v.Name,
 			}
-			subRs := srv.subscriptionsDB.Subscribe(client.opts.clientID, topic)
+
+			subRs := srv.subscriptionsDB.Subscribe(client.opts.ClientID, subscription.FromTopic(topic, subID))
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
 			zaplog.Info("subscribe succeeded",
 				zap.String("topic", v.Name),
 				zap.Uint8("qos", suback.Payload[k]),
-				zap.String("client_id", client.opts.clientID),
+				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
-			// TODO check this is a non-share subscription
-			if (!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0 {
-				// matched retained messages
-				// TODO check retain as publish
+			// TODO no local
+			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
 				msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
+				for _, v := range msgs {
+					publish := messageToPublish(v, client.version)
+					if publish.Qos > subRs[0].Subscription.QoS() {
+						publish.Qos = subRs[0].Subscription.QoS()
+					}
+					publish.Dup = false
+					if !topic.RetainAsPublished {
+						publish.Retain = false
+					}
+					// TODO 放到msgRouter里面
+					client.publish(publish)
+				}
 			}
 		} else {
 			zaplog.Info("subscribe failed",
 				zap.String("topic", v.Name),
 				zap.Uint8("qos", suback.Payload[k]),
-				zap.String("client_id", client.opts.clientID),
+				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
 		}
 	}
 	client.write(suback)
-	for _, msg := range msgs {
-		srv.msgRouter <- &msgRouter{msg: msg, match: false, clientID: client.opts.clientID}
-	}
+	return nil
 }
 
 //Publish handler
-func (client *client) publishHandler(pub *packets.Publish) {
+//The PUBLISH packet sent to a Client by the Server MUST contain a
+// Message Expiry Interval set to the received value minus the time that the Application Message has been waiting in the Server
+func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	s := client.session
 	srv := client.server
 	var dup bool
 
 	// check retain available
-	if !client.opts.retainAvailable && pub.Retain {
-		client.setError(codes.NewError(codes.RetainNotSupported))
+	if !client.opts.RetainAvailable && pub.Retain {
+		return codes.NewError(codes.RetainNotSupported)
+	}
+
+	if client.version == packets.Version5 {
+		if pub.Properties.TopicAlias != nil {
+			if *pub.Properties.TopicAlias >= client.opts.ServerTopicAliasMax {
+				return codes.NewError(codes.TopicAliasInvalid)
+			} else {
+				topicAlias := *pub.Properties.TopicAlias
+				name := client.aliasMapper.server[int(topicAlias)]
+				if len(pub.TopicName) == 0 {
+					if len(name) == 0 {
+						return codes.NewError(codes.TopicAliasInvalid)
+					}
+					pub.TopicName = name
+				} else {
+					client.aliasMapper.server[topicAlias] = pub.TopicName
+				}
+			}
+		}
 	}
 
 	if pub.Qos == packets.Qos1 {
@@ -664,27 +962,36 @@ func (client *client) publishHandler(pub *packets.Publish) {
 			srv.retainedDB.AddOrReplace(msg)
 		}
 	}
+
 	if !dup {
 		var valid = true
 		if srv.hooks.OnMsgArrived != nil {
+			// TODO 支持返回 code
 			valid = srv.hooks.OnMsgArrived(context.Background(), client, msg)
 		}
 		if valid {
-			pub.Retain = false
-			msgRouter := &msgRouter{msg: messageFromPublish(pub), match: true}
+			msgRouter := &msgRouter{msg: msg, srcClientID: client.opts.ClientID}
 			select {
 			case <-client.close:
-				return
 			case client.server.msgRouter <- msgRouter:
 			}
 		}
 	}
+	return nil
+
 }
 func (client *client) pubackHandler(puback *packets.Puback) {
-
+	if client.version == packets.Version5 {
+		client.addClientQuota()
+	}
 	client.unsetInflight(puback)
 }
 func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
+	if client.version == packets.Version5 {
+		if pubrel.Code >= codes.UnspecifiedError {
+			client.addClientQuota()
+		}
+	}
 	delete(client.session.unackpublish, pubrel.PacketID)
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
@@ -696,6 +1003,9 @@ func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	client.write(pubrel)
 }
 func (client *client) pubcompHandler(pubcomp *packets.Pubcomp) {
+	if client.version == packets.Version5 {
+		client.addClientQuota()
+	}
 	client.unsetAwaitRel(pubcomp.PacketID)
 }
 func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
@@ -707,13 +1017,13 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	unSuback := unSub.NewUnSubBack()
 	client.write(unSuback)
 	for _, topicName := range unSub.Topics {
-		srv.subscriptionsDB.Unsubscribe(client.opts.clientID, topicName)
+		srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
 		if srv.hooks.OnUnsubscribed != nil {
 			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
 		zaplog.Info("unsubscribed",
 			zap.String("topic", topicName),
-			zap.String("client_id", client.opts.clientID),
+			zap.String("client_id", client.opts.ClientID),
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 		)
 	}
@@ -735,13 +1045,12 @@ func (client *client) readHandle() {
 		case <-client.close:
 			return
 		case packet := <-client.in:
+			var err *codes.Error
 			switch packet.(type) {
 			case *packets.Subscribe:
-				client.subscribeHandler(packet.(*packets.Subscribe))
+				err = client.subscribeHandler(packet.(*packets.Subscribe))
 			case *packets.Publish:
-				// 判断qos，qos不过直接return 一个 error
-				// publishHandler加一个error返回值
-				client.publishHandler(packet.(*packets.Publish))
+				err = client.publishHandler(packet.(*packets.Publish))
 			case *packets.Puback:
 				client.pubackHandler(packet.(*packets.Puback))
 			case *packets.Pubrel:
@@ -759,7 +1068,10 @@ func (client *client) readHandle() {
 				client.cleanWillFlag = true
 				return
 			default:
-				err = errors.New("invalid packet")
+				err = codes.ErrProtocol
+			}
+			if err != nil {
+				client.setError(err)
 				return
 			}
 		}
@@ -833,23 +1145,6 @@ func (client *client) serve() {
 		go client.readHandle()
 		go client.redeliver()
 	}
-
 	client.wg.Wait()
-	if client.version == packets.Version5 && (client.err == codes.ErrMalformed || client.err == codes.ErrProtocol) {
-		code := client.err.(*codes.Error).Code()
-		// 发 Disconnect 或者 connack
-		if client.IsConnected() {
-			// send Disconnect
-			_ = client.writePacket(&packets.Disconnect{
-				Version: packets.Version5,
-				Code:    code,
-			})
-		} else {
-			// send connack
-			_ = client.writePacket(&packets.Connack{
-				Version: client.version,
-				Code:    code,
-			})
-		}
-	}
+
 }

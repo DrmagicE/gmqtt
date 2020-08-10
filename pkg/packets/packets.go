@@ -69,6 +69,13 @@ const (
 	MinPacketID PacketID = 1
 )
 
+type PayloadFormat = byte
+
+const (
+	PayloadFormatBytes  PayloadFormat = 0
+	PayloadFormatString PayloadFormat = 1
+)
+
 type Message interface {
 	Dup() bool
 	Qos() uint8
@@ -76,6 +83,13 @@ type Message interface {
 	Topic() string
 	PacketID() PacketID
 	Payload() []byte
+	// v5
+	ContentType() string
+	CorrelationData() []byte
+	MessageExpiry() uint32
+	PayloadFormat() PayloadFormat
+	ResponseTopic() string
+	UserProperties() []UserProperty
 }
 
 // FixHeader represents the FixHeader of the MQTT packet
@@ -157,12 +171,29 @@ func NewWriter(w io.Writer) *Writer {
 // ReadPacket reads data from Reader and returns a  Packet instance.
 // If any errors occurs, returns nil, error
 func (r *Reader) ReadPacket() (Packet, error) {
+
 	first, err := r.bufr.ReadByte()
 	if err != nil {
 		return nil, err
 	}
 	fh := &FixHeader{PacketType: first >> 4, Flags: first & 15} //设置FixHeader
 	length, err := EncodeRemainLength(r.bufr)
+
+	// TODO add validate Options to check fixHeader + lenght <= Maximum Packet Size
+	var headerLen int
+	if length <= 127 {
+		headerLen = 2
+	} else if length <= 16383 {
+		headerLen = 3
+	} else if length <= 2097151 {
+		headerLen = 4
+	} else if length <= 268435455 {
+		headerLen = 5
+	}
+	if headerLen+length > 1234 {
+		return nil, codes.NewError(codes.RecvMaxExceeded)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -418,9 +449,7 @@ func ValidUTF8(p []byte) bool {
 	}
 }
 
-// ValidTopicName 验证主题名是否合法  [MQTT-4.7.1-1]
-//
-// ValidTopicName returns whether the bytes is a valid topic name.[MQTT-4.7.1-1].
+// ValidTopicName returns whether the bytes is a valid non-shared topic filter.[MQTT-4.7.1-1].
 func ValidTopicName(mustUTF8 bool, p []byte) bool {
 	for len(p) > 0 {
 		ru, size := utf8.DecodeRune(p)
@@ -436,6 +465,39 @@ func ValidTopicName(mustUTF8 bool, p []byte) bool {
 		p = p[size:]
 	}
 	return true
+}
+
+// ValidV5TopicFilter returns whether the bytes is a valid non-shared topic filter and shared topic filter
+func ValidV5TopicFilter(p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	if bytes.HasPrefix(p, []byte("$share/")) {
+		if len(p) < 9 {
+			return false
+		}
+		if p[7] != '/' {
+			subp := p[7:]
+			for len(subp) > 0 {
+				ru, size := utf8.DecodeRune(subp)
+				if ru == utf8.RuneError {
+					return false
+				}
+				if size == 1 {
+					if subp[0] == '/' {
+						return ValidTopicFilter(true, subp[1:])
+					}
+					if subp[0] == byte('+') || subp[0] == byte('#') {
+						return false
+					}
+				}
+				subp = subp[size:]
+			}
+
+		}
+		return false
+	}
+	return ValidTopicFilter(true, p)
 }
 
 // ValidTopicFilter 验证主题过滤器是否合法

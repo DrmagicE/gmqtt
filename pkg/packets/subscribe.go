@@ -114,8 +114,15 @@ func (p *Subscribe) Unpack(r io.Reader) (err error) {
 		if err != nil {
 			return err
 		}
-		if !ValidTopicFilter(true, topicFilter) {
-			return codes.ErrMalformed
+		if p.Version == Version5 {
+			// check shared subscription syntax
+			if !ValidV5TopicFilter(topicFilter) {
+				return codes.ErrMalformed
+			}
+		} else {
+			if !ValidTopicFilter(true, topicFilter) {
+				return codes.ErrMalformed
+			}
 		}
 		opts, err := bufr.ReadByte()
 		if err != nil {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,9 +29,7 @@ var (
 
 // Default configration
 const (
-	DefaultMsgRouterLen  = 4096
-	DefaultRegisterLen   = 2048
-	DefaultUnRegisterLen = 2048
+	DefaultMsgRouterLen = 4096
 )
 
 // Server status
@@ -86,12 +83,10 @@ type server struct {
 	retainedDB      retained.Store
 	subscriptionsDB subscription.Store //store subscriptions
 
-	msgRouter  chan *msgRouter
-	register   chan *register   //register session
-	unregister chan *unregister //unregister session
-	config     Config
-	hooks      Hooks
-	plugins    []Plugable
+	msgRouter chan *msgRouter
+	config    Config
+	hooks     Hooks
+	plugins   []Plugable
 
 	statsManager   StatsManager
 	publishService PublishService
@@ -125,8 +120,8 @@ const (
 type Config struct {
 	RetryInterval              time.Duration
 	RetryCheckInterval         time.Duration
-	SessionExpiryInterval      time.Duration
-	SessionExpiryCheckInterval time.Duration
+	SessionExpiryInterval      uint32
+	SessionExpiryCheckInterval uint32
 	QueueQos0Messages          bool
 	MaxInflight                int
 	MaxAwaitRel                int
@@ -135,22 +130,53 @@ type Config struct {
 	MsgRouterLen               int
 	RegisterLen                int
 	UnregisterLen              int
+
+	MQTT struct {
+		SharedSubAvailable      bool
+		WildcardAvailable       bool
+		SubscriptionIDAvailable bool
+		ReceiveMax              uint16
+		RetainAvailable         bool
+		MaxPacketSize           uint32
+		TopicAliasMax           uint16
+		MaximumQOS              byte
+		MaxKeepAlive            uint16
+	}
 }
 
 // DefaultConfig default config used by NewServer()
 var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
-	SessionExpiryInterval:      0 * time.Second,
-	SessionExpiryCheckInterval: 0 * time.Second,
+	SessionExpiryInterval:      65535,
+	SessionExpiryCheckInterval: 100,
 	QueueQos0Messages:          true,
 	MaxInflight:                32,
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
 	DeliveryMode:               OnlyOnce,
 	MsgRouterLen:               DefaultMsgRouterLen,
-	RegisterLen:                DefaultRegisterLen,
-	UnregisterLen:              DefaultUnRegisterLen,
+	MQTT: struct {
+		SharedSubAvailable      bool
+		WildcardAvailable       bool
+		SubscriptionIDAvailable bool
+		ReceiveMax              uint16
+		RetainAvailable         bool
+		MaxPacketSize           uint32
+		TopicAliasMax           uint16
+		MaximumQOS              byte
+		MaxKeepAlive            uint16
+	}{
+		SharedSubAvailable:      true,
+		WildcardAvailable:       true,
+		SubscriptionIDAvailable: true,
+		ReceiveMax:              2,
+		RetainAvailable:         true,
+		MaxPacketSize:           0,
+		TopicAliasMax:           10,
+		MaximumQOS:              2,
+		MaxKeepAlive:            60,
+	},
 }
 
 // GetConfig returns the config of the server
@@ -165,9 +191,10 @@ func (srv *server) GetStatsManager() StatsManager {
 
 //session register
 type register struct {
-	client  *client
-	connect *packets.Connect
-	error   error
+	client     *client
+	connect    *packets.Connect
+	properties *packets.Properties
+	error      chan error
 }
 
 // session unregister
@@ -177,10 +204,9 @@ type unregister struct {
 }
 
 type msgRouter struct {
-	msg      packets.Message
-	clientID string
-	// if set to false, must set clientID to specify the client to send
-	match bool
+	msg         packets.Message
+	clientID    string
+	srcClientID string
 }
 
 // Status returns the server status
@@ -188,68 +214,58 @@ func (srv *server) Status() int32 {
 	return atomic.LoadInt32(&srv.status)
 }
 
-func (srv *server) registerHandler(register *register) {
-	// ack code set in Connack Packet
-	var code uint8
-	client := register.client
+// 已经判断是成功了，注册
+func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, client *client) {
 	defer close(client.ready)
-	connect := register.connect
-	client.version = connect.Version
-
-	var sessionReuse bool
-
-	if srv.hooks.OnConnect != nil {
-		code = srv.hooks.OnConnect(context.Background(), client)
-	}
-	if code != codes.Success {
-		err := errors.New("reject connection, ack code:" + strconv.Itoa(int(code)))
-		ack := connect.NewConnackPacket(code, false)
-		_ = client.writePacket(ack)
-		client.setError(err)
-		register.error = err
-		return
-	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	srv.statsManager.addClientConnected()
+	srv.statsManager.addSessionActive()
+	client.setConnectedAt(time.Now())
+	client.setConnected()
 	if srv.hooks.OnConnected != nil {
 		srv.hooks.OnConnected(context.Background(), client)
 	}
-	srv.statsManager.addClientConnected()
-	srv.statsManager.addSessionActive()
+	var sessionResume bool
 
-	client.setConnectedAt(time.Now())
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
 	var oldSession *session
-	oldClient, oldExist := srv.clients[client.opts.clientID]
-	srv.clients[client.opts.clientID] = client
+	oldClient, oldExist := srv.clients[client.opts.ClientID]
+	srv.clients[client.opts.ClientID] = client
 	if oldExist {
 		oldSession = oldClient.session
 		if oldClient.IsConnected() {
 			zaplog.Info("logging with duplicate ClientID",
 				zap.String("remote", client.rwc.RemoteAddr().String()),
-				zap.String("client_id", client.OptionsReader().ClientID()),
+				zap.String("client_id", client.opts.ClientID),
 			)
 			oldClient.setSwitching()
 			oldClient.setError(codes.NewError(codes.SessionTakenOver))
 			<-oldClient.Close()
-			if oldClient.opts.willFlag {
+			if oldClient.opts.Will.Flag {
 				willMsg := &packets.Publish{
 					Dup:       false,
-					Qos:       oldClient.opts.willQos,
-					Retain:    oldClient.opts.willRetain,
-					TopicName: []byte(oldClient.opts.willTopic),
-					Payload:   oldClient.opts.willPayload,
+					Qos:       oldClient.opts.Will.Qos,
+					Retain:    oldClient.opts.Will.Retain,
+					TopicName: oldClient.opts.Will.Topic,
+					Payload:   oldClient.opts.Will.Payload,
 				}
-				go func() {
-					msgRouter := &msgRouter{msg: messageFromPublish(willMsg), match: true}
-					srv.msgRouter <- msgRouter
-				}()
+
+				msgRouter := &msgRouter{msg: messageFromPublish(willMsg)}
+				select {
+				case client.server.msgRouter <- msgRouter:
+				default:
+					go func() {
+						client.server.msgRouter <- msgRouter
+					}()
+				}
+
 			}
-			if !client.opts.cleanStart && !oldClient.opts.cleanStart { //reuse old session
-				sessionReuse = true
+			if !client.opts.CleanStart && !oldClient.opts.CleanStart { //reuse old session
+				sessionResume = true
 			}
 		} else if oldClient.IsDisConnected() {
-			if !client.opts.cleanStart {
-				sessionReuse = true
+			if !client.opts.CleanStart {
+				sessionResume = true
 			} else if srv.hooks.OnSessionTerminated != nil {
 				srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 			}
@@ -257,10 +273,12 @@ func (srv *server) registerHandler(register *register) {
 			srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 		}
 	}
-	ack := connect.NewConnackPacket(codes.Success, sessionReuse)
-	client.out <- ack
-	client.setConnected()
-	if sessionReuse { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
+
+	connack := connect.NewConnackPacket(codes.Success, sessionResume)
+	connack.Properties = ack.Properties
+	client.out <- connack
+
+	if sessionResume { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
 		client.session.unackpublish = oldSession.unackpublish
 		client.statsManager = oldClient.statsManager
 		//send unacknowledged publish
@@ -280,11 +298,6 @@ func (srv *server) registerHandler(register *register) {
 			if await, ok := e.Value.(*awaitRelElem); ok {
 				pid := await.pid
 				pubrel := &packets.Pubrel{
-					FixHeader: &packets.FixHeader{
-						PacketType:   packets.PUBREL,
-						Flags:        packets.FlagPubrel,
-						RemainLength: 2,
-					},
 					PacketID: pid,
 				}
 				client.setAwaitRel(pid)
@@ -307,17 +320,17 @@ func (srv *server) registerHandler(register *register) {
 
 		zaplog.Info("logged in with session reuse",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.clientID))
+			zap.String("client_id", client.opts.ClientID))
 	} else {
 		if oldExist {
-			srv.subscriptionsDB.UnsubscribeAll(client.opts.clientID)
+			srv.subscriptionsDB.UnsubscribeAll(client.opts.ClientID)
 		}
 		zaplog.Info("logged in with new session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.clientID),
+			zap.String("client_id", client.opts.ClientID),
 		)
 	}
-	if sessionReuse {
+	if sessionResume {
 		if srv.hooks.OnSessionResumed != nil {
 			srv.hooks.OnSessionResumed(context.Background(), client)
 		}
@@ -326,19 +339,17 @@ func (srv *server) registerHandler(register *register) {
 			srv.hooks.OnSessionCreated(context.Background(), client)
 		}
 	}
-	delete(srv.offlineClients, client.opts.clientID)
+	delete(srv.offlineClients, client.opts.ClientID)
+	return
 }
-func (srv *server) unregisterHandler(unregister *unregister) {
-	defer close(unregister.done)
-	client := unregister.client
-	client.setDisConnected()
-	select {
-	case <-client.ready:
-	default:
-		// default means the client is closed before srv.registerHandler(),
-		// session is not created, so there is no need to unregister.
+
+func (srv *server) unregisterClient(client *client) {
+	if !client.IsConnected() {
 		return
 	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	client.setDisConnected()
 clearIn:
 	for {
 		select {
@@ -350,41 +361,42 @@ clearIn:
 			break clearIn
 		}
 	}
-
-	if !client.cleanWillFlag && client.opts.willFlag {
-		// 起一个定时任务，
+	if !client.cleanWillFlag && client.opts.Will.Flag {
 		willMsg := &packets.Publish{
-			Dup:       false,
-			Qos:       client.opts.willQos,
-			Retain:    false,
-			TopicName: []byte(client.opts.willTopic),
-			Payload:   client.opts.willPayload,
+			Version:    client.version,
+			Dup:        false,
+			Qos:        client.opts.Will.Qos,
+			Retain:     false,
+			TopicName:  client.opts.Will.Topic,
+			Payload:    client.opts.Will.Payload,
+			Properties: client.opts.Will.Properties,
 		}
 		msg := messageFromPublish(willMsg)
-		go func() {
-			msgRouter := &msgRouter{msg: msg, match: true}
-			client.server.msgRouter <- msgRouter
-		}()
+
+		msgRouter := &msgRouter{msg: msg}
+		select {
+		case client.server.msgRouter <- msgRouter:
+		default:
+			go func() {
+				client.server.msgRouter <- msgRouter
+			}()
+		}
 	}
-	if client.opts.cleanStart {
+	if client.opts.CleanStart && client.opts.SessionExpiry == 0 {
 		zaplog.Info("logged out and cleaning session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.OptionsReader().ClientID()),
+			zap.String("client_id", client.opts.ClientID),
 		)
-		srv.mu.Lock()
-		srv.removeSession(client.opts.clientID)
-		srv.mu.Unlock()
+		srv.removeSession(client.opts.ClientID)
 		if srv.hooks.OnSessionTerminated != nil {
 			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
 		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 	} else { //store session 保持session
-		srv.mu.Lock()
-		srv.offlineClients[client.opts.clientID] = time.Now()
-		srv.mu.Unlock()
+		srv.offlineClients[client.opts.ClientID] = time.Now()
 		zaplog.Info("logged out and storing session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.OptionsReader().ClientID()),
+			zap.String("client_id", client.opts.ClientID),
 		)
 		//clear  out
 	clearOut:
@@ -400,66 +412,120 @@ clearIn:
 		}
 		srv.statsManager.addSessionInactive()
 	}
+
 }
 
 // 所有进来的 msg都会分配pid，指定pid重传的不在这里处理
 func (srv *server) msgRouterHandler(m *msgRouter) {
+
+	// TODO no local 等option
+
+	// TODO 计算报文大小。太大的就不要发了
+
 	msg := m.msg
-	var matched subscription.ClientTopics
-	if m.match {
-		matched = srv.subscriptionsDB.GetTopicMatched(msg.Topic())
-		if m.clientID != "" {
-			tmp, ok := matched[m.clientID]
-			matched = make(subscription.ClientTopics)
-			if ok {
-				matched[m.clientID] = tmp
-			}
-		}
-	} else {
-		// no need to search in subscriptionsDB.
-		matched = make(subscription.ClientTopics)
-		matched[m.clientID] = append(matched[m.clientID], packets.Topic{
-			SubOptions: packets.SubOptions{
-				Qos: msg.Qos(),
-			},
-			Name: msg.Topic(),
-		})
-	}
+	// subscriber (client id) list of shared subscriptions
+	sharedList := make(map[string][]struct {
+		clientID string
+		sub      subscription.Subscription
+	})
+
+	maxQos := make(map[string]*struct {
+		sub    subscription.Subscription
+		subIDs []uint32
+	})
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
-	for cid, topics := range matched {
-		if srv.config.DeliveryMode == Overlap {
-			for _, t := range topics {
-				if c, ok := srv.clients[cid]; ok {
-					publish := messageToPublish(msg)
-					if publish.Qos > t.Qos {
-						publish.Qos = t.Qos
+	// 先取的所有的share 和unshare
+	srv.subscriptionsDB.Iterate(func(clientID string, sub subscription.Subscription) bool {
+		if m.clientID != "" && clientID != m.clientID {
+			return true
+		}
+		if sub.NoLocal() && clientID == m.srcClientID {
+			return true
+		}
+		// shared
+		if sub.ShareName() != "" {
+			sharedList[sub.TopicFilter()] = append(sharedList[sub.TopicFilter()], struct {
+				clientID string
+				sub      subscription.Subscription
+			}{clientID: clientID, sub: sub})
+		} else {
+
+			if srv.config.DeliveryMode == Overlap {
+				if c, ok := srv.clients[clientID]; ok {
+					publish := messageToPublish(msg, c.version)
+					if publish.Qos > sub.QoS() {
+						publish.Qos = sub.QoS()
+					}
+					if c.version == packets.Version5 && sub.ID() != 0 {
+						publish.Properties.SubscriptionIdentifier = []uint32{sub.ID()}
 					}
 					publish.Dup = false
+					if !sub.RetainAsPublished() {
+						publish.Retain = false
+					}
 					c.publish(publish)
 				}
-			}
-		} else {
-			// deliver once
-			var maxQos uint8
-			for _, t := range topics {
-				if t.Qos > maxQos {
-					maxQos = t.Qos
+			} else {
+				if maxQos[clientID] == nil {
+					maxQos[clientID] = &struct {
+						sub    subscription.Subscription
+						subIDs []uint32
+					}{sub: sub, subIDs: []uint32{sub.ID()}}
 				}
-				if maxQos == packets.Qos2 {
-					break
+				if maxQos[clientID].sub.QoS() < sub.QoS() {
+					maxQos[clientID].sub = sub
 				}
+				maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID())
 			}
-			if c, ok := srv.clients[cid]; ok {
-				publish := messageToPublish(msg)
-				if publish.Qos > maxQos {
-					publish.Qos = maxQos
+		}
+		return true
+	}, subscription.IterationOptions{
+		Type:      subscription.TypeAll,
+		MatchType: subscription.MatchFilter,
+		TopicName: msg.Topic(),
+	})
+
+	if srv.config.DeliveryMode == OnlyOnce {
+		for clientID, v := range maxQos {
+			if c := srv.clients[clientID]; c != nil {
+				publish := messageToPublish(msg, c.version)
+				if publish.Qos > v.sub.QoS() {
+					publish.Qos = v.sub.QoS()
+				}
+				if c.version == packets.Version5 {
+					for _, id := range v.subIDs {
+						if id != 0 {
+							publish.Properties.SubscriptionIdentifier = append(publish.Properties.SubscriptionIdentifier, id)
+						}
+					}
 				}
 				publish.Dup = false
+				if !v.sub.RetainAsPublished() {
+					publish.Retain = false
+				}
 				c.publish(publish)
 			}
 		}
 	}
+
+	// unshare
+	// TODO 实现一个钩子函数，自定义随机逻辑。 在shared里面挑一个
+	for _, v := range sharedList {
+		if c, ok := srv.clients[v[0].clientID]; ok {
+			publish := messageToPublish(msg, c.version)
+			if publish.Qos > v[0].sub.QoS() {
+				publish.Qos = v[0].sub.QoS()
+			}
+			publish.Properties.SubscriptionIdentifier = []uint32{v[0].sub.ID()}
+			publish.Dup = false
+			if !v[0].sub.RetainAsPublished() {
+				publish.Retain = false
+			}
+			c.publish(publish)
+		}
+	}
+
 }
 func (srv *server) removeSession(clientID string) {
 	delete(srv.clients, clientID)
@@ -470,7 +536,7 @@ func (srv *server) removeSession(clientID string) {
 // sessionExpireCheck 判断是否超时
 // sessionExpireCheck check and terminate expired sessions
 func (srv *server) sessionExpireCheck() {
-	expire := srv.config.SessionExpiryCheckInterval
+	expire := time.Second * time.Duration(srv.config.SessionExpiryCheckInterval)
 	if expire == 0 {
 		return
 	}
@@ -495,14 +561,10 @@ func (srv *server) sessionExpireCheck() {
 // server event loop
 func (srv *server) eventLoop() {
 	if srv.config.SessionExpiryInterval != 0 {
-		sessionExpireTimer := time.NewTicker(srv.config.SessionExpiryCheckInterval)
+		sessionExpireTimer := time.NewTicker(time.Second * time.Duration(srv.config.SessionExpiryCheckInterval))
 		defer sessionExpireTimer.Stop()
 		for {
 			select {
-			case register := <-srv.register:
-				srv.registerHandler(register)
-			case unregister := <-srv.unregister:
-				srv.unregisterHandler(unregister)
 			case msg := <-srv.msgRouter:
 				srv.msgRouterHandler(msg)
 			case <-sessionExpireTimer.C:
@@ -512,10 +574,6 @@ func (srv *server) eventLoop() {
 	} else {
 		for {
 			select {
-			case register := <-srv.register:
-				srv.registerHandler(register)
-			case unregister := <-srv.unregister:
-				srv.unregisterHandler(unregister)
 			case msg := <-srv.msgRouter:
 				srv.msgRouterHandler(msg)
 			}
@@ -547,6 +605,7 @@ func NewServer(opts ...Options) *server {
 		config:          DefaultConfig,
 		statsManager:    statsMgr,
 	}
+
 	srv.publishService = &publishService{server: srv}
 	for _, fn := range opts {
 		fn(srv)
@@ -667,10 +726,15 @@ func (srv *server) newClient(c net.Conn) *client {
 		in:            make(chan packets.Packet, readBufferSize),
 		out:           make(chan packets.Packet, writeBufferSize),
 		status:        Connecting,
-		opts:          &options{},
+		opts:          &ClientOptions{},
 		cleanWillFlag: false,
 		ready:         make(chan struct{}),
 		statsManager:  newSessionStatsManager(),
+		aliasMapper: &aliasMapper{
+			client:    nil,
+			server:    nil,
+			nextAlias: 1,
+		},
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
@@ -680,6 +744,7 @@ func (srv *server) newClient(c net.Conn) *client {
 }
 
 func (srv *server) loadPlugins() error {
+
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
 		onConnectWrappers          []OnConnectWrapper
@@ -763,8 +828,11 @@ func (srv *server) loadPlugins() error {
 	}
 	// onConnect
 	if onConnectWrappers != nil {
-		onConnect := func(ctx context.Context, client Client) (code uint8) {
-			return codes.Success
+		onConnect := func(ctx context.Context, req ConnectRequest, client Client) *AuthResponse {
+			return &AuthResponse{
+				Code:       codes.Success,
+				Properties: req.DefaultConnackProperties(),
+			}
 		}
 		for i := len(onConnectWrappers); i > 0; i-- {
 			onConnect = onConnectWrappers[i-1](onConnect)
@@ -904,8 +972,6 @@ func (srv *server) wsHandler() http.HandlerFunc {
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() {
 	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
-	srv.register = make(chan *register, srv.config.RegisterLen)
-	srv.unregister = make(chan *unregister, srv.config.UnregisterLen)
 
 	var tcps []string
 	var ws []string
@@ -988,9 +1054,9 @@ func (srv *server) Stop(ctx context.Context) error {
 				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
 			}
 		}
-		if srv.hooks.OnStop != nil {
-			srv.hooks.OnStop(context.Background())
-		}
+		//if srv.hooks.OnStop != nil {
+		//	srv.hooks.OnStop(context.Background())
+		//}
 		return nil
 	}
 

@@ -61,7 +61,7 @@ func (client *client) setAwaitRel(pid packets.PacketID) {
 		removeMsg := s.awaitRel.Front()
 		s.awaitRel.Remove(removeMsg)
 		zaplog.Info("awaitRel window is full, removing the front elem",
-			zap.String("clientID", client.opts.clientID),
+			zap.String("clientID", client.opts.ClientID),
 			zap.Int16("pid", int16(pid)))
 	} else {
 		client.statsManager.addAwaitCurrent(1)
@@ -125,7 +125,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 		}
 		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
 			zaplog.Info("message queue is full, removing msg",
-				zap.String("clientID", client.opts.clientID),
+				zap.String("clientID", client.opts.ClientID),
 				zap.String("type", "Qos0 in queue"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
@@ -134,7 +134,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			client.statsManager.messageDropped(0)
 		} else if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
 			zaplog.Info("message queue is full, removing msg",
-				zap.String("clientID", client.opts.clientID),
+				zap.String("clientID", client.opts.ClientID),
 				zap.String("type", "Qos0 enqueue"),
 				zap.String("packet", publish.String()),
 			)
@@ -145,7 +145,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			removeMsg = s.msgQueue.Front()
 			s.msgQueue.Remove(removeMsg)
 			zaplog.Info("message queue is full, removing msg",
-				zap.String("clientID", client.opts.clientID),
+				zap.String("clientID", client.opts.ClientID),
 				zap.String("type", "front"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
@@ -167,7 +167,7 @@ func (client *client) msgDequeue() *packets.Publish {
 	if s.msgQueue.Len() > 0 {
 		queueElem := s.msgQueue.Front()
 		zaplog.Debug("msg dequeued",
-			zap.String("clientID", client.opts.clientID),
+			zap.String("clientID", client.opts.ClientID),
 			zap.String("packet", queueElem.Value.(*packets.Publish).String()))
 
 		s.msgQueue.Remove(queueElem)
@@ -193,16 +193,31 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 		at:     time.Now(),
 		packet: publish,
 	}
+
+	if client.version == packets.Version5 {
+		// MQTT v5 Receive Maximum
+		if ok := client.tryDecClientQuota(); !ok {
+			// 超过quota了
+			zaplog.Debug("reach client quota",
+				zap.String("client_id", client.opts.ClientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()))
+
+			client.msgEnQueue(publish)
+			enqueue = false
+			return
+		}
+	}
+
 	if s.inflight.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 { //加入缓存队列
 		zaplog.Info("inflight window full, saving msg into msgQueue",
-			zap.String("clientID", client.opts.clientID),
+			zap.String("clientID", client.opts.ClientID),
 			zap.String("packet", elem.packet.String()),
 		)
 		client.msgEnQueue(publish)
 		enqueue = false
 		return
 	}
-	zaplog.Debug("set inflight", zap.String("clientID", client.opts.clientID), zap.String("packet", elem.packet.String()))
+	zaplog.Debug("set inflight", zap.String("clientID", client.opts.ClientID), zap.String("packet", elem.packet.String()))
 	s.inflight.PushBack(elem)
 	enqueue = true
 	return
@@ -235,7 +250,7 @@ func (client *client) unsetInflight(packet packets.Packet) {
 			if el.packet.PacketID == pid {
 				s.inflight.Remove(e)
 				client.statsManager.decInflightCurrent(1)
-				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.clientID),
+				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID),
 					zap.String("packet", packet.String()),
 				)
 				if freeID {
@@ -252,7 +267,10 @@ func (client *client) unsetInflight(packet packets.Packet) {
 						packet: publish,
 					}
 					s.inflight.PushBack(elem)
-					client.sendMsg(publish)
+					select {
+					case <-client.close:
+					case client.out <- publish:
+					}
 				}
 				return
 			}
