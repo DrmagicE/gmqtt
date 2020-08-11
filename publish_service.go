@@ -22,8 +22,9 @@ type publishService struct {
 }
 
 func (p *publishService) Publish(message packets.Message) {
-	p.server.msgRouter <- &msgRouter{msg: message}
+	//TODO
+
 }
 func (p *publishService) PublishToClient(clientID string, message packets.Message, match bool) {
-	p.server.msgRouter <- &msgRouter{msg: message, clientID: clientID}
+	//TODO
 }

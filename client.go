@@ -729,9 +729,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.Will.Retain = conn.WillRetain
 				client.opts.Will.Topic = conn.WillTopic
 				client.opts.Will.Properties = conn.WillProperties
-
 				client.server.registerClient(conn, ack, client)
-
 				return
 			}
 			err = codes.NewError(ack.Code)
@@ -798,7 +796,6 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 
 func (client *client) publish(publish *packets.Publish) {
 	if client.IsConnected() { //在线消息
-		// set topic alias
 		client.onlinePublish(publish)
 	} else { //离线消息
 		client.msgEnQueue(publish)
@@ -922,21 +919,19 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		return codes.NewError(codes.RetainNotSupported)
 	}
 
-	if client.version == packets.Version5 {
-		if pub.Properties.TopicAlias != nil {
-			if *pub.Properties.TopicAlias >= client.opts.ServerTopicAliasMax {
-				return codes.NewError(codes.TopicAliasInvalid)
-			} else {
-				topicAlias := *pub.Properties.TopicAlias
-				name := client.aliasMapper.server[int(topicAlias)]
-				if len(pub.TopicName) == 0 {
-					if len(name) == 0 {
-						return codes.NewError(codes.TopicAliasInvalid)
-					}
-					pub.TopicName = name
-				} else {
-					client.aliasMapper.server[topicAlias] = pub.TopicName
+	if client.version == packets.Version5 && pub.Properties.TopicAlias != nil {
+		if *pub.Properties.TopicAlias >= client.opts.ServerTopicAliasMax {
+			return codes.NewError(codes.TopicAliasInvalid)
+		} else {
+			topicAlias := *pub.Properties.TopicAlias
+			name := client.aliasMapper.server[int(topicAlias)]
+			if len(pub.TopicName) == 0 {
+				if len(name) == 0 {
+					return codes.NewError(codes.TopicAliasInvalid)
 				}
+				pub.TopicName = name
+			} else {
+				client.aliasMapper.server[topicAlias] = pub.TopicName
 			}
 		}
 	}
@@ -970,11 +965,10 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 			valid = srv.hooks.OnMsgArrived(context.Background(), client, msg)
 		}
 		if valid {
-			msgRouter := &msgRouter{msg: msg, srcClientID: client.opts.ClientID}
-			select {
-			case <-client.close:
-			case client.server.msgRouter <- msgRouter:
-			}
+			srv.mu.Lock()
+			srv.deliverMessage(client, msg)
+			srv.mu.Unlock()
+
 		}
 	}
 	return nil

@@ -83,10 +83,9 @@ type server struct {
 	retainedDB      retained.Store
 	subscriptionsDB subscription.Store //store subscriptions
 
-	msgRouter chan *msgRouter
-	config    Config
-	hooks     Hooks
-	plugins   []Plugable
+	config  Config
+	hooks   Hooks
+	plugins []Plugable
 
 	statsManager   StatsManager
 	publishService PublishService
@@ -127,9 +126,6 @@ type Config struct {
 	MaxAwaitRel                int
 	MaxMsgQueue                int
 	DeliveryMode               DeliveryMode
-	MsgRouterLen               int
-	RegisterLen                int
-	UnregisterLen              int
 
 	MQTT struct {
 		SharedSubAvailable      bool
@@ -155,7 +151,6 @@ var DefaultConfig = Config{
 	MaxAwaitRel:                100,
 	MaxMsgQueue:                1000,
 	DeliveryMode:               OnlyOnce,
-	MsgRouterLen:               DefaultMsgRouterLen,
 	MQTT: struct {
 		SharedSubAvailable      bool
 		WildcardAvailable       bool
@@ -187,20 +182,6 @@ func (srv *server) GetConfig() Config {
 // GetStatsManager returns StatsManager
 func (srv *server) GetStatsManager() StatsManager {
 	return srv.statsManager
-}
-
-//session register
-type register struct {
-	client     *client
-	connect    *packets.Connect
-	properties *packets.Properties
-	error      chan error
-}
-
-// session unregister
-type unregister struct {
-	client *client
-	done   chan struct{}
 }
 
 type msgRouter struct {
@@ -250,14 +231,7 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 					Payload:   oldClient.opts.Will.Payload,
 				}
 
-				msgRouter := &msgRouter{msg: messageFromPublish(willMsg)}
-				select {
-				case client.server.msgRouter <- msgRouter:
-				default:
-					go func() {
-						client.server.msgRouter <- msgRouter
-					}()
-				}
+				srv.deliverMessage(oldClient, messageFromPublish(willMsg))
 
 			}
 			if !client.opts.CleanStart && !oldClient.opts.CleanStart { //reuse old session
@@ -373,14 +347,7 @@ clearIn:
 		}
 		msg := messageFromPublish(willMsg)
 
-		msgRouter := &msgRouter{msg: msg}
-		select {
-		case client.server.msgRouter <- msgRouter:
-		default:
-			go func() {
-				client.server.msgRouter <- msgRouter
-			}()
-		}
+		srv.deliverMessage(client, msg)
 	}
 	if client.opts.CleanStart && client.opts.SessionExpiry == 0 {
 		zaplog.Info("logged out and cleaning session",
@@ -415,14 +382,10 @@ clearIn:
 
 }
 
-// 所有进来的 msg都会分配pid，指定pid重传的不在这里处理
-func (srv *server) msgRouterHandler(m *msgRouter) {
-
+func (srv *server) deliverMessage(src *client, msg packets.Message) {
 	// TODO no local 等option
-
 	// TODO 计算报文大小。太大的就不要发了
 
-	msg := m.msg
 	// subscriber (client id) list of shared subscriptions
 	sharedList := make(map[string][]struct {
 		clientID string
@@ -433,14 +396,10 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 		sub    subscription.Subscription
 		subIDs []uint32
 	})
-	srv.mu.RLock()
-	defer srv.mu.RUnlock()
+	srcClientID := src.opts.ClientID
 	// 先取的所有的share 和unshare
 	srv.subscriptionsDB.Iterate(func(clientID string, sub subscription.Subscription) bool {
-		if m.clientID != "" && clientID != m.clientID {
-			return true
-		}
-		if sub.NoLocal() && clientID == m.srcClientID {
+		if sub.NoLocal() && clientID == srcClientID {
 			return true
 		}
 		// shared
@@ -450,7 +409,6 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 				sub      subscription.Subscription
 			}{clientID: clientID, sub: sub})
 		} else {
-
 			if srv.config.DeliveryMode == Overlap {
 				if c, ok := srv.clients[clientID]; ok {
 					publish := messageToPublish(msg, c.version)
@@ -525,8 +483,8 @@ func (srv *server) msgRouterHandler(m *msgRouter) {
 			c.publish(publish)
 		}
 	}
-
 }
+
 func (srv *server) removeSession(clientID string) {
 	delete(srv.clients, clientID)
 	delete(srv.offlineClients, clientID)
@@ -565,21 +523,11 @@ func (srv *server) eventLoop() {
 		defer sessionExpireTimer.Stop()
 		for {
 			select {
-			case msg := <-srv.msgRouter:
-				srv.msgRouterHandler(msg)
 			case <-sessionExpireTimer.C:
 				srv.sessionExpireCheck()
 			}
 		}
-	} else {
-		for {
-			select {
-			case msg := <-srv.msgRouter:
-				srv.msgRouterHandler(msg)
-			}
-		}
 	}
-
 }
 
 // WsServer is used to build websocket server
@@ -971,7 +919,6 @@ func (srv *server) wsHandler() http.HandlerFunc {
 
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() {
-	srv.msgRouter = make(chan *msgRouter, srv.config.MsgRouterLen)
 
 	var tcps []string
 	var ws []string
@@ -1054,9 +1001,9 @@ func (srv *server) Stop(ctx context.Context) error {
 				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
 			}
 		}
-		//if srv.hooks.OnStop != nil {
-		//	srv.hooks.OnStop(context.Background())
-		//}
+		if srv.hooks.OnStop != nil {
+			srv.hooks.OnStop(context.Background())
+		}
 		return nil
 	}
 
