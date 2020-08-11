@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,10 @@ import (
 )
 
 func main() {
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:8888", nil))
+	}()
 	// listener
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
