@@ -8,6 +8,8 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
+
+
 // Connect represents the MQTT Connect  packet
 type Connect struct {
 	Version   Version

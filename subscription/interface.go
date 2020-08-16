@@ -122,7 +122,6 @@ func New(topicFilter string, qos uint8, opts ...subOptions) Subscription {
 	return s
 }
 
-// TODO sharename ID
 func FromTopic(topic packets.Topic, id uint32) Subscription {
 	var shareName string
 	var topicFilter string

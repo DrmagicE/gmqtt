@@ -119,6 +119,11 @@ func (c *rwTestConn) Close() error {
 	return nil
 }
 
+// TODO
+func TestClient_shouldResumeSession(t *testing.T) {
+
+}
+
 func newTestServer() *server {
 	var s *server
 	if srv != nil {

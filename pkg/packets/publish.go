@@ -136,17 +136,21 @@ func (p *Publish) Unpack(r io.Reader) error {
 }
 
 // NewPuback returns the puback struct related to the publish struct in QoS 1
-// TODO version
-func (p *Publish) NewPuback() *Puback {
-	pub := &Puback{FixHeader: &FixHeader{PacketType: PUBACK, Flags: FlagReserved, RemainLength: 2}}
-	pub.PacketID = p.PacketID
+func (p *Publish) NewPuback(code codes.Code) *Puback {
+	pub := &Puback{
+		Version:  p.Version,
+		Code:     code,
+		PacketID: p.PacketID,
+	}
 	return pub
 }
 
 // NewPubrec returns the pubrec struct related to the publish struct in QoS 2
-// TODO version
-func (p *Publish) NewPubrec() *Pubrec {
-	pub := &Pubrec{FixHeader: &FixHeader{PacketType: PUBREC, Flags: FlagReserved, RemainLength: 2}}
-	pub.PacketID = p.PacketID
+func (p *Publish) NewPubrec(code codes.Code) *Pubrec {
+	pub := &Pubrec{
+		Version:  p.Version,
+		Code:     code,
+		PacketID: p.PacketID,
+	}
 	return pub
 }

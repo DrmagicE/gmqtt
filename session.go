@@ -48,6 +48,22 @@ type awaitRelElem struct {
 	pid packets.PacketID
 }
 
+type queueElem struct {
+	// 入队时间
+	at      time.Time
+	publish *packets.Publish
+}
+
+func (client *client) isQueueElemExpiry(now time.Time, elem *queueElem) bool {
+	if client.version == packets.Version5 && elem.publish.Properties.MessageExpiry != nil {
+		expiry := time.Duration(convertUint32(elem.publish.Properties.MessageExpiry, 0))
+		if now.Add(-expiry * time.Second).After(elem.at) {
+			return true
+		}
+	}
+	return false
+}
+
 //setAwaitRel 入队,
 func (client *client) setAwaitRel(pid packets.PacketID) {
 	s := client.session
@@ -98,10 +114,13 @@ func (client *client) unsetAwaitRel(pid packets.PacketID) {
 //2. qos0 message that is going to enqueue
 //3. the front message of msgQueue
 func (client *client) msgEnQueue(publish *packets.Publish) {
+	// 保存进入缓存队列的时间，
+
 	s := client.session
 	srv := client.server
 	s.msgQueueMu.Lock()
 	defer s.msgQueueMu.Unlock()
+	now := time.Now()
 	if s.msgQueue.Len() >= s.config.MaxMsgQueue && s.config.MaxMsgQueue != 0 {
 		var removeMsg *list.Element
 		// onMessageDropped hook
@@ -116,26 +135,38 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			}()
 		}
 		for e := s.msgQueue.Front(); e != nil; e = e.Next() {
-			if pub, ok := e.Value.(*packets.Publish); ok {
-				if pub.Qos == packets.Qos0 {
+			if elem, ok := e.Value.(*queueElem); ok {
+				// TODO 增加check expiry 的goroutine
+				if client.isQueueElemExpiry(now, elem) {
 					removeMsg = e
+					zaplog.Info("message queue is full, removing msg",
+						zap.String("clientID", client.opts.ClientID),
+						zap.String("type", "expired message"),
+						zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+					)
+					break
+				}
+
+				if elem.publish.Qos == packets.Qos0 {
+					removeMsg = e
+					zaplog.Info("message queue is full, removing msg",
+						zap.String("clientID", client.opts.ClientID),
+						zap.String("type", "Qos0 message"),
+						zap.String("packet", removeMsg.Value.(packets.Packet).String()),
+					)
 					break
 				}
 			}
 		}
-		if removeMsg != nil { //case1: removing qos0 message in the msgQueue
-			zaplog.Info("message queue is full, removing msg",
-				zap.String("clientID", client.opts.ClientID),
-				zap.String("type", "Qos0 in queue"),
-				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
-			)
+		if removeMsg != nil { //case1: removing qos0 or expired message in the msgQueue
+
 			s.msgQueue.Remove(removeMsg)
 			client.server.statsManager.messageDropped(0)
 			client.statsManager.messageDropped(0)
 		} else if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
 			zaplog.Info("message queue is full, removing msg",
 				zap.String("clientID", client.opts.ClientID),
-				zap.String("type", "Qos0 enqueue"),
+				zap.String("type", "Qos0 message"),
 				zap.String("packet", publish.String()),
 			)
 			client.server.statsManager.messageDropped(0)
@@ -149,14 +180,18 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 				zap.String("type", "front"),
 				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
-			client.server.statsManager.messageDropped(removeMsg.Value.(*packets.Publish).Qos)
-			client.statsManager.messageDropped(removeMsg.Value.(*packets.Publish).Qos)
+			client.server.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
+			client.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
 		}
 	} else {
 		client.server.statsManager.messageEnqueue(1)
 		client.statsManager.messageEnqueue(1)
 	}
-	s.msgQueue.PushBack(publish)
+	elem := &queueElem{
+		at:      time.Now(),
+		publish: publish,
+	}
+	s.msgQueue.PushBack(elem)
 }
 
 func (client *client) msgDequeue() *packets.Publish {
@@ -165,15 +200,15 @@ func (client *client) msgDequeue() *packets.Publish {
 	defer s.msgQueueMu.Unlock()
 
 	if s.msgQueue.Len() > 0 {
-		queueElem := s.msgQueue.Front()
+		elem := s.msgQueue.Front()
 		zaplog.Debug("msg dequeued",
 			zap.String("clientID", client.opts.ClientID),
-			zap.String("packet", queueElem.Value.(*packets.Publish).String()))
+			zap.String("packet", elem.Value.(*queueElem).publish.String()))
 
-		s.msgQueue.Remove(queueElem)
+		s.msgQueue.Remove(elem)
 		client.statsManager.messageDequeue(1)
 		client.server.statsManager.messageDequeue(1)
-		return queueElem.Value.(*packets.Publish)
+		return elem.Value.(*queueElem).publish
 	}
 	return nil
 
@@ -306,4 +341,22 @@ func (s *session) getPacketID() packets.PacketID {
 		s.freePid = packets.MinPacketID
 	}
 	return id
+}
+
+func (client *client) isSessionExpiried(now time.Time) bool {
+	return now.Add(-time.Duration(client.opts.SessionExpiry) * time.Second).After(time.Unix(client.connectedAt, 0))
+}
+
+// client 是旧的client
+func (client *client) shouldResumeSession(newClient *client) bool {
+	if newClient.opts.CleanStart {
+		return false
+	}
+	if client.version == packets.Version311 && !client.opts.CleanStart {
+		return true
+	}
+	if client.version == packets.Version5 && client.isSessionExpiried(time.Now()) {
+		return false
+	}
+	return true
 }

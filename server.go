@@ -3,6 +3,7 @@ package gmqtt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -73,9 +74,10 @@ type server struct {
 	mu      sync.RWMutex //gard clients & offlineClients map
 	status  int32        //server status
 	clients map[string]*client
-	// offlineClients store the disconnected time of all disconnected clients
+	// offlineClients store the expired time of all disconnected clients
 	// with valid session(not expired). Key by clientID
 	offlineClients  map[string]time.Time
+	willMessage     map[string]*willMsg
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket serverStop
 	exitChan        chan struct{}
@@ -145,7 +147,7 @@ var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
 	SessionExpiryInterval:      65535,
-	SessionExpiryCheckInterval: 100,
+	SessionExpiryCheckInterval: 1,
 	QueueQos0Messages:          true,
 	MaxInflight:                32,
 	MaxAwaitRel:                100,
@@ -165,7 +167,7 @@ var DefaultConfig = Config{
 		SharedSubAvailable:      true,
 		WildcardAvailable:       true,
 		SubscriptionIDAvailable: true,
-		ReceiveMax:              2,
+		ReceiveMax:              100,
 		RetainAvailable:         true,
 		MaxPacketSize:           0,
 		TopicAliasMax:           10,
@@ -197,13 +199,13 @@ func (srv *server) Status() int32 {
 
 // 已经判断是成功了，注册
 func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, client *client) {
+	now := time.Now()
 	defer close(client.ready)
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	srv.statsManager.addClientConnected()
 	srv.statsManager.addSessionActive()
-	client.setConnectedAt(time.Now())
-	client.setConnected()
+	client.setConnected(time.Now())
 	if srv.hooks.OnConnected != nil {
 		srv.hooks.OnConnected(context.Background(), client)
 	}
@@ -217,34 +219,44 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 		if oldClient.IsConnected() {
 			zaplog.Info("logging with duplicate ClientID",
 				zap.String("remote", client.rwc.RemoteAddr().String()),
-				zap.String("client_id", client.opts.ClientID),
 			)
 			oldClient.setSwitching()
 			oldClient.setError(codes.NewError(codes.SessionTakenOver))
 			<-oldClient.Close()
-			if oldClient.opts.Will.Flag {
-				willMsg := &packets.Publish{
-					Dup:       false,
-					Qos:       oldClient.opts.Will.Qos,
-					Retain:    oldClient.opts.Will.Retain,
-					TopicName: oldClient.opts.Will.Topic,
-					Payload:   oldClient.opts.Will.Payload,
-				}
 
-				srv.deliverMessage(oldClient, messageFromPublish(willMsg))
-
-			}
-			if !client.opts.CleanStart && !oldClient.opts.CleanStart { //reuse old session
+			if oldClient.shouldResumeSession(client) {
 				sessionResume = true
 			}
+
 		} else if oldClient.IsDisConnected() {
-			if !client.opts.CleanStart {
+			if oldClient.shouldResumeSession(client) {
 				sessionResume = true
 			} else if srv.hooks.OnSessionTerminated != nil {
 				srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
 			}
 		} else if srv.hooks.OnSessionTerminated != nil {
 			srv.hooks.OnSessionTerminated(context.Background(), oldClient, ConflictTermination)
+		}
+
+		if oldClient.opts.Will.Flag {
+			willMsg := &packets.Publish{
+				Dup:        false,
+				Qos:        oldClient.opts.Will.Qos,
+				Retain:     oldClient.opts.Will.Retain,
+				TopicName:  oldClient.opts.Will.Topic,
+				Payload:    oldClient.opts.Will.Payload,
+				Properties: oldClient.opts.Will.Properties,
+			}
+			// send will message because session ends
+			if !sessionResume {
+				srv.deliverMessage(oldClient.opts.ClientID, messageFromPublish(willMsg))
+			} else if oldClient.version == packets.Version5 && convertUint32(oldClient.opts.Will.Properties.WillDelayInterval, 0) == 0 {
+				// send will message because connection ends when will interval == 0
+				srv.deliverMessage(oldClient.opts.ClientID, messageFromPublish(willMsg))
+			} else if m, ok := srv.willMessage[client.opts.ClientID]; ok {
+				close(m.cancel)
+				delete(srv.willMessage, client.opts.ClientID)
+			}
 		}
 	}
 
@@ -285,9 +297,16 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 		//send offline msg
 		oldSession.msgQueueMu.Lock()
 		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() {
-			if publish, ok := e.Value.(*packets.Publish); ok {
-				client.statsManager.messageDequeue(1)
-				client.onlinePublish(publish)
+			if elem, ok := e.Value.(*queueElem); ok {
+				if !oldClient.isQueueElemExpiry(now, elem) {
+					client.statsManager.messageDequeue(1)
+					if client.version == packets.Version5 && oldClient.version == packets.Version5 {
+						d := uint32(now.Sub(elem.at).Seconds())
+						elem.publish.Properties.MessageExpiry = &d
+					}
+
+					client.onlinePublish(elem.publish)
+				}
 			}
 		}
 		oldSession.msgQueueMu.Unlock()
@@ -317,26 +336,44 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 	return
 }
 
+type willMsg struct {
+	msg    packets.Message
+	cancel chan struct{}
+}
+
 func (srv *server) unregisterClient(client *client) {
 	if !client.IsConnected() {
 		return
 	}
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
+	now := time.Now()
 	client.setDisConnected()
 clearIn:
 	for {
 		select {
 		case p := <-client.in:
-			if _, ok := p.(*packets.Disconnect); ok {
-				client.cleanWillFlag = true
+			if p, ok := p.(*packets.Disconnect); ok {
+				_ = client.setCleanWillFlag(p)
 			}
 		default:
 			break clearIn
 		}
 	}
+
+	var storeSession bool
+	if client.version == packets.Version311 {
+		if !client.opts.CleanStart {
+			storeSession = true
+		}
+	}
+	if client.version == packets.Version5 {
+		if client.opts.SessionExpiry != 0 {
+			storeSession = true
+		}
+	}
 	if !client.cleanWillFlag && client.opts.Will.Flag {
-		willMsg := &packets.Publish{
+		will := &packets.Publish{
 			Version:    client.version,
 			Dup:        false,
 			Qos:        client.opts.Will.Qos,
@@ -345,22 +382,41 @@ clearIn:
 			Payload:    client.opts.Will.Payload,
 			Properties: client.opts.Will.Properties,
 		}
-		msg := messageFromPublish(willMsg)
-
-		srv.deliverMessage(client, msg)
-	}
-	if client.opts.CleanStart && client.opts.SessionExpiry == 0 {
-		zaplog.Info("logged out and cleaning session",
-			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.ClientID),
-		)
-		srv.removeSession(client.opts.ClientID)
-		if srv.hooks.OnSessionTerminated != nil {
-			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
+		msg := messageFromPublish(will)
+		var willDelayInterval uint32
+		if client.version == packets.Version5 {
+			willDelayInterval = convertUint32(client.opts.Will.Properties.WillDelayInterval, 0)
+			if client.opts.SessionExpiry <= willDelayInterval {
+				willDelayInterval = client.opts.SessionExpiry
+			}
 		}
-		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
-	} else { //store session 保持session
-		srv.offlineClients[client.opts.ClientID] = time.Now()
+		if willDelayInterval != 0 && storeSession {
+			wm := &willMsg{
+				msg:    msg,
+				cancel: make(chan struct{}),
+			}
+			srv.willMessage[client.opts.ClientID] = wm
+			t := time.NewTimer(time.Duration(willDelayInterval) * time.Second)
+			go func(clientID string) {
+				select {
+				case <-wm.cancel:
+					t.Stop()
+				case <-t.C:
+					srv.mu.Lock()
+					srv.deliverMessage(clientID, msg)
+					srv.mu.Unlock()
+				}
+			}(client.opts.ClientID)
+		} else {
+			srv.deliverMessage(client.opts.ClientID, msg)
+		}
+
+	}
+
+	if storeSession {
+		expiredTime := now.Add(time.Duration(client.opts.SessionExpiry) * time.Second)
+		fmt.Println(client.opts.SessionExpiry)
+		srv.offlineClients[client.opts.ClientID] = expiredTime
 		zaplog.Info("logged out and storing session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.opts.ClientID),
@@ -378,11 +434,21 @@ clearIn:
 			}
 		}
 		srv.statsManager.addSessionInactive()
-	}
+	} else {
+		zaplog.Info("logged out and cleaning session",
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.ClientID),
+		)
+		srv.removeSession(client.opts.ClientID)
+		if srv.hooks.OnSessionTerminated != nil {
+			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
+		}
+		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 
+	}
 }
 
-func (srv *server) deliverMessage(src *client, msg packets.Message) {
+func (srv *server) deliverMessage(srcClientID string, msg packets.Message) (matched bool) {
 	// TODO no local 等option
 	// TODO 计算报文大小。太大的就不要发了
 
@@ -396,12 +462,12 @@ func (srv *server) deliverMessage(src *client, msg packets.Message) {
 		sub    subscription.Subscription
 		subIDs []uint32
 	})
-	srcClientID := src.opts.ClientID
 	// 先取的所有的share 和unshare
 	srv.subscriptionsDB.Iterate(func(clientID string, sub subscription.Subscription) bool {
 		if sub.NoLocal() && clientID == srcClientID {
 			return true
 		}
+		matched = true
 		// shared
 		if sub.ShareName() != "" {
 			sharedList[sub.TopicFilter()] = append(sharedList[sub.TopicFilter()], struct {
@@ -483,6 +549,7 @@ func (srv *server) deliverMessage(src *client, msg packets.Message) {
 			c.publish(publish)
 		}
 	}
+	return
 }
 
 func (srv *server) removeSession(clientID string) {
@@ -494,14 +561,10 @@ func (srv *server) removeSession(clientID string) {
 // sessionExpireCheck 判断是否超时
 // sessionExpireCheck check and terminate expired sessions
 func (srv *server) sessionExpireCheck() {
-	expire := time.Second * time.Duration(srv.config.SessionExpiryCheckInterval)
-	if expire == 0 {
-		return
-	}
 	now := time.Now()
 	srv.mu.Lock()
-	for id, disconnectedAt := range srv.offlineClients {
-		if now.Sub(disconnectedAt) >= expire {
+	for id, expiredTime := range srv.offlineClients {
+		if now.After(expiredTime) {
 			if client, _ := srv.clients[id]; client != nil {
 				srv.removeSession(id)
 				if srv.hooks.OnSessionTerminated != nil {
@@ -513,7 +576,6 @@ func (srv *server) sessionExpireCheck() {
 		}
 	}
 	srv.mu.Unlock()
-
 }
 
 // server event loop
@@ -548,6 +610,7 @@ func NewServer(opts ...Options) *server {
 		exitChan:        make(chan struct{}),
 		clients:         make(map[string]*client),
 		offlineClients:  make(map[string]time.Time),
+		willMessage:     make(map[string]*willMsg),
 		retainedDB:      retained_trie.NewStore(),
 		subscriptionsDB: subStore,
 		config:          DefaultConfig,

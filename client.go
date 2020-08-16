@@ -178,9 +178,6 @@ func (client *client) GetSessionStatsManager() SessionStatsManager {
 	return client.statsManager
 }
 
-func (client *client) setConnectedAt(time time.Time) {
-	atomic.StoreInt64(&client.connectedAt, time.Unix())
-}
 func (client *client) setDisconnectedAt(time time.Time) {
 	atomic.StoreInt64(&client.disconnectedAt, time.Unix())
 }
@@ -208,7 +205,8 @@ func (client *client) setSwitching() {
 	atomic.StoreInt32(&client.status, Switiching)
 }
 
-func (client *client) setConnected() {
+func (client *client) setConnected(time time.Time) {
+	atomic.StoreInt64(&client.connectedAt, time.Unix())
 	atomic.StoreInt32(&client.status, Connected)
 }
 
@@ -259,17 +257,12 @@ type ClientOptions struct {
 	SharedSubAvailable   bool
 
 	Will struct {
-		Flag          bool
-		Retain        bool
-		Qos           uint8
-		Topic         []byte
-		Payload       []byte
-		DelayInterval uint32
-		PayloadFormat byte
-		MessageExpiry uint32
-		ContentType   []byte
-		ResponseTopic []byte
-		Properties    *packets.Properties
+		Flag       bool
+		Retain     bool
+		Qos        uint8
+		Topic      []byte
+		Payload    []byte
+		Properties *packets.Properties
 	}
 }
 
@@ -297,6 +290,7 @@ func (client *client) writeLoop() {
 		case <-client.close: //关闭
 			return
 		case packet := <-client.out:
+
 			switch p := packet.(type) {
 			case *packets.Publish:
 				client.server.statsManager.messageSent(p.Qos)
@@ -410,6 +404,7 @@ func (client *client) readLoop() {
 		client.wg.Done()
 	}()
 	for {
+
 		var packet packets.Packet
 		if client.IsConnected() {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
@@ -432,12 +427,13 @@ func (client *client) readLoop() {
 			if client.version == packets.Version5 {
 				err = client.tryDecServerQuota()
 				if err != nil {
+					// TODO close read channel?
 					return
 				}
 			}
 		}
-
 		client.in <- packet
+
 	}
 }
 
@@ -632,7 +628,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					err = codes.ErrProtocol
 					return
 				}
-
 				// set default options.
 				client.opts.RetainAvailable = srv.config.MQTT.RetainAvailable
 				client.opts.WildcardSubAvailable = srv.config.MQTT.WildcardAvailable
@@ -787,11 +782,7 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 			return
 		}
 	}
-
-	select {
-	case <-client.close:
-	case client.out <- publish:
-	}
+	client.out <- publish
 }
 
 func (client *client) publish(publish *packets.Publish) {
@@ -936,13 +927,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 	}
 
-	if pub.Qos == packets.Qos1 {
-		puback := pub.NewPuback()
-		client.write(puback)
-	}
 	if pub.Qos == packets.Qos2 {
-		pubrec := pub.NewPubrec()
-		client.write(pubrec)
 		if _, ok := s.unackpublish[pub.PacketID]; ok {
 			dup = true
 		} else {
@@ -958,6 +943,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 	}
 
+	var topicMatched bool
 	if !dup {
 		var valid = true
 		if srv.hooks.OnMsgArrived != nil {
@@ -966,10 +952,24 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 		if valid {
 			srv.mu.Lock()
-			srv.deliverMessage(client, msg)
+			topicMatched = srv.deliverMessage(client.opts.ClientID, msg)
 			srv.mu.Unlock()
-
 		}
+	}
+
+	var ack packets.Packet
+	code := codes.Success
+	if client.version == packets.Version5 && !topicMatched {
+		code = codes.NotMatchingSubscribers
+	}
+	if pub.Qos == packets.Qos1 {
+		ack = pub.NewPuback(code)
+	}
+	if pub.Qos == packets.Qos2 {
+		ack = pub.NewPubrec(code)
+	}
+	if ack != nil {
+		client.out <- ack
 	}
 	return nil
 
@@ -1034,6 +1034,7 @@ func (client *client) readHandle() {
 		client.setError(err)
 		client.wg.Done()
 	}()
+	// TODO 这里先把client.in读完，不用client.close。
 	for {
 		select {
 		case <-client.close:
@@ -1058,6 +1059,17 @@ func (client *client) readHandle() {
 			case *packets.Unsubscribe:
 				client.unsubscribeHandler(packet.(*packets.Unsubscribe))
 			case *packets.Disconnect:
+				dis := packet.(*packets.Disconnect)
+				if client.version == packets.Version5 {
+					disExpiry := convertUint32(dis.Properties.SessionExpiryInterval, 0)
+					if client.opts.SessionExpiry == 0 && disExpiry != 0 {
+						err = codes.NewError(codes.ProtocolError)
+						return
+					}
+					if disExpiry != 0 {
+						client.opts.SessionExpiry = disExpiry
+					}
+				}
 				//正常关闭
 				client.cleanWillFlag = true
 				return
@@ -1141,4 +1153,19 @@ func (client *client) serve() {
 	}
 	client.wg.Wait()
 
+}
+
+func (client *client) setCleanWillFlag(disconnect *packets.Disconnect) error {
+	if client.version == packets.Version5 {
+		disExpiry := convertUint32(disconnect.Properties.SessionExpiryInterval, 0)
+		if client.opts.SessionExpiry == 0 && disExpiry != 0 {
+			return codes.NewError(codes.ProtocolError)
+		}
+		if disExpiry != 0 {
+			client.opts.SessionExpiry = disExpiry
+		}
+	}
+	// 不发送will message关闭
+	client.cleanWillFlag = true
+	return nil
 }

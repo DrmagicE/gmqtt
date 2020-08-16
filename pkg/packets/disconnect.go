@@ -51,6 +51,7 @@ func (d *Disconnect) Unpack(r io.Reader) error {
 		return codes.ErrMalformed
 	}
 	if d.Version == Version5 {
+		d.Properties = &Properties{}
 		bufr := bytes.NewBuffer(restBuffer)
 		if d.FixHeader.RemainLength == 0 {
 			d.Code = codes.Success
@@ -63,7 +64,6 @@ func (d *Disconnect) Unpack(r io.Reader) error {
 		if !ValidateCode(DISCONNECT, d.Code) {
 			return codes.ErrProtocol
 		}
-		d.Properties = &Properties{}
 		return d.Properties.Unpack(bufr, DISCONNECT)
 	}
 	return nil
