@@ -179,7 +179,6 @@ func (r *Reader) ReadPacket() (Packet, error) {
 	fh := &FixHeader{PacketType: first >> 4, Flags: first & 15} //设置FixHeader
 	length, err := EncodeRemainLength(r.bufr)
 
-	// TODO add validate Options to check fixHeader + lenght <= Maximum Packet Size
 	var headerLen int
 	if length <= 127 {
 		headerLen = 2
@@ -615,8 +614,7 @@ func TopicMatch(topic []byte, topicFilter []byte) bool {
 }
 
 // TotalBytes returns how many bytes of the packet
-// TODO 计算Properties
-func TotalBytes(p Packet) uint {
+func TotalBytes(p Packet) uint32 {
 	var header *FixHeader
 	switch pt := p.(type) {
 	case *Auth:
@@ -653,7 +651,7 @@ func TotalBytes(p Packet) uint {
 	if header == nil {
 		return 0
 	}
-	var headerLength uint
+	var headerLength uint32
 	if header.RemainLength <= 127 {
 		headerLength = 2
 	} else if header.RemainLength <= 16383 {
@@ -663,6 +661,6 @@ func TotalBytes(p Packet) uint {
 	} else if header.RemainLength <= 268435455 {
 		headerLength = 5
 	}
-	return headerLength + uint(header.RemainLength)
+	return headerLength + uint32(header.RemainLength)
 
 }

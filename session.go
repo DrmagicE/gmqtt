@@ -3,6 +3,7 @@ package gmqtt
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -353,6 +354,7 @@ func (client *client) shouldResumeSession(newClient *client) bool {
 		return false
 	}
 	if client.version == packets.Version311 && !client.opts.CleanStart {
+		fmt.Println("resume")
 		return true
 	}
 	if client.version == packets.Version5 && client.isSessionExpiried(time.Now()) {

@@ -120,6 +120,7 @@ type client struct {
 	status        int32         //client状态
 	session       *session
 	error         chan error //错误
+	errOnce       sync.Once
 	err           error
 	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
 	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
@@ -267,13 +268,32 @@ type ClientOptions struct {
 }
 
 func (client *client) setError(err error) {
-	select {
-	case client.error <- err:
+	client.errOnce.Do(func() {
 		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
+			client.err = err
+
+			if client.version == packets.Version5 {
+				if code, ok := err.(*codes.Error); ok {
+					// 发 Disconnect 或者 connack
+					if client.IsConnected() {
+						// send Disconnect
+						client.out <- &packets.Disconnect{
+							Version: packets.Version5,
+							Code:    code.Code(),
+						}
+
+					} else {
+						// send connack
+						client.out <- &packets.Connack{
+							Version: client.version,
+							Code:    code.Code(),
+						}
+					}
+				}
+			}
 		}
-	default:
-	}
+	})
 }
 
 func (client *client) writeLoop() {
@@ -285,56 +305,53 @@ func (client *client) writeLoop() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-	for {
-		select {
-		case <-client.close: //关闭
-			return
-		case packet := <-client.out:
+	for packet := range client.out {
+		switch p := packet.(type) {
+		case *packets.Publish:
+			client.server.statsManager.messageSent(p.Qos)
+			client.statsManager.messageSent(p.Qos)
 
-			switch p := packet.(type) {
-			case *packets.Publish:
-				client.server.statsManager.messageSent(p.Qos)
-				client.statsManager.messageSent(p.Qos)
-
-				if client.version == packets.Version5 {
-					if client.opts.ClientTopicAliasMax > 0 {
-						// use topic alias if exist
-						if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
-							p.TopicName = []byte{}
-							p.Properties.TopicAlias = &id
-						} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
-							// create new alias
-							// TODO
-							//  增加钩子函数决定是否对当前topic 使用topicAlias
-							//  可能的input: packets.Message， 以及当前的alias情况。
-							next := client.aliasMapper.nextAlias
-							p.Properties.TopicAlias = &next
-							client.aliasMapper.nextAlias++
-							client.aliasMapper.client[string(p.TopicName)] = next
-						}
+			if client.version == packets.Version5 {
+				if client.opts.ClientTopicAliasMax > 0 {
+					// use topic alias if exist
+					if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
+						p.TopicName = []byte{}
+						p.Properties.TopicAlias = &id
+					} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
+						// create new alias
+						// TODO
+						//  增加钩子函数决定是否对当前topic 使用topicAlias
+						//  可能的input: packets.Message， 以及当前的alias情况。
+						next := client.aliasMapper.nextAlias
+						p.Properties.TopicAlias = &next
+						client.aliasMapper.nextAlias++
+						client.aliasMapper.client[string(p.TopicName)] = next
 					}
 				}
-				// onDeliver hook
-				if client.server.hooks.OnDeliver != nil {
-					client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(p))
-				}
+			}
+			// onDeliver hook
+			if client.server.hooks.OnDeliver != nil {
+				client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(p))
+			}
 
-			case *packets.Puback, *packets.Pubcomp:
-				if client.version == packets.Version5 {
-					client.addServerQuota()
-				}
-			case *packets.Pubrel:
-				if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
-					client.addServerQuota()
-				}
+		case *packets.Puback, *packets.Pubcomp:
+			if client.version == packets.Version5 {
+				client.addServerQuota()
 			}
-			err = client.writePacket(packet)
-			if err != nil {
-				return
+		case *packets.Pubrel:
+			if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
+				client.addServerQuota()
 			}
-			client.server.statsManager.packetSent(packet)
 		}
-
+		err = client.writePacket(packet)
+		if err != nil {
+			return
+		}
+		client.server.statsManager.packetSent(packet)
+		// 发了disconnect之后要关闭connection
+		if _, ok := packet.(*packets.Disconnect); ok {
+			return
+		}
 	}
 }
 
@@ -402,6 +419,7 @@ func (client *client) readLoop() {
 		}
 		client.setError(err)
 		client.wg.Done()
+		close(client.in)
 	}()
 	for {
 
@@ -427,48 +445,11 @@ func (client *client) readLoop() {
 			if client.version == packets.Version5 {
 				err = client.tryDecServerQuota()
 				if err != nil {
-					// TODO close read channel?
 					return
 				}
 			}
 		}
 		client.in <- packet
-
-	}
-}
-
-func (client *client) errorWatch() {
-	defer func() {
-		client.wg.Done()
-	}()
-	select {
-	case <-client.close:
-		return
-	case err := <-client.error: //有错误关闭
-		//time.Sleep(2 * time.Second)
-		client.err = err
-		close(client.close) //退出chanel
-		if client.version == packets.Version5 {
-			if code, ok := client.err.(*codes.Error); ok {
-				// 发 Disconnect 或者 connack
-				if client.IsConnected() {
-					// send Disconnect
-					_ = client.writePacket(&packets.Disconnect{
-						Version: packets.Version5,
-						Code:    code.Code(),
-					})
-
-				} else {
-					// send connack
-					_ = client.writePacket(&packets.Connack{
-						Version: client.version,
-						Code:    code.Code(),
-					})
-				}
-			}
-		}
-		client.rwc.Close()
-		return
 	}
 }
 
@@ -590,7 +571,7 @@ func (c *connectRequest) DefaultConnackProperties() *packets.Properties {
 			SubIDAvailable:        bool2Byte(c.config.MQTT.SubscriptionIDAvailable),
 			SharedSubAvailable:    bool2Byte(c.config.MQTT.SharedSubAvailable),
 		}
-		if i := ppt.SessionExpiryInterval; i != nil && *i < c.config.SessionExpiryInterval {
+		if i := ppt.SessionExpiryInterval; i != nil && *i < c.config.MQTT.SessionExpiry {
 			ppt.SessionExpiryInterval = i
 		}
 		if c.connect.KeepAlive > c.config.MQTT.MaxKeepAlive {
@@ -618,9 +599,10 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	var connRequest *connectRequest
 	for {
 		select {
-		case <-client.close:
-			return
 		case p := <-client.in:
+			if p == nil {
+				return
+			}
 			var ack *AuthResponse
 			switch p.(type) {
 			case *packets.Connect:
@@ -633,6 +615,8 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.WildcardSubAvailable = srv.config.MQTT.WildcardAvailable
 				client.opts.SubIDAvailable = srv.config.MQTT.SubscriptionIDAvailable
 				client.opts.SharedSubAvailable = srv.config.MQTT.SharedSubAvailable
+				client.opts.ServerMaxPacketSize = srv.config.MQTT.MaxPacketSize
+				client.opts.SessionExpiry = srv.config.MQTT.SessionExpiry
 
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
@@ -782,7 +766,12 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 			return
 		}
 	}
-	client.out <- publish
+	select {
+	case client.out <- publish:
+	default:
+		// in case client.out has been closed
+		return
+	}
 }
 
 func (client *client) publish(publish *packets.Publish) {
@@ -952,7 +941,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 		if valid {
 			srv.mu.Lock()
-			topicMatched = srv.deliverMessage(client.opts.ClientID, msg)
+			topicMatched = srv.deliverMessage(client.opts.ClientID, packets.TotalBytes(pub), msg)
 			srv.mu.Unlock()
 		}
 	}
@@ -1033,55 +1022,57 @@ func (client *client) readHandle() {
 		}
 		client.setError(err)
 		client.wg.Done()
+		close(client.out)
 	}()
-	// TODO 这里先把client.in读完，不用client.close。
-	for {
-		select {
-		case <-client.close:
-			return
-		case packet := <-client.in:
-			var err *codes.Error
-			switch packet.(type) {
-			case *packets.Subscribe:
-				err = client.subscribeHandler(packet.(*packets.Subscribe))
-			case *packets.Publish:
-				err = client.publishHandler(packet.(*packets.Publish))
-			case *packets.Puback:
-				client.pubackHandler(packet.(*packets.Puback))
-			case *packets.Pubrel:
-				client.pubrelHandler(packet.(*packets.Pubrel))
-			case *packets.Pubrec:
-				client.pubrecHandler(packet.(*packets.Pubrec))
-			case *packets.Pubcomp:
-				client.pubcompHandler(packet.(*packets.Pubcomp))
-			case *packets.Pingreq:
-				client.pingreqHandler(packet.(*packets.Pingreq))
-			case *packets.Unsubscribe:
-				client.unsubscribeHandler(packet.(*packets.Unsubscribe))
-			case *packets.Disconnect:
-				dis := packet.(*packets.Disconnect)
-				if client.version == packets.Version5 {
-					disExpiry := convertUint32(dis.Properties.SessionExpiryInterval, 0)
-					if client.opts.SessionExpiry == 0 && disExpiry != 0 {
-						err = codes.NewError(codes.ProtocolError)
-						return
-					}
-					if disExpiry != 0 {
-						client.opts.SessionExpiry = disExpiry
-					}
-				}
-				//正常关闭
-				client.cleanWillFlag = true
-				return
-			default:
-				err = codes.ErrProtocol
-			}
-			if err != nil {
-				client.setError(err)
+	for packet := range client.in {
+		if client.version == packets.Version5 {
+			if client.opts.ServerMaxPacketSize != 0 && packets.TotalBytes(packet) > client.opts.ServerMaxPacketSize {
+				err = codes.NewError(codes.PacketTooLarge)
 				return
 			}
 		}
+		var err *codes.Error
+		switch packet.(type) {
+		case *packets.Subscribe:
+			err = client.subscribeHandler(packet.(*packets.Subscribe))
+		case *packets.Publish:
+			err = client.publishHandler(packet.(*packets.Publish))
+		case *packets.Puback:
+			client.pubackHandler(packet.(*packets.Puback))
+		case *packets.Pubrel:
+			client.pubrelHandler(packet.(*packets.Pubrel))
+		case *packets.Pubrec:
+			client.pubrecHandler(packet.(*packets.Pubrec))
+		case *packets.Pubcomp:
+			client.pubcompHandler(packet.(*packets.Pubcomp))
+		case *packets.Pingreq:
+			client.pingreqHandler(packet.(*packets.Pingreq))
+		case *packets.Unsubscribe:
+			client.unsubscribeHandler(packet.(*packets.Unsubscribe))
+		case *packets.Disconnect:
+			dis := packet.(*packets.Disconnect)
+			if client.version == packets.Version5 {
+				disExpiry := convertUint32(dis.Properties.SessionExpiryInterval, 0)
+				if client.opts.SessionExpiry == 0 && disExpiry != 0 {
+					err = codes.NewError(codes.ProtocolError)
+					return
+				}
+				if disExpiry != 0 {
+					client.opts.SessionExpiry = disExpiry
+				}
+			}
+			//正常关闭
+			client.cleanWillFlag = true
+			return
+		default:
+			err = codes.ErrProtocol
+		}
+		if err != nil {
+			client.setError(err)
+			return
+		}
 	}
+
 }
 
 //重传处理, 除了重传递publish之外，pubrel也要重传
@@ -1142,17 +1133,16 @@ func (client *client) redeliver() {
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
 func (client *client) serve() {
 	defer client.internalClose()
-	client.wg.Add(3)
-	go client.errorWatch()
+	client.wg.Add(2)
 	go client.readLoop()                       //read packet
 	go client.writeLoop()                      //write packet
 	if ok := client.connectWithTimeOut(); ok { //链接成功,建立session
-		client.wg.Add(2)
+		client.wg.Add(1)
 		go client.readHandle()
-		go client.redeliver()
+		//go client.redeliver()
 	}
 	client.wg.Wait()
-
+	client.rwc.Close()
 }
 
 func (client *client) setCleanWillFlag(disconnect *packets.Disconnect) error {

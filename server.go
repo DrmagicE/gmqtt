@@ -121,7 +121,6 @@ const (
 type Config struct {
 	RetryInterval              time.Duration
 	RetryCheckInterval         time.Duration
-	SessionExpiryInterval      uint32
 	SessionExpiryCheckInterval uint32
 	QueueQos0Messages          bool
 	MaxInflight                int
@@ -139,6 +138,7 @@ type Config struct {
 		TopicAliasMax           uint16
 		MaximumQOS              byte
 		MaxKeepAlive            uint16
+		SessionExpiry           uint32
 	}
 }
 
@@ -146,7 +146,6 @@ type Config struct {
 var DefaultConfig = Config{
 	RetryInterval:              20 * time.Second,
 	RetryCheckInterval:         20 * time.Second,
-	SessionExpiryInterval:      65535,
 	SessionExpiryCheckInterval: 1,
 	QueueQos0Messages:          true,
 	MaxInflight:                32,
@@ -163,16 +162,18 @@ var DefaultConfig = Config{
 		TopicAliasMax           uint16
 		MaximumQOS              byte
 		MaxKeepAlive            uint16
+		SessionExpiry           uint32
 	}{
 		SharedSubAvailable:      true,
 		WildcardAvailable:       true,
 		SubscriptionIDAvailable: true,
-		ReceiveMax:              100,
+		ReceiveMax:              10,
 		RetainAvailable:         true,
-		MaxPacketSize:           0,
+		MaxPacketSize:           200,
 		TopicAliasMax:           10,
 		MaximumQOS:              2,
 		MaxKeepAlive:            60,
+		SessionExpiry:           65535,
 	},
 }
 
@@ -216,6 +217,7 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 	srv.clients[client.opts.ClientID] = client
 	if oldExist {
 		oldSession = oldClient.session
+		fmt.Println("isconnect", oldClient.IsConnected())
 		if oldClient.IsConnected() {
 			zaplog.Info("logging with duplicate ClientID",
 				zap.String("remote", client.rwc.RemoteAddr().String()),
@@ -249,10 +251,10 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 			}
 			// send will message because session ends
 			if !sessionResume {
-				srv.deliverMessage(oldClient.opts.ClientID, messageFromPublish(willMsg))
+				srv.deliverMessage(oldClient.opts.ClientID, packets.TotalBytes(willMsg), messageFromPublish(willMsg))
 			} else if oldClient.version == packets.Version5 && convertUint32(oldClient.opts.Will.Properties.WillDelayInterval, 0) == 0 {
 				// send will message because connection ends when will interval == 0
-				srv.deliverMessage(oldClient.opts.ClientID, messageFromPublish(willMsg))
+				srv.deliverMessage(oldClient.opts.ClientID, packets.TotalBytes(willMsg), messageFromPublish(willMsg))
 			} else if m, ok := srv.willMessage[client.opts.ClientID]; ok {
 				close(m.cancel)
 				delete(srv.willMessage, client.opts.ClientID)
@@ -260,6 +262,7 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 		}
 	}
 
+	fmt.Println(sessionResume)
 	connack := connect.NewConnackPacket(codes.Success, sessionResume)
 	connack.Properties = ack.Properties
 	client.out <- connack
@@ -349,17 +352,6 @@ func (srv *server) unregisterClient(client *client) {
 	defer srv.mu.Unlock()
 	now := time.Now()
 	client.setDisConnected()
-clearIn:
-	for {
-		select {
-		case p := <-client.in:
-			if p, ok := p.(*packets.Disconnect); ok {
-				_ = client.setCleanWillFlag(p)
-			}
-		default:
-			break clearIn
-		}
-	}
 
 	var storeSession bool
 	if client.version == packets.Version311 {
@@ -403,36 +395,23 @@ clearIn:
 					t.Stop()
 				case <-t.C:
 					srv.mu.Lock()
-					srv.deliverMessage(clientID, msg)
+					srv.deliverMessage(clientID, packets.TotalBytes(will), msg)
 					srv.mu.Unlock()
 				}
 			}(client.opts.ClientID)
 		} else {
-			srv.deliverMessage(client.opts.ClientID, msg)
+			srv.deliverMessage(client.opts.ClientID, packets.TotalBytes(will), msg)
 		}
 
 	}
 
 	if storeSession {
 		expiredTime := now.Add(time.Duration(client.opts.SessionExpiry) * time.Second)
-		fmt.Println(client.opts.SessionExpiry)
 		srv.offlineClients[client.opts.ClientID] = expiredTime
 		zaplog.Info("logged out and storing session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.opts.ClientID),
 		)
-		//clear  out
-	clearOut:
-		for {
-			select {
-			case p := <-client.out:
-				if p, ok := p.(*packets.Publish); ok {
-					client.msgEnQueue(p)
-				}
-			default:
-				break clearOut
-			}
-		}
 		srv.statsManager.addSessionInactive()
 	} else {
 		zaplog.Info("logged out and cleaning session",
@@ -448,10 +427,8 @@ clearIn:
 	}
 }
 
-func (srv *server) deliverMessage(srcClientID string, msg packets.Message) (matched bool) {
-	// TODO no local 等option
-	// TODO 计算报文大小。太大的就不要发了
-
+// TODO Publish.Copy
+func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions
 	sharedList := make(map[string][]struct {
 		clientID string
@@ -467,7 +444,13 @@ func (srv *server) deliverMessage(srcClientID string, msg packets.Message) (matc
 		if sub.NoLocal() && clientID == srcClientID {
 			return true
 		}
+
+		fmt.Println(srv.clients[clientID].opts.ClientMaxPacketSize)
+		if srv.clients[clientID].opts.ClientMaxPacketSize != 0 && totalBytes > srv.clients[clientID].opts.ClientMaxPacketSize {
+			return true
+		}
 		matched = true
+
 		// shared
 		if sub.ShareName() != "" {
 			sharedList[sub.TopicFilter()] = append(sharedList[sub.TopicFilter()], struct {
@@ -491,6 +474,7 @@ func (srv *server) deliverMessage(srcClientID string, msg packets.Message) (matc
 					c.publish(publish)
 				}
 			} else {
+				// OnlyOnce
 				if maxQos[clientID] == nil {
 					maxQos[clientID] = &struct {
 						sub    subscription.Subscription
@@ -564,7 +548,9 @@ func (srv *server) sessionExpireCheck() {
 	now := time.Now()
 	srv.mu.Lock()
 	for id, expiredTime := range srv.offlineClients {
+		fmt.Println(expiredTime)
 		if now.After(expiredTime) {
+			fmt.Println("sesson expired")
 			if client, _ := srv.clients[id]; client != nil {
 				srv.removeSession(id)
 				if srv.hooks.OnSessionTerminated != nil {
@@ -580,14 +566,12 @@ func (srv *server) sessionExpireCheck() {
 
 // server event loop
 func (srv *server) eventLoop() {
-	if srv.config.SessionExpiryInterval != 0 {
-		sessionExpireTimer := time.NewTicker(time.Second * time.Duration(srv.config.SessionExpiryCheckInterval))
-		defer sessionExpireTimer.Stop()
-		for {
-			select {
-			case <-sessionExpireTimer.C:
-				srv.sessionExpireCheck()
-			}
+	sessionExpireTimer := time.NewTicker(time.Second * time.Duration(srv.config.SessionExpiryCheckInterval))
+	defer sessionExpireTimer.Stop()
+	for {
+		select {
+		case <-sessionExpireTimer.C:
+			srv.sessionExpireCheck()
 		}
 	}
 }
