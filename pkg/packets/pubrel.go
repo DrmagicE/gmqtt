@@ -17,9 +17,8 @@ type Pubrel struct {
 	Properties *Properties
 }
 
-// TODO
 func (p *Pubrel) String() string {
-	return fmt.Sprintf("Pubrel, Pid: %v", p.PacketID)
+	return fmt.Sprintf("Pubrel, Code: %v, Pid: %v, Properties: %s", p.Code, p.PacketID, p.Properties)
 }
 
 // NewPubrelPacket returns a Pubrel instance by the given FixHeader and io.Reader.
@@ -32,7 +31,6 @@ func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
 	return p, nil
 }
 
-// TODO 这些New方法可以去掉了
 // NewPubcomp returns the Pubcomp struct related to the Pubrel struct in QoS 2.
 func (p *Pubrel) NewPubcomp() *Pubcomp {
 	pub := &Pubcomp{FixHeader: &FixHeader{PacketType: PUBCOMP, Flags: FlagReserved, RemainLength: 2}}

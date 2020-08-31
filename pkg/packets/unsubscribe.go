@@ -18,7 +18,7 @@ type Unsubscribe struct {
 }
 
 func (p *Unsubscribe) String() string {
-	return fmt.Sprintf("Unsubscribe, Pid: %v, Topics: %v", p.PacketID, p.Topics)
+	return fmt.Sprintf("Unsubscribe, Version: %v, Pid: %v, Topics: %v, Properties: %s", p.Version, p.PacketID, p.Topics, p.Properties)
 }
 
 // NewUnSubBack returns the Unsuback struct which is the ack packet of the Unsubscribe packet.

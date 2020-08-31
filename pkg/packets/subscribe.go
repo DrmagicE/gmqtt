@@ -18,11 +18,11 @@ type Subscribe struct {
 }
 
 func (p *Subscribe) String() string {
-	str := fmt.Sprintf("Subscribe, Pid: %v", p.PacketID)
-
+	str := fmt.Sprintf("Subscribe, Version: %v, Pid: %v", p.Version, p.PacketID)
 	for k, t := range p.Topics {
 		str += fmt.Sprintf(", Topic[%d][Name: %s, Qos: %v]", k, t.Name, t.Qos)
 	}
+	str += fmt.Sprintf(", Properties: %s", p.Properties)
 	return str
 }
 

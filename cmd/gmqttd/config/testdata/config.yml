@@ -1,0 +1,31 @@
+listeners:
+    - address: ":1883"
+      websocket:
+        path: "/"
+    - address: ":1234"
+
+mqtt:
+  session_expiry: 1m
+  message_expiry: 1m
+  max_packet_size: 200
+  server_receive_maximum: 65535
+  max_keepalive: 0 # unlimited
+  topic_alias_maximum: 0 # 0 means not Supported
+  subscription_identifier_available: true
+  wildcard_subscription_available: true
+  shared_subscription_available: true
+  maximum_qos: 2
+  retain_available: true
+  max_queued_messages: 1000
+  max_inflight: 32
+  max_awaiting_rel: 100
+  queue_qos0_messages: true
+  delivery_mode: overlap # overlap or onlyonce
+  allow_zero_length_clientid: true
+
+log:
+  level: debug # debug | info | warning | error
+
+
+
+

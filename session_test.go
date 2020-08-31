@@ -1,7 +1,6 @@
 package gmqtt
 
 import (
-	"fmt"
 	"testing"
 
 	"go.uber.org/zap"
@@ -182,7 +181,6 @@ func TestMonitor_MsgQueueDroppedPriority(t *testing.T) {
 	i := 1
 	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
 		if elem, ok := e.Value.(*packets.Publish); ok {
-			fmt.Println(elem)
 			if i == 1 && elem.PacketID != 1 {
 				t.Fatalf("msgQueue dropping priority  error, want %d ,got %d", i, elem.PacketID)
 			}

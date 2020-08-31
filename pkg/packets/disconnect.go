@@ -18,7 +18,7 @@ type Disconnect struct {
 }
 
 func (d *Disconnect) String() string {
-	return fmt.Sprintf("Disconnect, Code: %v", d.Code)
+	return fmt.Sprintf("Disconnect, Version: %v, Code: %v, Properties: %s", d.Version, d.Code, d.Properties)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.

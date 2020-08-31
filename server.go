@@ -3,7 +3,6 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -26,11 +25,8 @@ var (
 	// ErrInvalWsMsgType [MQTT-6.0.0-1]
 	ErrInvalWsMsgType = errors.New("invalid websocket message type")
 	statusPanic       = "invalid server status"
-)
 
-// Default configration
-const (
-	DefaultMsgRouterLen = 4096
+	plugins []Plugable
 )
 
 // Server status
@@ -65,6 +61,10 @@ type Server interface {
 	GetConfig() Config
 	// GetStatsManager returns StatsManager
 	GetStatsManager() StatsManager
+	// Stop stop the server gracefully
+	Stop(ctx context.Context) error
+	// Reload the server
+	ApplyConfig(config Config)
 }
 
 // server represents a mqtt server instance.
@@ -85,12 +85,21 @@ type server struct {
 	retainedDB      retained.Store
 	subscriptionsDB subscription.Store //store subscriptions
 
-	config  Config
-	hooks   Hooks
-	plugins []Plugable
+	// gard config
+	configMu sync.RWMutex
+	config   Config
+	hooks    Hooks
+	plugins  []Plugable
 
 	statsManager   StatsManager
 	publishService PublishService
+}
+
+func (srv *server) ApplyConfig(config Config) {
+	srv.configMu.Lock()
+	defer srv.configMu.Unlock()
+	srv.config = config
+
 }
 
 func (srv *server) SubscriptionStore() subscription.Store {
@@ -111,71 +120,12 @@ func (srv *server) checkStatus() {
 	}
 }
 
-type DeliveryMode int
+type DeliveryMode = string
 
 const (
-	Overlap  DeliveryMode = 0
-	OnlyOnce DeliveryMode = 1
+	Overlap  DeliveryMode = "overlap"
+	OnlyOnce DeliveryMode = "onlyonce"
 )
-
-type Config struct {
-	RetryInterval              time.Duration
-	RetryCheckInterval         time.Duration
-	SessionExpiryCheckInterval uint32
-	QueueQos0Messages          bool
-	MaxInflight                int
-	MaxAwaitRel                int
-	MaxMsgQueue                int
-	DeliveryMode               DeliveryMode
-
-	MQTT struct {
-		SharedSubAvailable      bool
-		WildcardAvailable       bool
-		SubscriptionIDAvailable bool
-		ReceiveMax              uint16
-		RetainAvailable         bool
-		MaxPacketSize           uint32
-		TopicAliasMax           uint16
-		MaximumQOS              byte
-		MaxKeepAlive            uint16
-		SessionExpiry           uint32
-	}
-}
-
-// DefaultConfig default config used by NewServer()
-var DefaultConfig = Config{
-	RetryInterval:              20 * time.Second,
-	RetryCheckInterval:         20 * time.Second,
-	SessionExpiryCheckInterval: 1,
-	QueueQos0Messages:          true,
-	MaxInflight:                32,
-	MaxAwaitRel:                100,
-	MaxMsgQueue:                1000,
-	DeliveryMode:               OnlyOnce,
-	MQTT: struct {
-		SharedSubAvailable      bool
-		WildcardAvailable       bool
-		SubscriptionIDAvailable bool
-		ReceiveMax              uint16
-		RetainAvailable         bool
-		MaxPacketSize           uint32
-		TopicAliasMax           uint16
-		MaximumQOS              byte
-		MaxKeepAlive            uint16
-		SessionExpiry           uint32
-	}{
-		SharedSubAvailable:      true,
-		WildcardAvailable:       true,
-		SubscriptionIDAvailable: true,
-		ReceiveMax:              10,
-		RetainAvailable:         true,
-		MaxPacketSize:           200,
-		TopicAliasMax:           10,
-		MaximumQOS:              2,
-		MaxKeepAlive:            60,
-		SessionExpiry:           65535,
-	},
-}
 
 // GetConfig returns the config of the server
 func (srv *server) GetConfig() Config {
@@ -217,7 +167,6 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 	srv.clients[client.opts.ClientID] = client
 	if oldExist {
 		oldSession = oldClient.session
-		fmt.Println("isconnect", oldClient.IsConnected())
 		if oldClient.IsConnected() {
 			zaplog.Info("logging with duplicate ClientID",
 				zap.String("remote", client.rwc.RemoteAddr().String()),
@@ -262,7 +211,6 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 		}
 	}
 
-	fmt.Println(sessionResume)
 	connack := connect.NewConnackPacket(codes.Success, sessionResume)
 	connack.Properties = ack.Properties
 	client.out <- connack
@@ -402,7 +350,6 @@ func (srv *server) unregisterClient(client *client) {
 		} else {
 			srv.deliverMessage(client.opts.ClientID, packets.TotalBytes(will), msg)
 		}
-
 	}
 
 	if storeSession {
@@ -411,6 +358,7 @@ func (srv *server) unregisterClient(client *client) {
 		zaplog.Info("logged out and storing session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.opts.ClientID),
+			zap.Time("expired_at", expiredTime),
 		)
 		srv.statsManager.addSessionInactive()
 	} else {
@@ -423,11 +371,9 @@ func (srv *server) unregisterClient(client *client) {
 			srv.hooks.OnSessionTerminated(context.Background(), client, NormalTermination)
 		}
 		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
-
 	}
 }
 
-// TODO Publish.Copy
 func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions
 	sharedList := make(map[string][]struct {
@@ -444,13 +390,10 @@ func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg pac
 		if sub.NoLocal() && clientID == srcClientID {
 			return true
 		}
-
-		fmt.Println(srv.clients[clientID].opts.ClientMaxPacketSize)
 		if srv.clients[clientID].opts.ClientMaxPacketSize != 0 && totalBytes > srv.clients[clientID].opts.ClientMaxPacketSize {
 			return true
 		}
 		matched = true
-
 		// shared
 		if sub.ShareName() != "" {
 			sharedList[sub.TopicFilter()] = append(sharedList[sub.TopicFilter()], struct {
@@ -493,7 +436,7 @@ func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg pac
 		MatchType: subscription.MatchFilter,
 		TopicName: msg.Topic(),
 	})
-
+	// TODO
 	if srv.config.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if c := srv.clients[clientID]; c != nil {
@@ -548,9 +491,7 @@ func (srv *server) sessionExpireCheck() {
 	now := time.Now()
 	srv.mu.Lock()
 	for id, expiredTime := range srv.offlineClients {
-		fmt.Println(expiredTime)
 		if now.After(expiredTime) {
-			fmt.Println("sesson expired")
 			if client, _ := srv.clients[id]; client != nil {
 				srv.removeSession(id)
 				if srv.hooks.OnSessionTerminated != nil {
@@ -566,7 +507,8 @@ func (srv *server) sessionExpireCheck() {
 
 // server event loop
 func (srv *server) eventLoop() {
-	sessionExpireTimer := time.NewTicker(time.Second * time.Duration(srv.config.SessionExpiryCheckInterval))
+	// TODO
+	sessionExpireTimer := time.NewTicker(time.Second * 10)
 	defer sessionExpireTimer.Stop()
 	for {
 		select {
@@ -735,6 +677,10 @@ func (srv *server) newClient(c net.Conn) *client {
 	client.packetWriter = packets.NewWriter(client.bufw)
 	client.setConnecting()
 	client.newSession()
+	srv.configMu.Lock()
+	client.config = srv.config
+	srv.configMu.Unlock()
+
 	return client
 }
 

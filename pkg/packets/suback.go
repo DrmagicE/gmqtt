@@ -18,7 +18,7 @@ type Suback struct {
 }
 
 func (p *Suback) String() string {
-	return fmt.Sprintf("Suback, Pid: %v, Payload: %v", p.PacketID, p.Payload)
+	return fmt.Sprintf("Suback,Version: %v, Pid: %v, Payload: %v, Properties: %s", p.Version, p.PacketID, p.Payload, p.Properties)
 }
 
 // NewSubackPacket returns a Suback instance by the given FixHeader and io.Reader.

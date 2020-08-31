@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -27,7 +28,6 @@ import (
 
 // Error
 var (
-	ErrInvalStatus    = errors.New("invalid connection status")
 	ErrConnectTimeOut = errors.New("connect time out")
 )
 
@@ -77,9 +77,8 @@ func putBufioWriter(bw *bufio.Writer) {
 	bufioWriterPool.Put(bw)
 }
 
-// Client represent
+// Client
 type Client interface {
-
 	// ClientOptions return a reference of ClientOptions. Do not edit.
 	// This is mainly used in callback functions.
 	ClientOptions() *ClientOptions
@@ -140,6 +139,8 @@ type client struct {
 	// gard clientReceiveMaximumQuota
 	clientQuotaMu             sync.Mutex
 	clientReceiveMaximumQuota uint16
+
+	config Config
 }
 
 func (client *client) Version() packets.Version {
@@ -147,7 +148,7 @@ func (client *client) Version() packets.Version {
 }
 
 func (client *client) Disconnect(disconnect *packets.Disconnect) {
-	panic("implement me")
+	client.write(disconnect)
 }
 
 type ClientSettings struct {
@@ -275,7 +276,6 @@ func (client *client) setError(err error) {
 
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
-					// 发 Disconnect 或者 connack
 					if client.IsConnected() {
 						// send Disconnect
 						client.out <- &packets.Disconnect{
@@ -356,11 +356,14 @@ func (client *client) writeLoop() {
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-	zaplog.Debug("sending packet",
-		zap.String("packet", packet.String()),
-		zap.String("client_id", client.opts.ClientID),
-		zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-	)
+
+	if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
+		ce.Write(
+			zap.String("packet", packet.String()),
+			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			zap.String("client_id", client.opts.ClientID),
+		)
+	}
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
 		return err
@@ -374,6 +377,7 @@ func (client *client) addServerQuota() {
 	}
 	client.serverQuotaMu.Unlock()
 }
+
 func (client *client) tryDecServerQuota() error {
 	client.serverQuotaMu.Lock()
 	defer client.serverQuotaMu.Unlock()
@@ -385,7 +389,6 @@ func (client *client) tryDecServerQuota() error {
 }
 
 func (client *client) addClientQuota() {
-
 	client.clientQuotaMu.Lock()
 	if client.clientReceiveMaximumQuota < client.opts.ClientReceiveMax {
 		client.clientReceiveMaximumQuota++
@@ -429,16 +432,19 @@ func (client *client) readLoop() {
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
-		// TODO validate Options
 		packet, err = client.packetReader.ReadPacket()
 		if err != nil {
 			return
 		}
-		zaplog.Debug("received packet",
-			zap.String("packet", packet.String()),
-			zap.String("remote", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.ClientID),
-		)
+
+		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
+			ce.Write(
+				zap.String("packet", packet.String()),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+				zap.String("client_id", client.opts.ClientID),
+			)
+		}
+
 		client.server.statsManager.packetReceived(packet)
 		if pub, ok := packet.(*packets.Publish); ok {
 			client.server.statsManager.messageReceived(pub.Qos)
@@ -562,20 +568,21 @@ func (c *connectRequest) DefaultConnackProperties() *packets.Properties {
 	if c.ppt == nil {
 		ppt := &packets.Properties{
 			SessionExpiryInterval: c.connect.Properties.SessionExpiryInterval,
-			ReceiveMaximum:        &c.config.MQTT.ReceiveMax,
-			MaximumQOS:            &c.config.MQTT.MaximumQOS,
-			RetainAvailable:       bool2Byte(c.config.MQTT.RetainAvailable),
-			MaximumPacketSize:     &c.config.MQTT.MaxPacketSize,
-			TopicAliasMaximum:     &c.config.MQTT.TopicAliasMax,
-			WildcardSubAvailable:  bool2Byte(c.config.MQTT.WildcardAvailable),
-			SubIDAvailable:        bool2Byte(c.config.MQTT.SubscriptionIDAvailable),
-			SharedSubAvailable:    bool2Byte(c.config.MQTT.SharedSubAvailable),
+			ReceiveMaximum:        &c.config.ReceiveMax,
+			MaximumQoS:            &c.config.MaximumQoS,
+			RetainAvailable:       bool2Byte(c.config.RetainAvailable),
+			MaximumPacketSize:     &c.config.MaxPacketSize,
+			TopicAliasMaximum:     &c.config.TopicAliasMax,
+			WildcardSubAvailable:  bool2Byte(c.config.WildcardAvailable),
+			SubIDAvailable:        bool2Byte(c.config.SubscriptionIDAvailable),
+			SharedSubAvailable:    bool2Byte(c.config.SharedSubAvailable),
 		}
-		if i := ppt.SessionExpiryInterval; i != nil && *i < c.config.MQTT.SessionExpiry {
+
+		if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(c.config.SessionExpiry.Seconds()) {
 			ppt.SessionExpiryInterval = i
 		}
-		if c.connect.KeepAlive > c.config.MQTT.MaxKeepAlive {
-			ppt.ServerKeepAlive = &c.config.MQTT.MaxKeepAlive
+		if c.connect.KeepAlive > c.config.MaxKeepAlive {
+			ppt.ServerKeepAlive = &c.config.MaxKeepAlive
 		}
 		c.ppt = ppt
 	}
@@ -610,13 +617,14 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					err = codes.ErrProtocol
 					return
 				}
+
 				// set default options.
-				client.opts.RetainAvailable = srv.config.MQTT.RetainAvailable
-				client.opts.WildcardSubAvailable = srv.config.MQTT.WildcardAvailable
-				client.opts.SubIDAvailable = srv.config.MQTT.SubscriptionIDAvailable
-				client.opts.SharedSubAvailable = srv.config.MQTT.SharedSubAvailable
-				client.opts.ServerMaxPacketSize = srv.config.MQTT.MaxPacketSize
-				client.opts.SessionExpiry = srv.config.MQTT.SessionExpiry
+				client.opts.RetainAvailable = client.config.RetainAvailable
+				client.opts.WildcardSubAvailable = client.config.WildcardAvailable
+				client.opts.SubIDAvailable = client.config.SubscriptionIDAvailable
+				client.opts.SharedSubAvailable = client.config.SharedSubAvailable
+				client.opts.ServerMaxPacketSize = client.config.MaxPacketSize
+				client.opts.SessionExpiry = uint32(client.config.SessionExpiry.Seconds())
 
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
@@ -808,7 +816,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		if client.opts.SubIDAvailable && len(sub.Properties.SubscriptionIdentifier) != 0 {
 			subID = sub.Properties.SubscriptionIdentifier[0]
 		}
-		if !srv.config.MQTT.SubscriptionIDAvailable && subID != 0 {
+		if !client.config.SubscriptionIDAvailable && subID != 0 {
 			return codes.NewError(codes.SubIDNotSupported)
 		}
 	}
@@ -869,7 +877,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 					if !topic.RetainAsPublished {
 						publish.Retain = false
 					}
-					// TODO 放到msgRouter里面
 					client.publish(publish)
 				}
 			}
@@ -882,6 +889,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			)
 		}
 	}
+
 	client.write(suback)
 	return nil
 }
@@ -1076,59 +1084,57 @@ func (client *client) readHandle() {
 }
 
 //重传处理, 除了重传递publish之外，pubrel也要重传
-func (client *client) redeliver() {
-	var err error
-	s := client.session
-	defer func() {
-		if re := recover(); re != nil {
-			err = errors.New(fmt.Sprint(re))
-		}
-		client.setError(err)
-		client.wg.Done()
-	}()
-	retryCheckInterval := client.server.config.RetryCheckInterval
-	retryInterval := client.server.config.RetryInterval
-	timer := time.NewTicker(retryCheckInterval)
-	defer timer.Stop()
-	for {
-		select {
-		case <-client.close: //关闭广播
-			return
-		case <-timer.C: //重发ticker
-			now := time.Now()
-			s.inflightMu.Lock()
-			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
-				if inflight, ok := inflight.Value.(*inflightElem); ok {
-					if now.Sub(inflight.at) >= retryInterval {
-						pub := inflight.packet
-						p := pub.CopyPublish()
-						p.Dup = true
-						client.write(p)
-					}
-				}
-			}
-			s.inflightMu.Unlock()
-
-			s.awaitRelMu.Lock()
-			for awaitRel := s.awaitRel.Front(); awaitRel != nil; awaitRel = awaitRel.Next() {
-				if awaitRel, ok := awaitRel.Value.(*awaitRelElem); ok {
-					if now.Sub(awaitRel.at) >= retryInterval {
-						pubrel := &packets.Pubrel{
-							FixHeader: &packets.FixHeader{
-								PacketType:   packets.PUBREL,
-								Flags:        packets.FlagPubrel,
-								RemainLength: 2,
-							},
-							PacketID: awaitRel.pid,
-						}
-						client.write(pubrel)
-					}
-				}
-			}
-			s.awaitRelMu.Unlock()
-		}
-	}
-}
+//func (client *client) redeliver() {
+//	var err error
+//	s := client.session
+//	defer func() {
+//		if re := recover(); re != nil {
+//			err = errors.New(fmt.Sprint(re))
+//		}
+//		client.setError(err)
+//		client.wg.Done()
+//	}()
+//	timer := time.NewTicker(retryCheckInterval)
+//	defer timer.Stop()
+//	for {
+//		select {
+//		case <-client.close: //关闭广播
+//			return
+//		case <-timer.C: //重发ticker
+//			now := time.Now()
+//			s.inflightMu.Lock()
+//			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
+//				if inflight, ok := inflight.Value.(*inflightElem); ok {
+//					if now.Sub(inflight.at) >= retryInterval {
+//						pub := inflight.packet
+//						p := pub.CopyPublish()
+//						p.Dup = true
+//						client.write(p)
+//					}
+//				}
+//			}
+//			s.inflightMu.Unlock()
+//
+//			s.awaitRelMu.Lock()
+//			for awaitRel := s.awaitRel.Front(); awaitRel != nil; awaitRel = awaitRel.Next() {
+//				if awaitRel, ok := awaitRel.Value.(*awaitRelElem); ok {
+//					if now.Sub(awaitRel.at) >= retryInterval {
+//						pubrel := &packets.Pubrel{
+//							FixHeader: &packets.FixHeader{
+//								PacketType:   packets.PUBREL,
+//								Flags:        packets.FlagPubrel,
+//								RemainLength: 2,
+//							},
+//							PacketID: awaitRel.pid,
+//						}
+//						client.write(pubrel)
+//					}
+//				}
+//			}
+//			s.awaitRelMu.Unlock()
+//		}
+//	}
+//}
 
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
 func (client *client) serve() {

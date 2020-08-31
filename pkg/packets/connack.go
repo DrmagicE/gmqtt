@@ -17,9 +17,8 @@ type Connack struct {
 	Properties     *Properties
 }
 
-// TODO reasonCode 和returnCode
 func (c *Connack) String() string {
-	return fmt.Sprintf("Version: %v, Connack, Code:%v, SessionPresent:%v", c.Version, c.Code, c.SessionPresent)
+	return fmt.Sprintf("Connack, Version: %v, Code:%v, SessionPresent:%v, Properties: %s", c.Version, c.Code, c.SessionPresent, c.Properties)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.

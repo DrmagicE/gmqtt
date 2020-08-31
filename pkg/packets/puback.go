@@ -18,9 +18,8 @@ type Puback struct {
 	Properties *Properties
 }
 
-// TODO
 func (p *Puback) String() string {
-	return fmt.Sprintf("Puback, Pid: %v", p.PacketID)
+	return fmt.Sprintf("Puback, Version: %v, Pid: %v, Properties: %s", p.Version, p.PacketID, p.Properties)
 }
 
 // NewPubackPacket returns a Puback instance by the given FixHeader and io.Reader

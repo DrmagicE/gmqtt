@@ -8,8 +8,6 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
-
-
 // Connect represents the MQTT Connect  packet
 type Connect struct {
 	Version   Version
@@ -36,11 +34,10 @@ type Connect struct {
 	WillProperties *Properties
 }
 
-// String is mainly used in logging, debugging and testing.
 func (c *Connect) String() string {
-	return fmt.Sprintf("Connect, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanStart: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
-		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s",
-		c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg)
+	return fmt.Sprintf("Connect, Version: %v, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanStart: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
+		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s, Properties: %s",
+		c.Version, c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg, c.Properties)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.

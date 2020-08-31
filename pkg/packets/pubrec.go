@@ -19,7 +19,7 @@ type Pubrec struct {
 }
 
 func (p *Pubrec) String() string {
-	return fmt.Sprintf("Pubrec, Code % x, Pid: %v", p.Code, p.PacketID)
+	return fmt.Sprintf("Pubrec, Version: %v, Code %v, Pid: %v, Properties: %s", p.Version, p.Code, p.PacketID, p.Properties)
 }
 
 // NewPubrecPacket returns a Pubrec instance by the given FixHeader and io.Reader.

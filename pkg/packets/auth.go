@@ -15,7 +15,7 @@ type Auth struct {
 }
 
 func (a *Auth) String() string {
-	return fmt.Sprintf("Auth")
+	return fmt.Sprintf("Auth, Code: %v, Properties: %s", a.Code, a.Properties)
 }
 
 func (a *Auth) Pack(w io.Writer) error {

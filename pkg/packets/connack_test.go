@@ -27,7 +27,7 @@ func TestWriteConnack_V5(t *testing.T) {
 			Properties: &Properties{
 				SessionExpiryInterval: uint32P(1),
 				ReceiveMaximum:        uint16P(2),
-				MaximumQOS:            byteP(1),
+				MaximumQoS:            byteP(1),
 			},
 		}, want: []byte{0x20, 13, 0, codes.Success,
 			10, // properties length

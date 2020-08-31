@@ -22,8 +22,8 @@ type Publish struct {
 }
 
 func (p *Publish) String() string {
-	return fmt.Sprintf("Publish, Version: %v, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s",
-		p.Version, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload)
+	return fmt.Sprintf("Publish, Version: %v, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s, Properties: %s",
+		p.Version, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload, p.Properties)
 }
 
 // CopyPublish 将 publish 复制一份

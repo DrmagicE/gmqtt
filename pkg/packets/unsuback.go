@@ -18,7 +18,7 @@ type Unsuback struct {
 }
 
 func (p *Unsuback) String() string {
-	return fmt.Sprintf("Unsuback, Pid: %v", p.PacketID)
+	return fmt.Sprintf("Unsuback, Version: %v, Pid: %v, Payload: %v, Properties: %s", p.Version, p.PacketID, p.Payload, p.Properties)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.

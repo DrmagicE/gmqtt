@@ -3,7 +3,6 @@ package gmqtt
 import (
 	"container/list"
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -122,7 +121,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 	s.msgQueueMu.Lock()
 	defer s.msgQueueMu.Unlock()
 	now := time.Now()
-	if s.msgQueue.Len() >= s.config.MaxMsgQueue && s.config.MaxMsgQueue != 0 {
+	if s.msgQueue.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 {
 		var removeMsg *list.Element
 		// onMessageDropped hook
 		if srv.hooks.OnMsgDropped != nil {
@@ -137,23 +136,20 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 		}
 		for e := s.msgQueue.Front(); e != nil; e = e.Next() {
 			if elem, ok := e.Value.(*queueElem); ok {
-				// TODO 增加check expiry 的goroutine
 				if client.isQueueElemExpiry(now, elem) {
 					removeMsg = e
-					zaplog.Info("message queue is full, removing msg",
+					zaplog.Warn("message queue is full, removing msg",
 						zap.String("clientID", client.opts.ClientID),
 						zap.String("type", "expired message"),
-						zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 					)
 					break
 				}
 
 				if elem.publish.Qos == packets.Qos0 {
 					removeMsg = e
-					zaplog.Info("message queue is full, removing msg",
+					zaplog.Warn("message queue is full, removing msg",
 						zap.String("clientID", client.opts.ClientID),
 						zap.String("type", "Qos0 message"),
-						zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 					)
 					break
 				}
@@ -165,10 +161,9 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			client.server.statsManager.messageDropped(0)
 			client.statsManager.messageDropped(0)
 		} else if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
-			zaplog.Info("message queue is full, removing msg",
+			zaplog.Warn("message queue is full, removing msg",
 				zap.String("clientID", client.opts.ClientID),
 				zap.String("type", "Qos0 message"),
-				zap.String("packet", publish.String()),
 			)
 			client.server.statsManager.messageDropped(0)
 			client.statsManager.messageDropped(0)
@@ -176,10 +171,9 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 		} else { //case3: removing the front message of msgQueue
 			removeMsg = s.msgQueue.Front()
 			s.msgQueue.Remove(removeMsg)
-			zaplog.Info("message queue is full, removing msg",
+			zaplog.Warn("message queue is full, removing msg",
 				zap.String("clientID", client.opts.ClientID),
 				zap.String("type", "front"),
-				zap.String("packet", removeMsg.Value.(packets.Packet).String()),
 			)
 			client.server.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
 			client.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
@@ -233,7 +227,6 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 	if client.version == packets.Version5 {
 		// MQTT v5 Receive Maximum
 		if ok := client.tryDecClientQuota(); !ok {
-			// 超过quota了
 			zaplog.Debug("reach client quota",
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()))
@@ -286,9 +279,9 @@ func (client *client) unsetInflight(packet packets.Packet) {
 			if el.packet.PacketID == pid {
 				s.inflight.Remove(e)
 				client.statsManager.decInflightCurrent(1)
-				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID),
-					zap.String("packet", packet.String()),
-				)
+				// TODO
+				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID)) //zap.String("packet", packet),
+
 				if freeID {
 					s.freePacketID(pid)
 				}
@@ -354,7 +347,6 @@ func (client *client) shouldResumeSession(newClient *client) bool {
 		return false
 	}
 	if client.version == packets.Version311 && !client.opts.CleanStart {
-		fmt.Println("resume")
 		return true
 	}
 	if client.version == packets.Version5 && client.isSessionExpiried(time.Now()) {

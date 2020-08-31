@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"reflect"
+	"strings"
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
@@ -29,7 +31,7 @@ const (
 	PropReceiveMaximum         byte = 0x21
 	PropTopicAliasMaximum      byte = 0x22
 	PropTopicAlias             byte = 0x23
-	PropMaximumQOS             byte = 0x24
+	PropMaximumQoS             byte = 0x24
 	PropRetainAvailable        byte = 0x25
 	PropUser                   byte = 0x26
 	PropMaximumPacketSize      byte = 0x27
@@ -40,10 +42,6 @@ const (
 
 func errMorethanOnce(property byte) error {
 	return fmt.Errorf("property %v presents more than once", property)
-}
-
-func errInvalidValue(property byte, invalid interface{}) error {
-	return fmt.Errorf("property %v contains invalid value: %v", property, invalid)
 }
 
 type UserProperty struct {
@@ -126,8 +124,8 @@ type Properties struct {
 	// TopicAlias is used in place of the topic string to reduce the size of
 	// packets for repeated messages on a topic
 	TopicAlias *uint16
-	// MaximumQOS is the highest QOS level permitted for a Publish
-	MaximumQOS *byte
+	// MaximumQoS is the highest QOS level permitted for a Publish
+	MaximumQoS *byte
 	// RetainAvailable indicates whether the server supports messages with the
 	// retain flag set
 	RetainAvailable *byte
@@ -143,6 +141,54 @@ type Properties struct {
 	SubIDAvailable *byte
 	// SharedSubAvailable indicates whether shared subscriptions are supported
 	SharedSubAvailable *byte
+}
+
+func sprintf(name string, v interface{}) string {
+	if v == nil {
+		return fmt.Sprintf("%s: %v", name, v)
+	}
+	t := reflect.TypeOf(v)
+	if t.Kind() == reflect.Ptr {
+		rv := reflect.ValueOf(v)
+		if rv.IsNil() {
+			return fmt.Sprintf("%s: nil", name)
+		}
+		return fmt.Sprintf("%s: %v", name, reflect.ValueOf(v).Elem())
+	}
+	return fmt.Sprintf("%s: %v", name, v)
+
+}
+
+func (p *Properties) String() string {
+	var str []string
+	str = append(str, sprintf("PayloadFormat", p.PayloadFormat))
+	str = append(str, sprintf("MessageExpiry", p.MessageExpiry))
+	str = append(str, sprintf("ContentType", p.ContentType))
+	str = append(str, sprintf("ResponseTopic", p.ResponseTopic))
+	str = append(str, sprintf("CorrelationData", p.CorrelationData))
+	str = append(str, sprintf("SubscriptionIdentifier", p.SubscriptionIdentifier))
+	str = append(str, sprintf("SessionExpiryInterval", p.SessionExpiryInterval))
+	str = append(str, sprintf("AssignedClientID", p.AssignedClientID))
+	str = append(str, sprintf("ServerKeepAlive", p.ServerKeepAlive))
+	str = append(str, sprintf("AuthMethod", p.AuthMethod))
+	str = append(str, sprintf("AuthData", p.AuthData))
+	str = append(str, sprintf("RequestProblemInfo", p.RequestProblemInfo))
+	str = append(str, sprintf("WillDelayInterval", p.WillDelayInterval))
+	str = append(str, sprintf("RequestResponseInfo", p.RequestResponseInfo))
+	str = append(str, sprintf("ResponseInfo", p.ResponseInfo))
+	str = append(str, sprintf("ServerReference", p.ServerReference))
+	str = append(str, sprintf("ReasonString", p.ReasonString))
+	str = append(str, sprintf("ReceiveMaximum", p.ReceiveMaximum))
+	str = append(str, sprintf("TopicAliasMaximum", p.TopicAliasMaximum))
+	str = append(str, sprintf("TopicAlias", p.TopicAlias))
+	str = append(str, sprintf("MaximumQoS", p.MaximumQoS))
+	str = append(str, sprintf("RetainAvailable", p.RetainAvailable))
+	str = append(str, sprintf("User", p.User))
+	str = append(str, sprintf("MaximumPacketSize", p.MaximumPacketSize))
+	str = append(str, sprintf("WildcardSubAvailable", p.WildcardSubAvailable))
+	str = append(str, sprintf("SubIDAvailable", p.SubIDAvailable))
+	str = append(str, sprintf("SharedSubAvailable", p.SharedSubAvailable))
+	return strings.Join(str, ", ")
 }
 
 func (p *Properties) PackWillProperties(bufw *bytes.Buffer) {
@@ -209,7 +255,7 @@ func (p *Properties) Pack(bufw *bytes.Buffer, packetType byte) {
 	propertyWriteUint16(PropReceiveMaximum, p.ReceiveMaximum, newBufw)
 	propertyWriteUint16(PropTopicAliasMaximum, p.TopicAliasMaximum, newBufw)
 	propertyWriteUint16(PropTopicAlias, p.TopicAlias, newBufw)
-	propertyWriteByte(PropMaximumQOS, p.MaximumQOS, newBufw)
+	propertyWriteByte(PropMaximumQoS, p.MaximumQoS, newBufw)
 	propertyWriteByte(PropRetainAvailable, p.RetainAvailable, newBufw)
 
 	if len(p.User) != 0 {
@@ -367,8 +413,8 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 			p.TopicAlias, err = propertyReadUint16(p.TopicAlias, newBufr, propType, func(u uint16) bool {
 				return u != 0 // [MQTT-3.3.2-8]
 			})
-		case PropMaximumQOS:
-			p.MaximumQOS, err = propertyReadBool(p.MaximumQOS, newBufr, propType)
+		case PropMaximumQoS:
+			p.MaximumQoS, err = propertyReadBool(p.MaximumQoS, newBufr, propType)
 		case PropRetainAvailable:
 			p.RetainAvailable, err = propertyReadBool(p.RetainAvailable, newBufr, propType)
 		case PropUser:
@@ -424,7 +470,7 @@ var ValidProperties = map[byte]map[byte]struct{}{
 	PropReceiveMaximum:         {CONNECT: {}, CONNACK: {}},
 	PropTopicAliasMaximum:      {CONNECT: {}, CONNACK: {}},
 	PropTopicAlias:             {PUBLISH: {}},
-	PropMaximumQOS:             {CONNACK: {}},
+	PropMaximumQoS:             {CONNACK: {}},
 	PropRetainAvailable:        {CONNACK: {}},
 	PropUser:                   {CONNECT: {}, CONNACK: {}, PUBLISH: {}, PUBACK: {}, PUBREC: {}, PUBREL: {}, PUBCOMP: {}, SUBSCRIBE: {}, UNSUBSCRIBE: {}, SUBACK: {}, UNSUBACK: {}, DISCONNECT: {}, AUTH: {}},
 	PropMaximumPacketSize:      {CONNECT: {}, CONNACK: {}},

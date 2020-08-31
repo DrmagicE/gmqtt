@@ -1,3 +1,0 @@
-mqtt:
-  session_expiry: 10m
-  message_expiry: 10m

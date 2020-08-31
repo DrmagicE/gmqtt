@@ -18,7 +18,7 @@ type Pubcomp struct {
 }
 
 func (p *Pubcomp) String() string {
-	return fmt.Sprintf("Pubcomp, Pid: %v", p.PacketID)
+	return fmt.Sprintf("Pubcomp, Version: %v, Pid: %v, Properties: %s", p.Version, p.PacketID, p.Properties)
 }
 
 // NewPubcompPacket returns a Pubcomp instance by the given FixHeader and io.Reader

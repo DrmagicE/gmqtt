@@ -109,9 +109,6 @@ type Packet interface {
 	Unpack(r io.Reader) error
 	// String is mainly used in logging, debugging and testing.
 	String() string
-	//// Header returns the referenced header structure of the packet.
-	//// The return value is read only. DO NOT EDIT.
-	//Header() *FixHeader
 }
 
 // Topic represents the MQTT Topic
