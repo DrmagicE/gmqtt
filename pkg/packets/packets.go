@@ -116,10 +116,26 @@ type Topic struct {
 	SubOptions
 	Name string
 }
+
+// SubOptions is the subscription option of subscriptions.
+// For details: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Subscription_Options
 type SubOptions struct {
-	Qos               uint8
-	RetainHandling    byte
-	NoLocal           bool
+	// Qos is the QoS level of the subscription.
+	// 0 = At most once delivery
+	// 1 = At least once delivery
+	// 2 = Exactly once delivery
+	Qos uint8
+	// RetainHandling specifies whether retained messages are sent when the subscription is established.
+	// 0 = Send retained messages at the time of the subscribe
+	// 1 = Send retained messages at subscribe only if the subscription does not currently exist
+	// 2 = Do not send retained messages at the time of the subscribe
+	RetainHandling byte
+	// NoLocal is the No Local option.
+	//  If the value is 1, Application Messages MUST NOT be forwarded to a connection with a ClientID equal to the ClientID of the publishing connection
+	NoLocal bool
+	// RetainAsPublished is the Retain As Published option.
+	// If 1, Application Messages forwarded using this subscription keep the RETAIN flag they were published with.
+	// If 0, Application Messages forwarded using this subscription have the RETAIN flag set to 0. Retained messages sent when the subscription is established have the RETAIN flag set to 1.
 	RetainAsPublished bool
 }
 

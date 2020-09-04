@@ -673,6 +673,7 @@ func (srv *server) newClient(c net.Conn) *client {
 			nextAlias: 1,
 		},
 	}
+	client.publishMessageHandler = client.publish
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
 	client.setConnecting()

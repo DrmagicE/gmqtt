@@ -141,6 +141,9 @@ type client struct {
 	clientReceiveMaximumQuota uint16
 
 	config Config
+
+	// for testing
+	publishMessageHandler func(publish *packets.Publish)
 }
 
 func (client *client) Version() packets.Version {
@@ -854,8 +857,8 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 				},
 				Name: v.Name,
 			}
-
 			subRs := srv.subscriptionsDB.Subscribe(client.opts.ClientID, subscription.FromTopic(topic, subID))
+
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, topic)
 			}
@@ -865,7 +868,9 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
-			// TODO no local
+			// The spec does not specify whether the retain message should follow the 'no-local' option rule.
+			// Gmqtt follows the mosquitto implementation which will send retain messages to no-local subscriptions.
+			// For details: https://github.com/eclipse/mosquitto/issues/1796
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
 				msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
 				for _, v := range msgs {
@@ -877,7 +882,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 					if !topic.RetainAsPublished {
 						publish.Retain = false
 					}
-					client.publish(publish)
+					client.publishMessageHandler(publish)
 				}
 			}
 		} else {

@@ -76,42 +76,42 @@ func (s *Sub) RetainHandling() byte {
 	return s.rh
 }
 
-type subOptions func(sub *Sub)
+type SubOptions func(sub *Sub)
 
 // ID sets subscriptionIdentifier flag to the subscription
-func ID(id uint32) subOptions {
+func ID(id uint32) SubOptions {
 	return func(sub *Sub) {
 		sub.id = id
 	}
 }
 
 // ShareName sets shareName of a shared subscription.
-func ShareName(shareName string) subOptions {
+func ShareName(shareName string) SubOptions {
 	return func(sub *Sub) {
 		sub.shareName = shareName
 	}
 }
 
-func NoLocal(noLocal bool) subOptions {
+func NoLocal(noLocal bool) SubOptions {
 	return func(sub *Sub) {
 		sub.noLocal = noLocal
 	}
 }
 
-func RetainAsPublished(rap bool) subOptions {
+func RetainAsPublished(rap bool) SubOptions {
 	return func(sub *Sub) {
 		sub.rap = rap
 	}
 }
 
-func RetainHandling(rh byte) subOptions {
+func RetainHandling(rh byte) SubOptions {
 	return func(sub *Sub) {
 		sub.rh = rh
 	}
 }
 
 // New creates a subscription
-func New(topicFilter string, qos uint8, opts ...subOptions) Subscription {
+func New(topicFilter string, qos uint8, opts ...SubOptions) Subscription {
 	s := &Sub{
 		topicFilter: topicFilter,
 		qos:         qos,
