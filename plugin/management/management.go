@@ -18,7 +18,7 @@ const CodeErr = -1
 
 // Error type
 var (
-	ErrInvalPacketType           = errors.New("invalid Packet Type")
+	ErrInvalPacketType           = errors.New("invalid Packet IterationType")
 	ErrInvalFlags                = errors.New("invalid Flags")
 	ErrInvalConnFlags            = errors.New("invalid Connect Flags")
 	ErrInvalConnAcknowledgeFlags = errors.New("invalid Connect Acknowledge Flags")

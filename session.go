@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -36,7 +37,7 @@ type session struct {
 type inflightElem struct {
 	//at is the entry time
 	at time.Time
-	//packet represents Publish packet
+	//in represents Publish in
 	packet *packets.Publish
 }
 
@@ -198,7 +199,7 @@ func (client *client) msgDequeue() *packets.Publish {
 		elem := s.msgQueue.Front()
 		zaplog.Debug("msg dequeued",
 			zap.String("clientID", client.opts.ClientID),
-			zap.String("packet", elem.Value.(*queueElem).publish.String()))
+			zap.String("in", elem.Value.(*queueElem).publish.String()))
 
 		s.msgQueue.Remove(elem)
 		client.statsManager.messageDequeue(1)
@@ -240,20 +241,20 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 	if s.inflight.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 { //加入缓存队列
 		zaplog.Info("inflight window full, saving msg into msgQueue",
 			zap.String("clientID", client.opts.ClientID),
-			zap.String("packet", elem.packet.String()),
+			zap.String("in", elem.packet.String()),
 		)
 		client.msgEnQueue(publish)
 		enqueue = false
 		return
 	}
-	zaplog.Debug("set inflight", zap.String("clientID", client.opts.ClientID), zap.String("packet", elem.packet.String()))
+	zaplog.Debug("set inflight", zap.String("clientID", client.opts.ClientID), zap.String("in", elem.packet.String()))
 	s.inflight.PushBack(elem)
 	enqueue = true
 	return
 }
 
 //unsetInflight 出队
-//packet: puback(QOS1),pubrec(QOS2)  or pubcomp(QOS2)
+//in: puback(QOS1),pubrec(QOS2)  or pubcomp(QOS2)
 func (client *client) unsetInflight(packet packets.Packet) {
 	s := client.session
 	srv := client.server
@@ -279,8 +280,11 @@ func (client *client) unsetInflight(packet packets.Packet) {
 			if el.packet.PacketID == pid {
 				s.inflight.Remove(e)
 				client.statsManager.decInflightCurrent(1)
-				// TODO
-				zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID)) //zap.String("packet", packet),
+				if ce := zaplog.Check(zapcore.DebugLevel, "unset inflight"); ce != nil {
+					zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID),
+						zap.String("packet", packet.String()),
+					)
+				}
 
 				if freeID {
 					s.freePacketID(pid)

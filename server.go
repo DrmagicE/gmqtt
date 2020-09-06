@@ -93,6 +93,9 @@ type server struct {
 
 	statsManager   StatsManager
 	publishService PublishService
+
+	// for testing
+	deliverMessageHandler func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool)
 }
 
 func (srv *server) ApplyConfig(config Config) {
@@ -396,7 +399,7 @@ func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg pac
 		matched = true
 		// shared
 		if sub.ShareName() != "" {
-			sharedList[sub.TopicFilter()] = append(sharedList[sub.TopicFilter()], struct {
+			sharedList[sub.ShareName()] = append(sharedList[sub.ShareName()], struct {
 				clientID string
 				sub      subscription.Subscription
 			}{clientID: clientID, sub: sub})
@@ -526,9 +529,7 @@ type WsServer struct {
 	KeyFile  string //TLS configration
 }
 
-// NewServer returns a gmqtt server instance with the given options
-func NewServer(opts ...Options) *server {
-	// statistics
+func defaultServer() *server {
 	subStore := subscription_trie.NewStore()
 	statsMgr := newStatsManager(subStore)
 	srv := &server{
@@ -543,7 +544,15 @@ func NewServer(opts ...Options) *server {
 		statsManager:    statsMgr,
 	}
 
+	srv.deliverMessageHandler = srv.deliverMessage
 	srv.publishService = &publishService{server: srv}
+	return srv
+}
+
+// NewServer returns a gmqtt server instance with the given options
+func NewServer(opts ...Options) *server {
+	// statistics
+	srv := defaultServer()
 	for _, fn := range opts {
 		fn(srv)
 	}

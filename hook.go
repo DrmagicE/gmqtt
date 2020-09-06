@@ -64,8 +64,8 @@ type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
 // OnMsgArrived 返回接收到的publish报文是否允许转发，返回false则该报文不会被继续转发
 //
-// OnMsgArrived returns whether the publish packet will be delivered or not.
-// If returns false, the packet will not be delivered to any clients.
+// OnMsgArrived returns whether the publish in will be delivered or not.
+// If returns false, the in will not be delivered to any clients.
 type OnMsgArrived func(ctx context.Context, client Client, msg packets.Message) (valid bool)
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
@@ -79,8 +79,8 @@ type OnCloseWrapper func(OnClose) OnClose
 
 // OnConnect 当合法的connect报文到达的时候触发，返回connack中响应码
 //
-// OnConnect will be called when a valid connect packet is received.
-// It returns the code of the connack packet
+// OnConnect will be called when a valid connect in is received.
+// It returns the code of the connack in
 type OnConnect func(ctx context.Context, req ConnectRequest, client Client) *AuthResponse
 
 type ConnectRequest interface {
@@ -155,7 +155,7 @@ type OnDeliverWrapper func(OnDeliver) OnDeliver
 
 // OnAcked 当客户端对qos1或qos2返回确认的时候调用
 //
-// OnAcked  will be called when receiving the ack packet for a published qos1 or qos2 message.
+// OnAcked  will be called when receiving the ack in for a published qos1 or qos2 message.
 type OnAcked func(ctx context.Context, client Client, msg packets.Message)
 
 type OnAckedWrapper func(OnAcked) OnAcked

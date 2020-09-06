@@ -140,7 +140,7 @@ func (p *PacketStats) copy() *PacketStats {
 	}
 }
 
-// PacketBytes represents total bytes of each packet type have been received or sent.
+// PacketBytes represents total bytes of each in type have been received or sent.
 type PacketBytes struct {
 	Connect     uint64
 	Connack     uint64
@@ -177,7 +177,7 @@ func (p *PacketBytes) copy() *PacketBytes {
 	}
 }
 
-// PacketCount represents total number of each packet type have been received or sent.
+// PacketCount represents total number of each in type have been received or sent.
 type PacketCount struct {
 	Connect     uint64
 	Connack     uint64
@@ -236,7 +236,7 @@ func (c *ClientStats) copy() *ClientStats {
 	}
 }
 
-// MessageStats represents the statistics of PUBLISH packet, separated by QOS.
+// MessageStats represents the statistics of PUBLISH in, separated by QOS.
 type MessageStats struct {
 	Qos0 struct {
 		DroppedTotal  uint64

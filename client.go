@@ -341,7 +341,8 @@ func (client *client) writeLoop() {
 			if client.version == packets.Version5 {
 				client.addServerQuota()
 			}
-		case *packets.Pubrel:
+		// case *packets.Pubrel:
+		case *packets.Pubrec:
 			if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
 				client.addServerQuota()
 			}
@@ -360,9 +361,9 @@ func (client *client) writeLoop() {
 
 func (client *client) writePacket(packet packets.Packet) error {
 
-	if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
+	if ce := zaplog.Check(zapcore.DebugLevel, "sending in"); ce != nil {
 		ce.Write(
-			zap.String("packet", packet.String()),
+			zap.String("in", packet.String()),
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.opts.ClientID),
 		)
@@ -440,9 +441,9 @@ func (client *client) readLoop() {
 			return
 		}
 
-		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
+		if ce := zaplog.Check(zapcore.DebugLevel, "received in"); ce != nil {
 			ce.Write(
-				zap.String("packet", packet.String()),
+				zap.String("in", packet.String()),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.String("client_id", client.opts.ClientID),
 			)
@@ -768,7 +769,7 @@ func (client *client) internalClose() {
 func (client *client) onlinePublish(publish *packets.Publish) {
 	if publish.Qos >= packets.Qos1 {
 		if publish.Dup {
-			//redelivery on reconnect,use the original packet id
+			//redelivery on reconnect,use the original in id
 			client.session.setPacketID(publish.PacketID)
 		} else {
 			publish.PacketID = client.session.getPacketID()
@@ -899,9 +900,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	return nil
 }
 
-//Publish handler
-//The PUBLISH packet sent to a Client by the Server MUST contain a
-// Message Expiry Interval set to the received value minus the time that the Application Message has been waiting in the Server
 func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	s := client.session
 	srv := client.server
@@ -954,7 +952,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 		if valid {
 			srv.mu.Lock()
-			topicMatched = srv.deliverMessage(client.opts.ClientID, packets.TotalBytes(pub), msg)
+			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, packets.TotalBytes(pub), msg)
 			srv.mu.Unlock()
 		}
 	}
@@ -969,6 +967,9 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	}
 	if pub.Qos == packets.Qos2 {
 		ack = pub.NewPubrec(code)
+		if code >= codes.UnspecifiedError {
+			delete(s.unackpublish, pub.PacketID)
+		}
 	}
 	if ack != nil {
 		client.out <- ack
@@ -983,17 +984,16 @@ func (client *client) pubackHandler(puback *packets.Puback) {
 	client.unsetInflight(puback)
 }
 func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
-	if client.version == packets.Version5 {
-		if pubrel.Code >= codes.UnspecifiedError {
-			client.addClientQuota()
-		}
-	}
 	delete(client.session.unackpublish, pubrel.PacketID)
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	client.unsetInflight(pubrec)
+	if client.version == packets.Version5 && pubrec.Code >= codes.UnspecifiedError {
+		client.addClientQuota()
+		return
+	}
 	client.setAwaitRel(pubrec.PacketID)
 	pubrel := pubrec.NewPubrel()
 	client.write(pubrel)
@@ -1011,7 +1011,6 @@ func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
 func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
-	client.write(unSuback)
 	for _, topicName := range unSub.Topics {
 		srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
 		if srv.hooks.OnUnsubscribed != nil {
@@ -1023,6 +1022,7 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 		)
 	}
+	client.write(unSuback)
 
 }
 
@@ -1111,7 +1111,7 @@ func (client *client) readHandle() {
 //			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
 //				if inflight, ok := inflight.Value.(*inflightElem); ok {
 //					if now.Sub(inflight.at) >= retryInterval {
-//						pub := inflight.packet
+//						pub := inflight.in
 //						p := pub.CopyPublish()
 //						p.Dup = true
 //						client.write(p)
@@ -1145,8 +1145,8 @@ func (client *client) readHandle() {
 func (client *client) serve() {
 	defer client.internalClose()
 	client.wg.Add(2)
-	go client.readLoop()                       //read packet
-	go client.writeLoop()                      //write packet
+	go client.readLoop()                       //read in
+	go client.writeLoop()                      //write in
 	if ok := client.connectWithTimeOut(); ok { //链接成功,建立session
 		client.wg.Add(1)
 		go client.readHandle()

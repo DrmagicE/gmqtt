@@ -45,12 +45,17 @@ func (s *subOpts) subscription(topicFilter string) subscription.Subscription {
 	)
 }
 
+type clientOpts map[string]subOpts
+
 // topicNode
 type topicNode struct {
-	children  children
-	clients   map[string]subOpts
+	children children
+	// clients store non-share subscription
+	clients   clientOpts
 	parent    *topicNode // pointer of parent node
 	topicName string
+	// shared store shared subscription, key by ShareName
+	shared map[string]clientOpts
 }
 
 // newTopicTrie create a new trie tree
@@ -62,17 +67,16 @@ func newTopicTrie() *topicTrie {
 func newNode() *topicNode {
 	return &topicNode{
 		children: children{},
-		clients:  make(map[string]subOpts),
+		clients:  make(clientOpts),
+		shared:   make(map[string]clientOpts),
 	}
 }
 
 // newChild create a child node of t
 func (t *topicNode) newChild() *topicNode {
-	return &topicNode{
-		children: children{},
-		clients:  make(map[string]subOpts),
-		parent:   t,
-	}
+	n := newNode()
+	n.parent = t
+	return n
 }
 
 // subscribe add a subscription and return the added node
@@ -85,13 +89,23 @@ func (t *topicTrie) subscribe(clientID string, topicName string, opts subOpts) *
 		}
 		pNode = pNode.children[lv]
 	}
-	pNode.clients[clientID] = opts
+	// shared subscription
+	if opts.shareName != "" {
+		if pNode.shared[opts.shareName] == nil {
+			pNode.shared[opts.shareName] = make(clientOpts)
+		}
+		pNode.shared[opts.shareName][clientID] = opts
+	} else {
+		// non-shared
+		pNode.clients[clientID] = opts
+	}
+
 	pNode.topicName = topicName
 	return pNode
 }
 
-// find walk through the tire and return the node that represent the topicFilter
-// return nil if not found
+// find walk through the tire and return the node that represent the topicFilter.
+// Return nil if not found
 func (t *topicTrie) find(topicFilter string) *topicNode {
 	topicSlice := strings.Split(topicFilter, "/")
 	var pNode = t
@@ -109,7 +123,7 @@ func (t *topicTrie) find(topicFilter string) *topicNode {
 }
 
 // unsubscribe
-func (t *topicTrie) unsubscribe(clientID string, topicName string) {
+func (t *topicTrie) unsubscribe(clientID string, topicName string, shareName string) {
 	topicSlice := strings.Split(topicName, "/")
 	l := len(topicSlice)
 	var pNode = t
@@ -120,19 +134,41 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string) {
 			return
 		}
 	}
-	delete(pNode.clients, clientID)
-	if len(pNode.clients) == 0 && len(pNode.children) == 0 {
-		delete(pNode.parent.children, topicSlice[l-1])
+	if shareName != "" {
+		if c := pNode.shared[shareName]; c != nil {
+			delete(c, clientID)
+			if len(pNode.shared[shareName]) == 0 {
+				delete(pNode.shared, shareName)
+			}
+			if len(pNode.shared) == 0 && len(pNode.children) == 0 {
+				delete(pNode.parent.children, topicSlice[l-1])
+			}
+		}
+	} else {
+		delete(pNode.clients, clientID)
+		if len(pNode.clients) == 0 && len(pNode.children) == 0 {
+			delete(pNode.parent.children, topicSlice[l-1])
+		}
 	}
+
 }
 
-// setRs set the node into rs
+// setRs set the node subscription info into rs
 func setRs(node *topicNode, rs subscription.ClientSubscriptions) {
 	for cid, subOpts := range node.clients {
 		if _, ok := rs[cid]; !ok {
 			rs[cid] = make([]subscription.Subscription, 0)
 		}
 		rs[cid] = append(rs[cid], subOpts.subscription(node.topicName))
+	}
+
+	for _, c := range node.shared {
+		for cid, subOpts := range c {
+			if _, ok := rs[cid]; !ok {
+				rs[cid] = make([]subscription.Subscription, 0)
+			}
+			rs[cid] = append(rs[cid], subOpts.subscription(node.topicName))
+		}
 	}
 }
 
@@ -184,6 +220,14 @@ func (t *topicTrie) preOrderTraverse(fn subscription.IterateFn) bool {
 		for clientID, subOpts := range t.clients {
 			if !fn(clientID, subOpts.subscription(t.topicName)) {
 				return false
+			}
+		}
+
+		for _, c := range t.shared {
+			for clientID, subOpts := range c {
+				if !fn(clientID, subOpts.subscription(t.topicName)) {
+					return false
+				}
 			}
 		}
 	}

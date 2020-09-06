@@ -265,7 +265,7 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 	}
 	for cid, v := range testUnsubscribe.unsubscribe {
 		for _, tt := range v {
-			trie.unsubscribe(cid, tt)
+			trie.unsubscribe(cid, tt, "")
 		}
 	}
 	for cid, v := range testUnsubscribe.afterUnsub {

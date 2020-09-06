@@ -11,15 +11,15 @@ import (
 // trieDB implement the subscription.Interface, it use trie tree  to store topics.
 type trieDB struct {
 	sync.RWMutex
-	userIndex map[string]map[string]*topicNode // [clientID][topicName]
+	userIndex map[string]map[string]*topicNode // [clientID][topicFilter]
 	userTrie  *topicTrie
 
 	// system topic which begin with "$"
-	systemIndex map[string]map[string]*topicNode // [clientID][topicName]
+	systemIndex map[string]map[string]*topicNode // [clientID][topicFilter]
 	systemTrie  *topicTrie
 
 	// shared subscription which begin with "$share"
-	sharedIndex map[string]map[string]*topicNode // [clientID][topicName]
+	sharedIndex map[string]map[string]*topicNode // [clientID][shareName/topicFilter]
 	sharedTrie  *topicTrie
 
 	// statistics of the server and each client
@@ -28,14 +28,82 @@ type trieDB struct {
 
 }
 
-func (t *trieDB) getTrie(topicName string) *topicTrie {
-	if isSystemTopic(topicName) {
-		return t.systemTrie
+func iterateShared(fn subscription.IterateFn, options subscription.IterationOptions, index map[string]map[string]*topicNode, trie *topicTrie) bool {
+	// 查询指定topicFilter
+	if options.TopicName != "" && options.MatchType == subscription.MatchName { //寻找指定topicName
+		var shareName string
+		var topicFilter string
+		if strings.HasPrefix(options.TopicName, "$share/") {
+			shared := strings.SplitN(options.TopicName, "/", 3)
+			shareName = shared[1]
+			topicFilter = shared[2]
+		} else {
+			return true
+		}
+		node := trie.find(topicFilter)
+		if node == nil {
+			return true
+		}
+		if options.ClientID != "" { // 指定topicName & 指定clientID
+			if c := node.shared[shareName]; c != nil {
+				if subOpts, ok := c[options.ClientID]; ok {
+					if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+						return false
+					}
+				}
+			}
+		} else {
+			if c := node.shared[shareName]; c != nil {
+				for clientID, subOpts := range c {
+					if !fn(clientID, subOpts.subscription(node.topicName)) {
+						return false
+					}
+				}
+			}
+		}
+		return true
 	}
-	return t.userTrie
+	// 查询Match指定topicFilter
+	if options.TopicName != "" && options.MatchType == subscription.MatchFilter { // match指定的topicfilter
+		node := trie.getMatchedTopicFilter(options.TopicName)
+		if node == nil {
+			return true
+		}
+		if options.ClientID != "" {
+			for _, v := range node[options.ClientID] {
+				if !fn(options.ClientID, v) {
+					return false
+				}
+			}
+		} else {
+			for clientID, subs := range node {
+				for _, v := range subs {
+					if !fn(clientID, v) {
+						return false
+					}
+				}
+			}
+		}
+		return true
+	}
+	// 查询指定clientID下的所有topic
+	if options.ClientID != "" {
+		for topicFilter, v := range index[options.ClientID] {
+			for _, c := range v.shared {
+				if subOpts, ok := c[options.ClientID]; ok {
+					if !fn(options.ClientID, subOpts.subscription(topicFilter)) {
+						return false
+					}
+				}
+			}
+		}
+		return true
+	}
+	// 遍历
+	return trie.preOrderTraverse(fn)
 }
 
-func iterate(fn subscription.IterateFn, options subscription.IterationOptions, index map[string]map[string]*topicNode, trie *topicTrie) bool {
+func iterateNonShared(fn subscription.IterateFn, options subscription.IterationOptions, index map[string]map[string]*topicNode, trie *topicTrie) bool {
 	// 查询指定topicFilter
 	if options.TopicName != "" && options.MatchType == subscription.MatchName { //寻找指定topicName
 		node := trie.find(options.TopicName)
@@ -48,6 +116,15 @@ func iterate(fn subscription.IterateFn, options subscription.IterationOptions, i
 					return false
 				}
 			}
+
+			for _, v := range node.shared {
+				if subOpts, ok := v[options.ClientID]; ok {
+					if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+						return false
+					}
+				}
+			}
+
 		} else {
 			// 指定topic name 不指定clientid
 			for clientID, subOpts := range node.clients {
@@ -55,6 +132,14 @@ func iterate(fn subscription.IterateFn, options subscription.IterationOptions, i
 					return false
 				}
 			}
+			for _, c := range node.shared {
+				for clientID, subOpts := range c {
+					if !fn(clientID, subOpts.subscription(node.topicName)) {
+						return false
+					}
+				}
+			}
+
 		}
 		return true
 	}
@@ -100,29 +185,20 @@ func (db *trieDB) Iterate(fn subscription.IterateFn, options subscription.Iterat
 	db.RLock()
 	defer db.RUnlock()
 	if options.Type&subscription.TypeShared == subscription.TypeShared {
-		// TODO test case
-		if options.MatchType == options.MatchType && options.TopicName != "" {
-			if isSystemTopic(options.TopicName) {
-				return
-			}
-		}
-		if !iterate(fn, options, db.sharedIndex, db.sharedTrie) {
+		if !iterateShared(fn, options, db.sharedIndex, db.sharedTrie) {
 			return
 		}
 	}
 	if options.Type&subscription.TypeNonShared == subscription.TypeNonShared {
-		// TODO test case
-		if options.MatchType == options.MatchType && options.TopicName != "" {
-			if isSystemTopic(options.TopicName) {
-				return
-			}
-		}
-		if !iterate(fn, options, db.userIndex, db.userTrie) {
+		if !iterateNonShared(fn, options, db.userIndex, db.userTrie) {
 			return
 		}
 	}
 	if options.Type&subscription.TypeSYS == subscription.TypeSYS {
-		if !iterate(fn, options, db.systemIndex, db.systemTrie) {
+		if options.TopicName != "" && !isSystemTopic(options.TopicName) {
+			return
+		}
+		if !iterateNonShared(fn, options, db.systemIndex, db.systemTrie) {
 			return
 		}
 	}
@@ -203,11 +279,20 @@ func (db *trieDB) Unsubscribe(clientID string, topics ...string) {
 	db.Lock()
 	defer db.Unlock()
 	var index map[string]map[string]*topicNode
+	var topicTrie *topicTrie
 	for _, topic := range topics {
-		if isSystemTopic(topic) {
+		var shareName string
+		if strings.HasPrefix(topic, "$share/") {
+			shared := strings.SplitN(topic, "/", 3)
+			topic = shared[2]
+			shareName = shared[1]
+			topicTrie = db.sharedTrie
+		} else if isSystemTopic(topic) {
 			index = db.systemIndex
+			topicTrie = db.systemTrie
 		} else {
 			index = db.userIndex
+			topicTrie = db.userTrie
 		}
 		if _, ok := index[clientID]; ok {
 			if _, ok := index[clientID][topic]; ok {
@@ -216,7 +301,7 @@ func (db *trieDB) Unsubscribe(clientID string, topics ...string) {
 			}
 			delete(index[clientID], topic)
 		}
-		db.getTrie(topic).unsubscribe(clientID, topic)
+		topicTrie.unsubscribe(clientID, topic, shareName)
 	}
 
 }
@@ -243,6 +328,7 @@ func (db *trieDB) UnsubscribeAll(clientID string) {
 	// user topics
 	db.unsubscribeAll(db.userIndex, clientID)
 	db.unsubscribeAll(db.systemIndex, clientID)
+	db.unsubscribeAll(db.sharedIndex, clientID)
 }
 
 // getMatchedTopicFilter return a map key by clientID that contain all matched topic for the given topicName.

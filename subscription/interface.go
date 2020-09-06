@@ -6,11 +6,18 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-type Type byte
+type TopicName struct {
+}
+
+// IterationType specifies the types of subscription that will be iterated.
+type IterationType byte
 
 const (
-	TypeSYS = iota
+	// TypeSYS represents system topic, which start with '$'.
+	TypeSYS = 1 << iota
+	// TypeSYS represents shared topic, which start with '$share/'.
 	TypeShared
+	// TypeNonShared represents non-shared topic.
 	TypeNonShared
 	TypeAll = TypeSYS | TypeShared | TypeNonShared
 )
@@ -169,13 +176,18 @@ type Stats struct {
 // ClientSubscriptions groups the subscriptions by client id.
 type ClientSubscriptions map[string][]Subscription
 
-//
+// IterationOptions
 type IterationOptions struct {
-	Type     Type
+	// Type specifies the types of subscription that will be iterated.
+	// For example, if Type = TypeShared | TypeNonShared , then all shared and non-shared subscriptions will be iterated
+	Type IterationType
+	// ClientID specifies the subscriber client id.
 	ClientID string
-	// TopicName filter or name
+	// TopicName represents topic filter or topic name. This field works together with MatchType.
 	TopicName string
-	// 指定topicName的时候才有效
+	// MatchType specifies the matching type of the iteration.
+	// if MatchName, the IterateFn will be called when the subscription topic filter is equal to TopicName.
+	// if MatchTopic,  the IterateFn will be called when the TopicName match the subscription topic filter.
 	MatchType MatchType
 }
 
@@ -206,7 +218,7 @@ type Store interface {
 }
 
 // GetTopicMatched returns the subscriptions that match the passed topic.
-func GetTopicMatched(store Store, topicFilter string, t Type) ClientSubscriptions {
+func GetTopicMatched(store Store, topicFilter string, t IterationType) ClientSubscriptions {
 	rs := make(ClientSubscriptions)
 	store.Iterate(func(clientID string, subscription Subscription) bool {
 		rs[clientID] = append(rs[clientID], subscription)
@@ -223,7 +235,7 @@ func GetTopicMatched(store Store, topicFilter string, t Type) ClientSubscription
 }
 
 // Get returns the subscriptions that equals the passed topic filter.
-func Get(store Store, topicFilter string, t Type) ClientSubscriptions {
+func Get(store Store, topicFilter string, t IterationType) ClientSubscriptions {
 	rs := make(ClientSubscriptions)
 	store.Iterate(func(clientID string, subscription Subscription) bool {
 		rs[clientID] = append(rs[clientID], subscription)
@@ -240,7 +252,7 @@ func Get(store Store, topicFilter string, t Type) ClientSubscriptions {
 }
 
 // GetClientSubscriptions returns the subscriptions of a specific client.
-func GetClientSubscriptions(store Store, clientID string, t Type) []Subscription {
+func GetClientSubscriptions(store Store, clientID string, t IterationType) []Subscription {
 	var rs []Subscription
 	store.Iterate(func(clientID string, subscription Subscription) bool {
 		rs = append(rs, subscription)
