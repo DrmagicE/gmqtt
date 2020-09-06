@@ -17,14 +17,17 @@ type Unsubscribe struct {
 	Properties *Properties
 }
 
-func (p *Unsubscribe) String() string {
-	return fmt.Sprintf("Unsubscribe, Version: %v, Pid: %v, Topics: %v, Properties: %s", p.Version, p.PacketID, p.Topics, p.Properties)
+func (u *Unsubscribe) String() string {
+	return fmt.Sprintf("Unsubscribe, Version: %v, Pid: %v, Topics: %v, Properties: %s", u.Version, u.PacketID, u.Topics, u.Properties)
 }
 
 // NewUnSubBack returns the Unsuback struct which is the ack packet of the Unsubscribe packet.
-func (p *Unsubscribe) NewUnSubBack() *Unsuback {
+func (u *Unsubscribe) NewUnSubBack() *Unsuback {
 	fh := &FixHeader{PacketType: UNSUBACK, Flags: 0}
-	unSuback := &Unsuback{FixHeader: fh, PacketID: p.PacketID, Version: p.Version}
+	unSuback := &Unsuback{FixHeader: fh, PacketID: u.PacketID, Version: u.Version}
+	if unSuback.Version == Version5 {
+		unSuback.Payload = make([]codes.Code, len(u.Topics))
+	}
 	return unSuback
 }
 
@@ -43,18 +46,18 @@ func NewUnsubscribePacket(fh *FixHeader, version Version, r io.Reader) (*Unsubsc
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
-func (p *Unsubscribe) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
+func (u *Unsubscribe) Pack(w io.Writer) error {
+	u.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
 	bufw := &bytes.Buffer{}
-	writeUint16(bufw, p.PacketID)
-	if p.Version == Version5 {
-		p.Properties.Pack(bufw, UNSUBSCRIBE)
+	writeUint16(bufw, u.PacketID)
+	if u.Version == Version5 {
+		u.Properties.Pack(bufw, UNSUBSCRIBE)
 	}
-	for _, topic := range p.Topics {
+	for _, topic := range u.Topics {
 		writeUTF8String(bufw, []byte(topic))
 	}
-	p.FixHeader.RemainLength = bufw.Len()
-	err := p.FixHeader.Pack(w)
+	u.FixHeader.RemainLength = bufw.Len()
+	err := u.FixHeader.Pack(w)
 	if err != nil {
 		return err
 	}
@@ -63,21 +66,21 @@ func (p *Unsubscribe) Pack(w io.Writer) error {
 }
 
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
-func (p *Unsubscribe) Unpack(r io.Reader) error {
-	restBuffer := make([]byte, p.FixHeader.RemainLength)
+func (u *Unsubscribe) Unpack(r io.Reader) error {
+	restBuffer := make([]byte, u.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
 		return codes.ErrMalformed
 	}
 	bufr := bytes.NewBuffer(restBuffer)
-	p.PacketID, err = readUint16(bufr)
+	u.PacketID, err = readUint16(bufr)
 	if err != nil {
 		return err
 	}
 
-	if p.Version == Version5 {
-		p.Properties = &Properties{}
-		if err := p.Properties.Unpack(bufr, UNSUBSCRIBE); err != nil {
+	if u.Version == Version5 {
+		u.Properties = &Properties{}
+		if err := u.Properties.Unpack(bufr, UNSUBSCRIBE); err != nil {
 			return err
 		}
 	}
@@ -89,7 +92,7 @@ func (p *Unsubscribe) Unpack(r io.Reader) error {
 		if !ValidTopicFilter(true, topicFilter) {
 			return codes.ErrProtocol
 		}
-		p.Topics = append(p.Topics, string(topicFilter))
+		u.Topics = append(u.Topics, string(topicFilter))
 		if bufr.Len() == 0 {
 			return nil
 		}

@@ -1317,15 +1317,13 @@ func TestClient_unsubscribeHandler(t *testing.T) {
 		subDB.EXPECT().Unsubscribe(c.opts.ClientID, topic)
 	}
 
-	err := c.subscribeHandler(v.in)
-	a.Equal(v.err, err)
+	c.unsubscribeHandler(unsub)
 	select {
 	case p := <-c.out:
-		suback := p.(*packets.Suback)
-		a.Equal(v.in.PacketID, suback.PacketID)
-		a.Equal(v.out.Payload, suback.Payload)
-		a.Equal(v.out.Version, suback.Version)
-		a.Equal(v.out.Properties, suback.Properties)
+		unSuback := p.(*packets.Unsuback)
+		a.EqualValues(0, unSuback.Payload[0])
+		a.EqualValues(0, unSuback.Payload[1])
+		a.Equal(unsub.PacketID, unSuback.PacketID)
 	default:
 		t.Fatal("missing output")
 	}

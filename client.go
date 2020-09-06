@@ -1011,9 +1011,10 @@ func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
 func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
 	unSuback := unSub.NewUnSubBack()
-	for _, topicName := range unSub.Topics {
+	for k, topicName := range unSub.Topics {
 		srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
 		if srv.hooks.OnUnsubscribed != nil {
+			// TODO return ack code
 			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
 		zaplog.Info("unsubscribed",
@@ -1021,6 +1022,11 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 			zap.String("client_id", client.opts.ClientID),
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 		)
+		if client.version == packets.Version5 {
+			// TODO get code from hook
+			unSuback.Payload[k] = codes.Success
+		}
+
 	}
 	client.write(unSuback)
 
