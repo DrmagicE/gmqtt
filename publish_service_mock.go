@@ -46,13 +46,13 @@ func (mr *MockPublishServiceMockRecorder) Publish(message interface{}) *gomock.C
 }
 
 // PublishToClient mocks base method
-func (m *MockPublishService) PublishToClient(clientID string, message packets.Message, match bool) {
+func (m *MockPublishService) PublishToClient(clientID string, message packets.Message) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "PublishToClient", clientID, message, match)
+	m.ctrl.Call(m, "PublishToClient", clientID, message)
 }
 
 // PublishToClient indicates an expected call of PublishToClient
-func (mr *MockPublishServiceMockRecorder) PublishToClient(clientID, message, match interface{}) *gomock.Call {
+func (mr *MockPublishServiceMockRecorder) PublishToClient(clientID, message interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishToClient", reflect.TypeOf((*MockPublishService)(nil).PublishToClient), clientID, message, match)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishToClient", reflect.TypeOf((*MockPublishService)(nil).PublishToClient), clientID, message)
 }

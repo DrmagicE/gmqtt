@@ -4,8 +4,8 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-// msg is the implementation of Message interface
-type msg struct {
+// Msg is the implementation of Message interface
+type Msg struct {
 	dup      bool
 	qos      uint8
 	retained bool
@@ -19,58 +19,64 @@ type msg struct {
 	payloadFormat   packets.PayloadFormat
 	responseTopic   string
 	userProperties  []packets.UserProperty
+
+	totalBytes uint32
 }
 
-func (m *msg) ContentType() string {
+func (m *Msg) TotalBytes() uint32 {
+	return m.totalBytes
+}
+
+func (m *Msg) ContentType() string {
 	return m.contentType
 }
 
-func (m *msg) CorrelationData() []byte {
+func (m *Msg) CorrelationData() []byte {
 	return m.correlationData
 }
 
-func (m *msg) MessageExpiry() uint32 {
+func (m *Msg) MessageExpiry() uint32 {
 	return m.messageExpiry
 }
 
-func (m *msg) PayloadFormat() packets.PayloadFormat {
+func (m *Msg) PayloadFormat() packets.PayloadFormat {
 	return m.payloadFormat
 }
 
-func (m *msg) ResponseTopic() string {
+func (m *Msg) ResponseTopic() string {
 	return m.responseTopic
 }
 
-func (m *msg) UserProperties() []packets.UserProperty {
+func (m *Msg) UserProperties() []packets.UserProperty {
 	return m.userProperties
 }
 
-func (m *msg) Dup() bool {
+func (m *Msg) Dup() bool {
 	return m.dup
 }
 
-func (m *msg) Qos() uint8 {
+func (m *Msg) Qos() uint8 {
 	return m.qos
 }
 
-func (m *msg) Retained() bool {
+func (m *Msg) Retained() bool {
 	return m.retained
 }
 
-func (m *msg) Topic() string {
+func (m *Msg) Topic() string {
 	return m.topic
 }
 
-func (m *msg) PacketID() packets.PacketID {
+func (m *Msg) PacketID() packets.PacketID {
 	return m.packetID
 }
 
-func (m *msg) Payload() []byte {
+func (m *Msg) Payload() []byte {
 	return m.payload
 }
 
-func messageFromPublish(p *packets.Publish) *msg {
-	m := &msg{
+func MessageFromPublish(p *packets.Publish) *Msg {
+	m := &Msg{
 		dup:      p.Dup,
 		qos:      p.Qos,
 		retained: p.Retain,
@@ -78,20 +84,56 @@ func messageFromPublish(p *packets.Publish) *msg {
 		packetID: p.PacketID,
 		payload:  p.Payload,
 	}
-
+	remainLenght := len(p.Payload) + 2 + len(p.TopicName)
+	if p.Qos > packets.Qos0 {
+		remainLenght += 2
+	}
 	if p.Version == packets.Version5 {
+		propertyLenght := 0
 		if p.Properties.PayloadFormat != nil {
 			m.payloadFormat = *p.Properties.PayloadFormat
+			propertyLenght += 2
 		}
-
-		m.contentType = string(p.Properties.ContentType)
-		m.correlationData = p.Properties.CorrelationData
-
+		if l := len(p.Properties.ContentType); l != 0 {
+			propertyLenght += 3 + l
+			m.contentType = string(p.Properties.ContentType)
+		}
+		if l := len(p.Properties.CorrelationData); l != 0 {
+			propertyLenght += 3 + l
+			m.correlationData = p.Properties.CorrelationData
+		}
 		if p.Properties.MessageExpiry != nil {
 			m.messageExpiry = *p.Properties.MessageExpiry
+			propertyLenght += 5
 		}
-		m.responseTopic = string(p.Properties.ResponseTopic)
+		if l := len(p.Properties.ResponseTopic); l != 0 {
+			propertyLenght += 3 + l
+			m.responseTopic = string(p.Properties.ResponseTopic)
+		}
+		for _, v := range p.Properties.User {
+			propertyLenght += 5 + len(v.K) + len(v.V)
+		}
 		m.userProperties = p.Properties.User
+
+		if propertyLenght <= 127 {
+			propertyLenght++
+		} else if propertyLenght <= 16383 {
+			propertyLenght += 2
+		} else if propertyLenght <= 2097151 {
+			propertyLenght += 3
+		} else if propertyLenght <= 268435455 {
+			propertyLenght += 4
+		}
+		remainLenght += propertyLenght
+	}
+	if remainLenght <= 127 {
+		m.totalBytes = 2 + uint32(remainLenght)
+	} else if remainLenght <= 16383 {
+		m.totalBytes = 3 + uint32(remainLenght)
+	} else if remainLenght <= 2097151 {
+		m.totalBytes = 4 + uint32(remainLenght)
+	} else if remainLenght <= 268435455 {
+		m.totalBytes = 5 + uint32(remainLenght)
 	}
 	return m
 }
@@ -135,54 +177,54 @@ func messageToPublish(msg packets.Message, version packets.Version) *packets.Pub
 	return pub
 }
 
-type msgOptions func(msg *msg)
+type msgOptions func(msg *Msg)
 
 // Retained sets retained flag to the message
 func Retained(retained bool) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.retained = retained
 	}
 }
 
 func ContentType(contentType string) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.contentType = contentType
 	}
 }
 
 func CorrelationData(b []byte) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.correlationData = b
 	}
 }
 
 func MessageExpiry(u uint32) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.messageExpiry = u
 	}
 }
 
 func PayloadFormat(format packets.PayloadFormat) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.payloadFormat = format
 	}
 }
 
 func ResponseTopic(topic string) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.responseTopic = topic
 	}
 }
 
 func UserProperties(userProperties []packets.UserProperty) msgOptions {
-	return func(msg *msg) {
+	return func(msg *Msg) {
 		msg.userProperties = userProperties
 	}
 }
 
 // NewMessage creates a message for publish service.
 func NewMessage(topic string, payload []byte, qos uint8, opts ...msgOptions) packets.Message {
-	m := &msg{
+	m := &Msg{
 		topic:   topic,
 		qos:     qos,
 		payload: payload,

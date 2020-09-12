@@ -29,8 +29,6 @@ type session struct {
 	pidMu        sync.RWMutex              //gard lockedPid & freeID
 	lockedPid    map[packets.PacketID]bool //Pid inuse
 	freePid      packets.PacketID          //下一个可以使用的freeID
-
-	config *Config
 }
 
 //inflightElem is the element type in inflight queue
@@ -74,7 +72,7 @@ func (client *client) setAwaitRel(pid packets.PacketID) {
 		at:  time.Now(),
 		pid: pid,
 	}
-	if s.awaitRel.Len() >= s.config.MaxAwaitRel && s.config.MaxAwaitRel != 0 { //加入缓存队列
+	if s.awaitRel.Len() >= client.config.MaxAwaitRel && client.config.MaxAwaitRel != 0 { //加入缓存队列
 		removeMsg := s.awaitRel.Front()
 		s.awaitRel.Remove(removeMsg)
 		zaplog.Info("awaitRel window is full, removing the front elem",
@@ -111,44 +109,53 @@ func (client *client) unsetAwaitRel(pid packets.PacketID) {
 //3.丢弃最先进入缓存队列的报文
 
 //When the len of msgQueueu is reaching the maximum setting, message will be dropped according to the following priorities：
-//1. qos0 message in the msgQueue
-//2. qos0 message that is going to enqueue
-//3. the front message of msgQueue
+//1. expired message in the msgQueue (v5 only)
+//2. qos0 message in the msgQueue
+//3. qos0 message that is going to enqueue
+//4. the front message of msgQueue
 func (client *client) msgEnQueue(publish *packets.Publish) {
 	// 保存进入缓存队列的时间，
-
 	s := client.session
 	srv := client.server
 	s.msgQueueMu.Lock()
 	defer s.msgQueueMu.Unlock()
 	now := time.Now()
-	if s.msgQueue.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 {
-		var removeMsg *list.Element
+	if s.msgQueue.Len() >= client.config.MaxQueuedMsg && client.config.MaxQueuedMsg != 0 {
+		var removeMsg *packets.Publish
+		var removeElem *list.Element
 		// onMessageDropped hook
-		if srv.hooks.OnMsgDropped != nil {
-			defer func() {
-				cs := context.Background()
-				if removeMsg != nil {
-					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(removeMsg.Value.(*packets.Publish)))
-				} else {
-					srv.hooks.OnMsgDropped(cs, client, messageFromPublish(publish))
+
+		defer func() {
+			cs := context.Background()
+			if removeElem != nil {
+				s.msgQueue.Remove(removeElem)
+			}
+			if removeMsg != nil {
+				if srv.hooks.OnMsgDropped != nil {
+					srv.hooks.OnMsgDropped(cs, client, MessageFromPublish(removeMsg))
 				}
-			}()
-		}
+				client.server.statsManager.messageDropped(removeMsg.Qos)
+				client.statsManager.messageDropped(removeMsg.Qos)
+			}
+		}()
+
 		for e := s.msgQueue.Front(); e != nil; e = e.Next() {
 			if elem, ok := e.Value.(*queueElem); ok {
+				//case1:  expired message in the msgQueue (v5 only)
 				if client.isQueueElemExpiry(now, elem) {
-					removeMsg = e
-					zaplog.Warn("message queue is full, removing msg",
+					removeElem = e
+					removeMsg = elem.publish
+					zaplog.Warn("message queue is full, removing Msg",
 						zap.String("clientID", client.opts.ClientID),
 						zap.String("type", "expired message"),
 					)
 					break
 				}
-
+				//case2: removing qos0 message in the msgQueue
 				if elem.publish.Qos == packets.Qos0 {
-					removeMsg = e
-					zaplog.Warn("message queue is full, removing msg",
+					removeElem = e
+					removeMsg = elem.publish
+					zaplog.Warn("message queue is full, removing Msg",
 						zap.String("clientID", client.opts.ClientID),
 						zap.String("type", "Qos0 message"),
 					)
@@ -156,28 +163,23 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 				}
 			}
 		}
-		if removeMsg != nil { //case1: removing qos0 or expired message in the msgQueue
+		if removeMsg == nil {
+			if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
+				zaplog.Warn("message queue is full, removing Msg",
+					zap.String("clientID", client.opts.ClientID),
+					zap.String("type", "Qos0 message"),
+				)
+				removeMsg = publish
+				return
+			} else { //case3: removing the front message of msgQueue
+				removeElem = s.msgQueue.Front()
+				removeMsg = removeElem.Value.(*queueElem).publish
+				zaplog.Warn("message queue is full, removing Msg",
+					zap.String("clientID", client.opts.ClientID),
+					zap.String("type", "front"),
+				)
 
-			s.msgQueue.Remove(removeMsg)
-			client.server.statsManager.messageDropped(0)
-			client.statsManager.messageDropped(0)
-		} else if publish.Qos == packets.Qos0 { //case2: removing qos0 message that is going to enqueue
-			zaplog.Warn("message queue is full, removing msg",
-				zap.String("clientID", client.opts.ClientID),
-				zap.String("type", "Qos0 message"),
-			)
-			client.server.statsManager.messageDropped(0)
-			client.statsManager.messageDropped(0)
-			return
-		} else { //case3: removing the front message of msgQueue
-			removeMsg = s.msgQueue.Front()
-			s.msgQueue.Remove(removeMsg)
-			zaplog.Warn("message queue is full, removing msg",
-				zap.String("clientID", client.opts.ClientID),
-				zap.String("type", "front"),
-			)
-			client.server.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
-			client.statsManager.messageDropped(removeMsg.Value.(*queueElem).publish.Qos)
+			}
 		}
 	} else {
 		client.server.statsManager.messageEnqueue(1)
@@ -197,7 +199,7 @@ func (client *client) msgDequeue() *packets.Publish {
 
 	if s.msgQueue.Len() > 0 {
 		elem := s.msgQueue.Front()
-		zaplog.Debug("msg dequeued",
+		zaplog.Debug("Msg dequeued",
 			zap.String("clientID", client.opts.ClientID),
 			zap.String("in", elem.Value.(*queueElem).publish.String()))
 
@@ -212,6 +214,7 @@ func (client *client) msgDequeue() *packets.Publish {
 
 //inflight 入队,inflight队列满，放入缓存队列，缓存队列满，删除最早进入缓存队列的内容
 func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
+
 	s := client.session
 	s.inflightMu.Lock()
 	defer func() {
@@ -220,11 +223,6 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 			client.statsManager.addInflightCurrent(1)
 		}
 	}()
-	elem := &inflightElem{
-		at:     time.Now(),
-		packet: publish,
-	}
-
 	if client.version == packets.Version5 {
 		// MQTT v5 Receive Maximum
 		if ok := client.tryDecClientQuota(); !ok {
@@ -237,9 +235,12 @@ func (client *client) setInflight(publish *packets.Publish) (enqueue bool) {
 			return
 		}
 	}
-
-	if s.inflight.Len() >= s.config.MaxInflight && s.config.MaxInflight != 0 { //加入缓存队列
-		zaplog.Info("inflight window full, saving msg into msgQueue",
+	elem := &inflightElem{
+		at:     time.Now(),
+		packet: publish,
+	}
+	if s.inflight.Len() >= client.config.MaxInflight && client.config.MaxInflight != 0 { //加入缓存队列
+		zaplog.Info("inflight window full, saving Msg into msgQueue",
 			zap.String("clientID", client.opts.ClientID),
 			zap.String("in", elem.packet.String()),
 		)
@@ -291,7 +292,7 @@ func (client *client) unsetInflight(packet packets.Packet) {
 				}
 				// onAcked hook
 				if srv.hooks.OnAcked != nil {
-					srv.hooks.OnAcked(context.Background(), client, messageFromPublish(e.Value.(*inflightElem).packet))
+					srv.hooks.OnAcked(context.Background(), client, MessageFromPublish(e.Value.(*inflightElem).packet))
 				}
 				publish := client.msgDequeue()
 				if publish != nil {

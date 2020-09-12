@@ -135,6 +135,7 @@ func NewStartCmd() *cobra.Command {
 				//}, "/metrics")),
 				gmqtt.WithLogger(l),
 			)
+			fmt.Println(c.MQTT)
 			s.Run()
 			installSignal(s)
 		},

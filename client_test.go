@@ -1,10 +1,12 @@
 package gmqtt
 
 import (
+	"bytes"
 	"container/list"
 	"io"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +129,7 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
+				Version: packets.Version5,
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -304,6 +307,7 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
+				Version: packets.Version5,
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -340,6 +344,7 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
+				Version: packets.Version5,
 				Payload: []codes.Code{
 					codes.SharedSubNotSupported, codes.SharedSubNotSupported,
 				},
@@ -362,28 +367,35 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			}
 			c := srv.newClient(noopConn{})
 			c.opts.ClientID = v.clientID
-			c.opts.SubIDAvailable = v.sharedSubAvailable
+			c.opts.SharedSubAvailable = v.sharedSubAvailable
 			c.version = v.version
 			for _, topic := range v.in.Topics {
+				var shareName, topicFilter string
 				var options []subscription.SubOptions
+
+				shared := strings.SplitN(topic.Name, "/", 3)
+				shareName = shared[1]
+				topicFilter = shared[2]
+
 				options = append(options,
 					subscription.NoLocal(topic.NoLocal),
 					subscription.RetainAsPublished(topic.RetainAsPublished),
-					subscription.RetainHandling(topic.RetainHandling))
+					subscription.RetainHandling(topic.RetainHandling),
+					subscription.ShareName(shareName))
 				if v.in.Properties != nil {
 					for _, id := range v.in.Properties.SubscriptionIdentifier {
 						options = append(options, subscription.ID(id))
 					}
 				}
-				sub := subscription.New(topic.Name, topic.Qos, options...)
-				subDB.EXPECT().Subscribe(v.clientID, sub).Return(subscription.SubscribeResult{
-					{
-						Subscription:   sub,
-						AlreadyExisted: false,
-					},
-				})
-				// We are not going to test retained logic in this test case.
-				retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter()).Return(nil)
+				sub := subscription.New(topicFilter, topic.Qos, options...)
+				if v.sharedSubAvailable {
+					subDB.EXPECT().Subscribe(v.clientID, sub).Return(subscription.SubscribeResult{
+						{
+							Subscription:   sub,
+							AlreadyExisted: false,
+						},
+					})
+				}
 			}
 
 			err := c.subscribeHandler(v.in)
@@ -797,16 +809,18 @@ func TestClient_publishHandler_common(t *testing.T) {
 			defer ctrl.Finish()
 
 			retainedDB := retained.NewMockStore(ctrl)
+			subscriptionDB := subscription.NewMockStore(ctrl)
 			srv := &server{
-				config:     DefaultConfig,
-				retainedDB: retainedDB,
+				config:          DefaultConfig,
+				retainedDB:      retainedDB,
+				subscriptionsDB: subscriptionDB,
 			}
 
 			var deliverMessageCalled bool
 
-			srv.deliverMessageHandler = func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(messageFromPublish(v.in), msg)
+				a.Equal(MessageFromPublish(v.in), msg)
 				deliverMessageCalled = true
 				return v.topicMatched
 			}
@@ -825,9 +839,9 @@ func TestClient_publishHandler_common(t *testing.T) {
 				case packets.Qos0:
 					a.Fail("qos0 should not send any ack packet")
 				case packets.Qos1:
-					a.Equal(v.in.NewPuback(codes.Success), p)
+					a.Equal(v.in.NewPuback(codes.Success, nil), p)
 				case packets.Qos2:
-					a.Equal(v.in.NewPubrec(codes.Success), p)
+					a.Equal(v.in.NewPubrec(codes.Success, nil), p)
 					a.True(c.session.unackpublish[v.in.PacketID])
 				}
 			default:
@@ -915,9 +929,9 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				config:     DefaultConfig,
 				retainedDB: retainedDB,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(messageFromPublish(v.in), msg)
+				a.Equal(MessageFromPublish(v.in), msg)
 				return v.topicMatched
 			}
 			c := srv.newClient(noopConn{})
@@ -929,7 +943,7 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				if len(v.in.Payload) == 0 {
 					retainedDB.EXPECT().Remove(string(v.in.TopicName))
 				} else {
-					retainedDB.EXPECT().AddOrReplace(messageFromPublish(v.in))
+					retainedDB.EXPECT().AddOrReplace(MessageFromPublish(v.in))
 				}
 			}
 			err := c.publishHandler(v.in)
@@ -940,9 +954,9 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				case packets.Qos0:
 					a.Fail("qos0 should not send any ack packet")
 				case packets.Qos1:
-					a.Equal(v.in.NewPuback(codes.Success), p)
+					a.Equal(v.in.NewPuback(codes.Success, nil), p)
 				case packets.Qos2:
-					a.Equal(v.in.NewPubrec(codes.Success), p)
+					a.Equal(v.in.NewPubrec(codes.Success, nil), p)
 					a.True(c.session.unackpublish[v.in.PacketID])
 				}
 			default:
@@ -1013,9 +1027,9 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			srv := &server{
 				config: DefaultConfig,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(messageFromPublish(v.in), msg)
+				a.Equal(MessageFromPublish(v.in), msg)
 				return true
 			}
 			c := srv.newClient(noopConn{})
@@ -1041,7 +1055,6 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 }
 
 func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
-
 	topicName := []byte("/topic/A")
 	first := &packets.Publish{
 		Version:   packets.Version5,
@@ -1075,9 +1088,8 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	srv := &server{
 		config: DefaultConfig,
 	}
-
 	var deliveredMsg []packets.Message
-	srv.deliverMessageHandler = func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
+	srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
 		a.Equal("cid", srcClientID)
 		deliveredMsg = append(deliveredMsg, msg)
 		return true
@@ -1096,8 +1108,8 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	a.Nil(err)
 
 	a.Len(deliveredMsg, 2)
-	a.Equal(messageFromPublish(delivered), deliveredMsg[0])
-	a.Equal(messageFromPublish(delivered), deliveredMsg[1])
+	a.Equal(MessageFromPublish(delivered), deliveredMsg[0])
+	a.Equal(MessageFromPublish(delivered), deliveredMsg[1])
 }
 
 func TestClient_pubackHandler(t *testing.T) {
@@ -1266,13 +1278,6 @@ func TestClient_pubcompHandler(t *testing.T) {
 	}
 	c.pubcompHandler(pubcomp)
 	a.EqualValues(3, c.clientReceiveMaximumQuota)
-	select {
-	case p := <-c.out:
-		a.IsType(&packets.Pubcomp{}, p)
-		a.Equal(pubcomp.PacketID, p.(*packets.Pubrel).PacketID)
-	default:
-		t.Fatal("missing output")
-	}
 }
 
 func TestClient_pingreqHandler(t *testing.T) {
@@ -1327,4 +1332,108 @@ func TestClient_unsubscribeHandler(t *testing.T) {
 	default:
 		t.Fatal("missing output")
 	}
+}
+
+func TestMsg_TotalBytes(t *testing.T) {
+	var tt = []struct {
+		name string
+		pub  *packets.Publish
+	}{
+		{
+			name: "version5/1header",
+			pub: &packets.Publish{
+				Version:    packets.Version5,
+				TopicName:  []byte("a"),
+				Payload:    []byte("a"),
+				Properties: &packets.Properties{},
+			},
+		},
+		{
+			name: "version5/2header",
+			pub: &packets.Publish{
+				Version:    packets.Version5,
+				TopicName:  []byte("a"),
+				PacketID:   10,
+				Qos:        packets.Qos1,
+				Payload:    make([]byte, 127),
+				Properties: &packets.Properties{},
+			},
+		},
+		{
+			name: "version5/3header",
+			pub: &packets.Publish{
+				Version:    packets.Version5,
+				TopicName:  []byte("a"),
+				PacketID:   10,
+				Qos:        packets.Qos2,
+				Payload:    make([]byte, 16383),
+				Properties: &packets.Properties{},
+			},
+		},
+		{
+			name: "version5/4header",
+			pub: &packets.Publish{
+				Version:    packets.Version5,
+				TopicName:  []byte("a"),
+				PacketID:   10,
+				Payload:    make([]byte, 2097151),
+				Properties: &packets.Properties{},
+			},
+		},
+		{
+			name: "version5/1propertyLen",
+			pub: &packets.Publish{
+				Version:    packets.Version5,
+				TopicName:  []byte("a"),
+				Payload:    []byte("a"),
+				Properties: &packets.Properties{},
+			},
+		},
+		{
+			name: "version5/2propertyLen",
+			pub: &packets.Publish{
+				Version:   packets.Version5,
+				TopicName: []byte("a"),
+				Payload:   []byte("a"),
+				Properties: &packets.Properties{
+					CorrelationData: make([]byte, 127),
+				},
+			},
+		},
+		{
+			name: "version5/3propertyLen",
+			pub: &packets.Publish{
+				Version:   packets.Version5,
+				TopicName: []byte("a"),
+				Payload:   []byte("a"),
+				Properties: &packets.Properties{
+					CorrelationData: make([]byte, 16383),
+				},
+			},
+		},
+		{
+			name: "version5/4propertyLen",
+			pub: &packets.Publish{
+				Version:   packets.Version5,
+				TopicName: []byte("a"),
+				Payload:   []byte("a"),
+				Properties: &packets.Properties{
+					CorrelationData: make([]byte, 2097151),
+				},
+			},
+		},
+	}
+	for _, v := range tt {
+		t.Run(v.name, func(t *testing.T) {
+			a := assert.New(t)
+			buf := make([]byte, 0, 2048)
+			b := bytes.NewBuffer(buf)
+			err := v.pub.Pack(b)
+			a.Nil(err)
+			var msg packets.Message
+			msg = MessageFromPublish(v.pub)
+			a.EqualValues(len(b.Bytes()), msg.TotalBytes())
+		})
+	}
+
 }

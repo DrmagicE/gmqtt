@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
 )
@@ -19,7 +20,6 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-
 	ws := &gmqtt.WsServer{
 		Server: &http.Server{Addr: ":8080"},
 		Path:   "/",
@@ -30,16 +30,16 @@ func main() {
 		CertFile: "../testcerts/server.crt",
 		KeyFile:  "../testcerts/server.key",
 	}
+	l, _ := zap.NewDevelopment()
 	s := gmqtt.NewServer(
 		gmqtt.WithTCPListener(ln),
 		gmqtt.WithWebsocketServer(ws, wss),
+		gmqtt.WithLogger(l),
 	)
 	s.Run()
-	fmt.Println("started...")
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	s.Stop(context.Background())
-	fmt.Println("stopped")
 
 }

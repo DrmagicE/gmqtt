@@ -96,26 +96,3 @@ func TestReadSuback_V311(t *testing.T) {
 		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Suback{}), reflect.TypeOf(packet))
 	}
 }
-
-func TestWriteSuback_V311(t *testing.T) {
-	a := assert.New(t)
-	subscribeBytes := bytes.NewBuffer([]byte{0x82, 29, //FIxHeader
-		0, 10, //pid 10
-		0, 5, 97, 47, 98, 47, 99, //Topic Filter :"a/b/c"
-		0,                            //qos = 0
-		0, 6, 97, 47, 98, 47, 99, 99, //Topic Filter："a/b/cc"
-		1,                                //qos = 1
-		0, 7, 97, 47, 98, 47, 99, 99, 99, //Topic Filter："a/b/ccc"
-		2, //qos = 2
-	})
-	packet, err := NewReader(subscribeBytes).ReadPacket()
-	a.Nil(err)
-	p := packet.(*Subscribe)
-	suback := p.NewSuback()
-	buf := bytes.NewBuffer(make([]byte, 0, 2048))
-	err = NewWriter(buf).WriteAndFlush(suback)
-	a.Nil(err)
-	want := []byte{0x90, 5, 0, 10, 0, 1, 2}
-	a.Equal(want, buf.Bytes())
-
-}

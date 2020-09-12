@@ -201,6 +201,20 @@ func (mr *MockMessageMockRecorder) UserProperties() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProperties", reflect.TypeOf((*MockMessage)(nil).UserProperties))
 }
 
+// TotalBytes mocks base method
+func (m *MockMessage) TotalBytes() uint32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TotalBytes")
+	ret0, _ := ret[0].(uint32)
+	return ret0
+}
+
+// TotalBytes indicates an expected call of TotalBytes
+func (mr *MockMessageMockRecorder) TotalBytes() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TotalBytes", reflect.TypeOf((*MockMessage)(nil).TotalBytes))
+}
+
 // MockPacket is a mock of Packet interface
 type MockPacket struct {
 	ctrl     *gomock.Controller

@@ -22,6 +22,30 @@ var (
 	sharedTopicB2 = New("topic/B", 1, RetainAsPublished(true), RetainHandling(1), ShareName("name2"), ID(1), NoLocal(true))
 )
 
+func EqualSubscription(expected Subscription, actual Subscription, a *assert.Assertions) {
+	a.Equal(expected.ShareName(), actual.ShareName())
+	a.Equal(expected.TopicFilter(), actual.TopicFilter())
+	a.Equal(expected.QoS(), actual.QoS())
+	a.Equal(expected.RetainHandling(), actual.RetainHandling())
+	a.Equal(expected.RetainAsPublished(), actual.RetainAsPublished())
+	a.Equal(expected.ID(), actual.ID())
+	a.Equal(expected.NoLocal(), actual.NoLocal())
+}
+
+func ElementsMatchSub(expected []Subscription, actual []Subscription, a *assert.Assertions) {
+	var subActual []Subscription
+	for _, v := range actual {
+		subActual = append(subActual, New(v.TopicFilter(), v.QoS(),
+			RetainAsPublished(v.RetainAsPublished()),
+			RetainHandling(v.RetainHandling()),
+			NoLocal(v.NoLocal()),
+			ID(v.ID()),
+			ShareName(v.ShareName()),
+		))
+	}
+	a.ElementsMatch(expected, subActual)
+}
+
 var testSubs = []struct {
 	clientID string
 	subs     []Subscription
@@ -83,61 +107,55 @@ func TestSuite(t *testing.T, store Store) {
 		t.Run("testTopicMatch"+strconv.Itoa(i), func(t *testing.T) {
 			testTopicMatch(t, store)
 		})
-		t.Run("iterate"+strconv.Itoa(i), func(t *testing.T) {
-			testIterate(t, store)
-		})
-		t.Run("testUnsubscribe"+strconv.Itoa(i), func(t *testing.T) {
-			testUnsubscribe(t, store)
-		})
 	}
 }
 func testGetTopic(t *testing.T, store Store) {
 	a := assert.New(t)
 
 	rs := Get(store, topicA.TopicFilter(), TypeAll)
-	a.Equal(topicA, rs["client1"][0])
-	a.Equal(topicA, rs["client2"][0])
+	EqualSubscription(topicA, rs["client1"][0], a)
+	EqualSubscription(topicA, rs["client2"][0], a)
 
 	rs = Get(store, topicA.TopicFilter(), TypeNonShared)
-	a.Equal(topicA, rs["client1"][0])
-	a.Equal(topicA, rs["client2"][0])
+	EqualSubscription(topicA, rs["client1"][0], a)
+	EqualSubscription(topicA, rs["client2"][0], a)
 
 	rs = Get(store, systemTopicA.TopicFilter(), TypeAll)
-	a.Equal(systemTopicA, rs["client1"][0])
-	a.Equal(systemTopicA, rs["client2"][0])
+	EqualSubscription(systemTopicA, rs["client1"][0], a)
+	EqualSubscription(systemTopicA, rs["client2"][0], a)
 
 	rs = Get(store, systemTopicA.TopicFilter(), TypeSYS)
-	a.Equal(systemTopicA, rs["client1"][0])
-	a.Equal(systemTopicA, rs["client2"][0])
+	EqualSubscription(systemTopicA, rs["client1"][0], a)
+	EqualSubscription(systemTopicA, rs["client2"][0], a)
 
 	rs = Get(store, "$share/"+sharedTopicA1.ShareName()+"/"+sharedTopicA1.TopicFilter(), TypeAll)
-	a.Equal(sharedTopicA1, rs["client1"][0])
-	a.Equal(sharedTopicA1, rs["client2"][0])
+	EqualSubscription(sharedTopicA1, rs["client1"][0], a)
+	EqualSubscription(sharedTopicA1, rs["client2"][0], a)
 }
 func testTopicMatch(t *testing.T, store Store) {
 	a := assert.New(t)
 	rs := GetTopicMatched(store, topicA.TopicFilter(), TypeAll)
-	a.ElementsMatch([]Subscription{topicA, sharedTopicA1, sharedTopicA2}, rs["client1"])
-	a.ElementsMatch([]Subscription{topicA, sharedTopicA1, sharedTopicA2}, rs["client2"])
+	ElementsMatchSub([]Subscription{topicA, sharedTopicA1, sharedTopicA2}, rs["client1"], a)
+	ElementsMatchSub([]Subscription{topicA, sharedTopicA1, sharedTopicA2}, rs["client2"], a)
 
 	rs = GetTopicMatched(store, topicA.TopicFilter(), TypeNonShared)
-	a.ElementsMatch([]Subscription{topicA}, rs["client1"])
-	a.ElementsMatch([]Subscription{topicA}, rs["client2"])
+	ElementsMatchSub([]Subscription{topicA}, rs["client1"], a)
+	ElementsMatchSub([]Subscription{topicA}, rs["client2"], a)
 
 	rs = GetTopicMatched(store, topicA.TopicFilter(), TypeShared)
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2}, rs["client1"])
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2}, rs["client2"])
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2}, rs["client1"], a)
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2}, rs["client2"], a)
 
 	rs = GetTopicMatched(store, systemTopicA.TopicFilter(), TypeSYS)
-	a.ElementsMatch([]Subscription{systemTopicA}, rs["client1"])
-	a.ElementsMatch([]Subscription{systemTopicA}, rs["client2"])
+	ElementsMatchSub([]Subscription{systemTopicA}, rs["client1"], a)
+	ElementsMatchSub([]Subscription{systemTopicA}, rs["client2"], a)
 }
 func testUnsubscribe(t *testing.T, store Store) {
 	a := assert.New(t)
 	store.Unsubscribe("client1", topicA.TopicFilter())
 	rs := Get(store, topicA.TopicFilter(), TypeAll)
 	a.Nil(rs["client1"])
-	a.ElementsMatch([]Subscription{topicA}, rs["client2"])
+	ElementsMatchSub([]Subscription{topicA}, rs["client2"], a)
 	store.UnsubscribeAll("client2")
 	store.UnsubscribeAll("client1")
 	var iterationCalled bool
@@ -172,8 +190,8 @@ func testIterateNonShared(t *testing.T, store Store) {
 	}, IterationOptions{
 		Type: TypeNonShared,
 	})
-	a.ElementsMatch([]Subscription{topicA, topicB}, got["client1"])
-	a.ElementsMatch([]Subscription{topicA, topicB}, got["client2"])
+	ElementsMatchSub([]Subscription{topicA, topicB}, got["client1"], a)
+	ElementsMatchSub([]Subscription{topicA, topicB}, got["client2"], a)
 
 	// Iterate all non-shared subscriptions with ClientID option.
 	got = make(ClientSubscriptions)
@@ -184,7 +202,7 @@ func testIterateNonShared(t *testing.T, store Store) {
 		Type:     TypeNonShared,
 		ClientID: "client1",
 	})
-	a.ElementsMatch([]Subscription{topicA, topicB}, got["client1"])
+	ElementsMatchSub([]Subscription{topicA, topicB}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all non-shared subscriptions that matched given topic name.
@@ -197,8 +215,8 @@ func testIterateNonShared(t *testing.T, store Store) {
 		MatchType: MatchName,
 		TopicName: topicA.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{topicA}, got["client1"])
-	a.ElementsMatch([]Subscription{topicA}, got["client2"])
+	ElementsMatchSub([]Subscription{topicA}, got["client1"], a)
+	ElementsMatchSub([]Subscription{topicA}, got["client2"], a)
 
 	// Iterate all non-shared subscriptions that matched given topic name and client id
 	got = make(ClientSubscriptions)
@@ -211,7 +229,7 @@ func testIterateNonShared(t *testing.T, store Store) {
 		TopicName: topicA.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{topicA}, got["client1"])
+	ElementsMatchSub([]Subscription{topicA}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all non-shared subscriptions that matched given topic filter.
@@ -224,8 +242,8 @@ func testIterateNonShared(t *testing.T, store Store) {
 		MatchType: MatchFilter,
 		TopicName: topicA.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{topicA}, got["client1"])
-	a.ElementsMatch([]Subscription{topicA}, got["client2"])
+	ElementsMatchSub([]Subscription{topicA}, got["client1"], a)
+	ElementsMatchSub([]Subscription{topicA}, got["client2"], a)
 
 	// Iterate all non-shared subscriptions that matched given topic filter and client id
 	got = make(ClientSubscriptions)
@@ -238,7 +256,7 @@ func testIterateNonShared(t *testing.T, store Store) {
 		TopicName: topicA.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{topicA}, got["client1"])
+	ElementsMatchSub([]Subscription{topicA}, got["client1"], a)
 	a.Len(got["client2"], 0)
 }
 func testIterateShared(t *testing.T, store Store) {
@@ -251,8 +269,8 @@ func testIterateShared(t *testing.T, store Store) {
 	}, IterationOptions{
 		Type: TypeShared,
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client1"])
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client2"])
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client1"], a)
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client2"], a)
 
 	// Iterate all shared subscriptions with ClientID option.
 	got = make(ClientSubscriptions)
@@ -263,7 +281,7 @@ func testIterateShared(t *testing.T, store Store) {
 		Type:     TypeShared,
 		ClientID: "client1",
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client1"])
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2, sharedTopicB1, sharedTopicB2}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all shared subscriptions that matched given topic filter.
@@ -276,8 +294,8 @@ func testIterateShared(t *testing.T, store Store) {
 		MatchType: MatchName,
 		TopicName: "$share/" + sharedTopicA1.ShareName() + "/" + sharedTopicA1.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1}, got["client1"])
-	a.ElementsMatch([]Subscription{sharedTopicA1}, got["client2"])
+	ElementsMatchSub([]Subscription{sharedTopicA1}, got["client1"], a)
+	ElementsMatchSub([]Subscription{sharedTopicA1}, got["client2"], a)
 
 	// Iterate all shared subscriptions that matched given topic filter and client id
 	got = make(ClientSubscriptions)
@@ -290,7 +308,7 @@ func testIterateShared(t *testing.T, store Store) {
 		TopicName: "$share/" + sharedTopicA1.ShareName() + "/" + sharedTopicA1.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1}, got["client1"])
+	ElementsMatchSub([]Subscription{sharedTopicA1}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all shared subscriptions that matched given topic name.
@@ -303,8 +321,8 @@ func testIterateShared(t *testing.T, store Store) {
 		MatchType: MatchFilter,
 		TopicName: sharedTopicA1.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2}, got["client1"])
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2}, got["client2"])
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2}, got["client1"], a)
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2}, got["client2"], a)
 
 	// Iterate all shared subscriptions that matched given topic name and clientID
 	got = make(ClientSubscriptions)
@@ -317,7 +335,7 @@ func testIterateShared(t *testing.T, store Store) {
 		TopicName: sharedTopicA1.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{sharedTopicA1, sharedTopicA2}, got["client1"])
+	ElementsMatchSub([]Subscription{sharedTopicA1, sharedTopicA2}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 }
@@ -331,8 +349,8 @@ func testIterateSystem(t *testing.T, store Store) {
 	}, IterationOptions{
 		Type: TypeSYS,
 	})
-	a.ElementsMatch([]Subscription{systemTopicA, systemTopicB}, got["client1"])
-	a.ElementsMatch([]Subscription{systemTopicA, systemTopicB}, got["client2"])
+	ElementsMatchSub([]Subscription{systemTopicA, systemTopicB}, got["client1"], a)
+	ElementsMatchSub([]Subscription{systemTopicA, systemTopicB}, got["client2"], a)
 
 	// Iterate all system subscriptions with ClientID option.
 	got = make(ClientSubscriptions)
@@ -343,7 +361,7 @@ func testIterateSystem(t *testing.T, store Store) {
 		Type:     TypeSYS,
 		ClientID: "client1",
 	})
-	a.ElementsMatch([]Subscription{systemTopicA, systemTopicB}, got["client1"])
+	ElementsMatchSub([]Subscription{systemTopicA, systemTopicB}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all system subscriptions that matched given topic filter.
@@ -356,8 +374,8 @@ func testIterateSystem(t *testing.T, store Store) {
 		MatchType: MatchName,
 		TopicName: systemTopicA.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client1"])
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client2"])
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client1"], a)
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client2"], a)
 
 	// Iterate all system subscriptions that matched given topic filter and client id
 	got = make(ClientSubscriptions)
@@ -370,7 +388,7 @@ func testIterateSystem(t *testing.T, store Store) {
 		TopicName: systemTopicA.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client1"])
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 	// Iterate all system subscriptions that matched given topic name.
@@ -383,8 +401,8 @@ func testIterateSystem(t *testing.T, store Store) {
 		MatchType: MatchFilter,
 		TopicName: systemTopicA.TopicFilter(),
 	})
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client1"])
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client2"])
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client1"], a)
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client2"], a)
 
 	// Iterate all system subscriptions that matched given topic name and clientID
 	got = make(ClientSubscriptions)
@@ -397,7 +415,7 @@ func testIterateSystem(t *testing.T, store Store) {
 		TopicName: systemTopicA.TopicFilter(),
 		ClientID:  "client1",
 	})
-	a.ElementsMatch([]Subscription{systemTopicA}, got["client1"])
+	ElementsMatchSub([]Subscription{systemTopicA}, got["client1"], a)
 	a.Len(got["client2"], 0)
 
 }

@@ -20,7 +20,7 @@ var DefaultConfig = Config{
 	Listeners: DefaultListeners,
 	MQTT:      gmqtt.DefaultConfig,
 	Log: LogConfig{
-		Level: "debug",
+		Level: "info",
 	},
 	PidFile: getDefaultPidFile(),
 }
@@ -61,6 +61,7 @@ type WebsocketOptions struct {
 
 func (c *Config) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&c.MQTT.SessionExpiry, "mqtt.session-expiry", c.MQTT.SessionExpiry, "The maximum session timeout duration in seconds")
+	fs.DurationVar(&c.MQTT.SessionExpiry, "mqtt.session-expiry-check-interval", c.MQTT.SessionExpiry, "The interval of session expiry check.")
 	fs.DurationVar(&c.MQTT.MessageExpiry, "mqtt.message-expiry", c.MQTT.MessageExpiry, "The maximum message expiry duration in seconds")
 	fs.Uint32Var(&c.MQTT.MaxPacketSize, "mqtt.max-packet-size", c.MQTT.MaxPacketSize, "The maximum size of any MQTT packet in bytes that will be accepted by the broker. 0 means no limit")
 	fs.Uint16Var(&c.MQTT.ReceiveMax, "mqtt.server-receive-maximum", c.MQTT.ReceiveMax, "The maximum amount of PUBLISH messages, which have not yet been acknowledged by the broker")
@@ -141,7 +142,7 @@ func (c Config) GetLogger(config LogConfig) (l *zap.Logger, err error) {
 	if err != nil {
 		return
 	}
-	lc := zap.NewDevelopmentConfig()
+	lc := zap.NewProductionConfig()
 	lc.Level = zap.NewAtomicLevelAt(logLevel)
 	l, err = lc.Build()
 	return

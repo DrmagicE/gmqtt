@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 func TestReadWritePublishPacket_V5(t *testing.T) {
@@ -212,7 +214,7 @@ func TestPublish_NewPuback(t *testing.T) {
 		Qos:      Qos1,
 		PacketID: pid,
 	}
-	puback := pub.NewPuback()
+	puback := pub.NewPuback(codes.Success, nil)
 	if puback.PacketID != pid {
 		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketID)
 	}
@@ -224,7 +226,7 @@ func TestPublish_NewPubrec(t *testing.T) {
 		Qos:      Qos2,
 		PacketID: pid,
 	}
-	puback := pub.NewPubrec()
+	puback := pub.NewPubrec(codes.Success, nil)
 	if puback.PacketID != pid {
 		t.Fatalf("packet id error ,want %d, got %d", pid, puback.PacketID)
 	}

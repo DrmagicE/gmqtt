@@ -6,14 +6,15 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
+	"go.uber.org/zap"
+
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-var validUserMu sync.Mutex
 var validUser = map[string]string{
 	"root":          "rootpwd",
 	"qos0":          "0pwd",
@@ -23,8 +24,6 @@ var validUser = map[string]string{
 }
 
 func validateUser(username string, password string) bool {
-	validUserMu.Lock()
-	defer validUserMu.Unlock()
 	if pwd, ok := validUser[username]; ok {
 		if pwd == password {
 			return true
@@ -40,61 +39,112 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-
 	//authentication
-	onConnect := func(ctx context.Context, client gmqtt.Client) (code uint8) {
-		username := client.OptionsReader().Username()
-		password := client.OptionsReader().Password()
+	var onBasicAuth gmqtt.OnBasicAuth = func(ctx context.Context, client gmqtt.Client, req *gmqtt.ConnectRequest) (resp *gmqtt.ConnectResponse) {
+		username := string(req.Connect.Username)
+		password := string(req.Connect.Password)
 		if validateUser(username, password) {
-			return packets.CodeAccepted
+			return &gmqtt.ConnectResponse{
+				Code: codes.Success,
+			}
 		}
-		return packets.CodeBadUsernameorPsw
+		switch client.Version() {
+		case packets.Version5:
+			return &gmqtt.ConnectResponse{
+				Code: codes.BadUserNameOrPassword,
+			}
+		case packets.Version311:
+			return &gmqtt.ConnectResponse{
+				Code: codes.V3BadUsernameorPassword,
+			}
+		}
+		return nil
 	}
 
-	// acl
-	onSubscribe := func(ctx context.Context, client gmqtt.Client, topic packets.Topic) (qos uint8) {
-		if client.OptionsReader().Username() == "root" {
-			return topic.Qos
+	var onSubscribe gmqtt.OnSubscribe = func(ctx context.Context, client gmqtt.Client, subscribe *packets.Subscribe) (resp *gmqtt.SubscribeResponse, errDetails *codes.ErrorDetails) {
+		resp = &gmqtt.SubscribeResponse{
+			Topics: subscribe.Topics,
 		}
-		if client.OptionsReader().Username() == "qos0" {
-			if topic.Qos <= packets.Qos0 {
-				return topic.Qos
+		username := client.ClientOptions().Username
+		for k := range resp.Topics {
+			switch username {
+			case "root":
+			case "qos0":
+				resp.Topics[k].Qos = packets.Qos0
+			case "qos1":
+				resp.Topics[k].Qos = packets.Qos1
+			case "publishonly":
+				resp.Topics[k].Qos = packets.SubscribeFailure
+				if client.Version() == packets.Version5 {
+					errDetails = &codes.ErrorDetails{
+						ReasonString: []byte("publish only"),
+						UserProperties: []struct {
+							K []byte
+							V []byte
+						}{
+							{
+								K: []byte("key"),
+								V: []byte("value"),
+							},
+						},
+					}
+				}
+
 			}
-			return packets.Qos0
 		}
-		if client.OptionsReader().Username() == "qos1" {
-			if topic.Qos <= packets.Qos1 {
-				return topic.Qos
-			}
-			return packets.Qos1
-		}
-		if client.OptionsReader().Username() == "publishonly" {
-			return packets.SubscribeFailure
-		}
-		return topic.Qos
+		return resp, errDetails
 	}
-	onMsgArrived := func(ctx context.Context, client gmqtt.Client, msg packets.Message) (valid bool) {
-		if client.OptionsReader().Username() == "subscribeonly" {
-			client.Close()
-			return false
+
+	var onMsgArrived gmqtt.OnMsgArrived = func(ctx context.Context, client gmqtt.Client, publish *packets.Publish) (message packets.Message, e error) {
+		version := client.Version()
+		if client.ClientOptions().Username == "subscribeonly" {
+			switch version {
+			case packets.Version311:
+				client.Close()
+			case packets.Version5:
+				client.Disconnect(&packets.Disconnect{
+					Version: packets.Version5,
+					Code:    codes.UnspecifiedError,
+				})
+
+			}
 		}
 		//Only qos1 & qos0 are acceptable(will be delivered)
-		if msg.Qos() == packets.Qos2 {
-			return false
+		if publish.Qos == packets.Qos2 {
+			switch version {
+			case packets.Version311:
+				return nil, nil
+			case packets.Version5:
+				return nil, &codes.Error{
+					Code: codes.NotAuthorized,
+					ErrorDetails: codes.ErrorDetails{
+						ReasonString: []byte("not authorized"),
+						UserProperties: []struct {
+							K []byte
+							V []byte
+						}{
+							{
+								K: []byte("user property key"),
+								V: []byte("user property value"),
+							},
+						},
+					},
+				}
+			}
 		}
-		return true
+		return gmqtt.MessageFromPublish(publish), nil
 	}
 	onClose := func(ctx context.Context, client gmqtt.Client, err error) {
-		log.Println("client id:"+client.OptionsReader().ClientID()+"is closed with error:", err)
+		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
 	}
 	onStop := func(ctx context.Context) {
 		log.Println("stop")
 	}
 	onDeliver := func(ctx context.Context, client gmqtt.Client, msg packets.Message) {
-		log.Printf("delivering message %s to client %s", msg.Payload(), client.OptionsReader().ClientID())
+		log.Printf("delivering message %s to client %s", msg.Payload(), client.ClientOptions().ClientID)
 	}
 	hooks := gmqtt.Hooks{
-		OnConnect:    onConnect,
+		OnBasicAuth:  onBasicAuth,
 		OnSubscribe:  onSubscribe,
 		OnMsgArrived: onMsgArrived,
 		OnClose:      onClose,
@@ -102,16 +152,15 @@ func main() {
 		OnDeliver:    onDeliver,
 	}
 
+	l, _ := zap.NewDevelopment()
 	s := gmqtt.NewServer(
 		gmqtt.WithTCPListener(ln),
 		gmqtt.WithHook(hooks),
+		gmqtt.WithLogger(l),
 	)
-
-	log.Println("started...")
 	s.Run()
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	s.Stop(context.Background())
-	log.Println("stopped")
 }

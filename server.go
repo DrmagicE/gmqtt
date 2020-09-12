@@ -3,6 +3,7 @@ package gmqtt
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"net"
 	"net/http"
 	"sync"
@@ -63,7 +64,7 @@ type Server interface {
 	GetStatsManager() StatsManager
 	// Stop stop the server gracefully
 	Stop(ctx context.Context) error
-	// Reload the server
+	// ApplyConfig will replace the config of the server
 	ApplyConfig(config Config)
 }
 
@@ -94,8 +95,10 @@ type server struct {
 	statsManager   StatsManager
 	publishService PublishService
 
+	msgRouter chan *Msg
+
 	// for testing
-	deliverMessageHandler func(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool)
+	deliverMessageHandler func(srcClientID string, dstClientID string, msg packets.Message) (matched bool)
 }
 
 func (srv *server) ApplyConfig(config Config) {
@@ -140,19 +143,13 @@ func (srv *server) GetStatsManager() StatsManager {
 	return srv.statsManager
 }
 
-type msgRouter struct {
-	msg         packets.Message
-	clientID    string
-	srcClientID string
-}
-
 // Status returns the server status
 func (srv *server) Status() int32 {
 	return atomic.LoadInt32(&srv.status)
 }
 
 // 已经判断是成功了，注册
-func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, client *client) {
+func (srv *server) registerClient(connect *packets.Connect, ppt *packets.Properties, client *client) {
 	now := time.Now()
 	defer close(client.ready)
 	srv.mu.Lock()
@@ -203,10 +200,10 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 			}
 			// send will message because session ends
 			if !sessionResume {
-				srv.deliverMessage(oldClient.opts.ClientID, packets.TotalBytes(willMsg), messageFromPublish(willMsg))
+				srv.deliverMessageHandler(oldClient.opts.ClientID, "", MessageFromPublish(willMsg))
 			} else if oldClient.version == packets.Version5 && convertUint32(oldClient.opts.Will.Properties.WillDelayInterval, 0) == 0 {
 				// send will message because connection ends when will interval == 0
-				srv.deliverMessage(oldClient.opts.ClientID, packets.TotalBytes(willMsg), messageFromPublish(willMsg))
+				srv.deliverMessageHandler(oldClient.opts.ClientID, "", MessageFromPublish(willMsg))
 			} else if m, ok := srv.willMessage[client.opts.ClientID]; ok {
 				close(m.cancel)
 				delete(srv.willMessage, client.opts.ClientID)
@@ -215,7 +212,7 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 	}
 
 	connack := connect.NewConnackPacket(codes.Success, sessionResume)
-	connack.Properties = ack.Properties
+	connack.Properties = ppt
 	client.out <- connack
 
 	if sessionResume { //发送还未确认的消息和离线消息队列 sending inflight messages & offline message
@@ -248,7 +245,7 @@ func (srv *server) registerClient(connect *packets.Connect, ack *AuthResponse, c
 		}
 		oldSession.awaitRelMu.Unlock()
 
-		//send offline msg
+		//send offline Msg
 		oldSession.msgQueueMu.Lock()
 		for e := oldSession.msgQueue.Front(); e != nil; e = e.Next() {
 			if elem, ok := e.Value.(*queueElem); ok {
@@ -325,7 +322,7 @@ func (srv *server) unregisterClient(client *client) {
 			Payload:    client.opts.Will.Payload,
 			Properties: client.opts.Will.Properties,
 		}
-		msg := messageFromPublish(will)
+		msg := MessageFromPublish(will)
 		var willDelayInterval uint32
 		if client.version == packets.Version5 {
 			willDelayInterval = convertUint32(client.opts.Will.Properties.WillDelayInterval, 0)
@@ -346,12 +343,12 @@ func (srv *server) unregisterClient(client *client) {
 					t.Stop()
 				case <-t.C:
 					srv.mu.Lock()
-					srv.deliverMessage(clientID, packets.TotalBytes(will), msg)
+					srv.deliverMessageHandler(clientID, "", msg)
 					srv.mu.Unlock()
 				}
 			}(client.opts.ClientID)
 		} else {
-			srv.deliverMessage(client.opts.ClientID, packets.TotalBytes(will), msg)
+			srv.deliverMessageHandler(client.opts.ClientID, "", msg)
 		}
 	}
 
@@ -364,6 +361,17 @@ func (srv *server) unregisterClient(client *client) {
 			zap.Time("expired_at", expiredTime),
 		)
 		srv.statsManager.addSessionInactive()
+	clearOut:
+		for {
+			select {
+			case p := <-client.out:
+				if p, ok := p.(*packets.Publish); ok {
+					client.msgEnQueue(p)
+				}
+			default:
+				break clearOut
+			}
+		}
 	} else {
 		zaplog.Info("logged out and cleaning session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
@@ -377,17 +385,18 @@ func (srv *server) unregisterClient(client *client) {
 	}
 }
 
-func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg packets.Message) (matched bool) {
-	// subscriber (client id) list of shared subscriptions
+// deliverMessage send msg to matched client.
+func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+	// subscriber (client id) list of shared subscriptions, key by share name.
 	sharedList := make(map[string][]struct {
 		clientID string
 		sub      subscription.Subscription
 	})
-
 	maxQos := make(map[string]*struct {
 		sub    subscription.Subscription
 		subIDs []uint32
 	})
+	totalBytes := msg.TotalBytes()
 	// 先取的所有的share 和unshare
 	srv.subscriptionsDB.Iterate(func(clientID string, sub subscription.Subscription) bool {
 		if sub.NoLocal() && clientID == srcClientID {
@@ -436,10 +445,10 @@ func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg pac
 		return true
 	}, subscription.IterationOptions{
 		Type:      subscription.TypeAll,
+		ClientID:  dstClientID,
 		MatchType: subscription.MatchFilter,
 		TopicName: msg.Topic(),
 	})
-	// TODO
 	if srv.config.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if c := srv.clients[clientID]; c != nil {
@@ -463,17 +472,32 @@ func (srv *server) deliverMessage(srcClientID string, totalBytes uint32, msg pac
 		}
 	}
 
-	// unshare
+	// shared subscription
 	// TODO 实现一个钩子函数，自定义随机逻辑。 在shared里面挑一个
 	for _, v := range sharedList {
-		if c, ok := srv.clients[v[0].clientID]; ok {
+		var rs struct {
+			clientID string
+			sub      subscription.Subscription
+		}
+		if dstClientID != "" {
+			for _, vv := range v {
+				if vv.clientID == dstClientID {
+					rs = vv
+					break
+				}
+			}
+		} else {
+			// random
+			rs = v[rand.Intn(len(v))]
+		}
+		if c, ok := srv.clients[rs.clientID]; ok {
 			publish := messageToPublish(msg, c.version)
-			if publish.Qos > v[0].sub.QoS() {
-				publish.Qos = v[0].sub.QoS()
+			if publish.Qos > rs.sub.QoS() {
+				publish.Qos = rs.sub.QoS()
 			}
 			publish.Properties.SubscriptionIdentifier = []uint32{v[0].sub.ID()}
 			publish.Dup = false
-			if !v[0].sub.RetainAsPublished() {
+			if !rs.sub.RetainAsPublished() {
 				publish.Retain = false
 			}
 			c.publish(publish)
@@ -510,14 +534,19 @@ func (srv *server) sessionExpireCheck() {
 
 // server event loop
 func (srv *server) eventLoop() {
-	// TODO
-	sessionExpireTimer := time.NewTicker(time.Second * 10)
-	defer sessionExpireTimer.Stop()
+	sessionExpireTimer := time.NewTicker(time.Second * 20)
+	defer func() {
+		sessionExpireTimer.Stop()
+		srv.wg.Done()
+	}()
 	for {
 		select {
+		case <-srv.exitChan:
+			return
 		case <-sessionExpireTimer.C:
 			srv.sessionExpireCheck()
 		}
+
 	}
 }
 
@@ -595,15 +624,12 @@ func (srv *server) serveTCP(l net.Listener) {
 			}
 			return
 		}
-
-		// onAccept hooks
 		if srv.hooks.OnAccept != nil {
 			if !srv.hooks.OnAccept(context.Background(), rw) {
 				rw.Close()
 				continue
 			}
 		}
-
 		client := srv.newClient(rw)
 		go client.serve()
 	}
@@ -698,7 +724,8 @@ func (srv *server) loadPlugins() error {
 
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
-		onConnectWrappers          []OnConnectWrapper
+		onBasicAuthWrappers        []OnBasicAuthWrapper
+		onEnhancedAuthWrappers     []OnEnhancedAuthWrapper
 		onConnectedWrappers        []OnConnectedWrapper
 		onSessionCreatedWrapper    []OnSessionCreatedWrapper
 		onSessionResumedWrapper    []OnSessionResumedWrapper
@@ -724,8 +751,11 @@ func (srv *server) loadPlugins() error {
 		if hooks.OnAcceptWrapper != nil {
 			onAcceptWrappers = append(onAcceptWrappers, hooks.OnAcceptWrapper)
 		}
-		if hooks.OnConnectWrapper != nil {
-			onConnectWrappers = append(onConnectWrappers, hooks.OnConnectWrapper)
+		if hooks.OnBasicAuthWrapper != nil {
+			onBasicAuthWrappers = append(onBasicAuthWrappers, hooks.OnBasicAuthWrapper)
+		}
+		if hooks.OnEnhancedAuthWrapper != nil {
+			onEnhancedAuthWrappers = append(onEnhancedAuthWrappers, hooks.OnEnhancedAuthWrapper)
 		}
 		if hooks.OnConnectedWrapper != nil {
 			onConnectedWrappers = append(onConnectedWrappers, hooks.OnConnectedWrapper)
@@ -767,7 +797,6 @@ func (srv *server) loadPlugins() error {
 			onStopWrappers = append(onStopWrappers, hooks.OnStopWrapper)
 		}
 	}
-	// onAccept
 	if onAcceptWrappers != nil {
 		onAccept := func(ctx context.Context, conn net.Conn) bool {
 			return true
@@ -777,20 +806,29 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnAccept = onAccept
 	}
-	// onConnect
-	if onConnectWrappers != nil {
-		onConnect := func(ctx context.Context, req ConnectRequest, client Client) *AuthResponse {
-			return &AuthResponse{
-				Code:       codes.Success,
-				Properties: req.DefaultConnackProperties(),
+	if onBasicAuthWrappers != nil {
+		onBasicAuth := func(ctx context.Context, client Client, req *ConnectRequest) (resp *ConnectResponse) {
+			return &ConnectResponse{
+				Code: codes.Success,
 			}
 		}
-		for i := len(onConnectWrappers); i > 0; i-- {
-			onConnect = onConnectWrappers[i-1](onConnect)
+		for i := len(onBasicAuthWrappers); i > 0; i-- {
+			onBasicAuth = onBasicAuthWrappers[i-1](onBasicAuth)
 		}
-		srv.hooks.OnConnect = onConnect
+		srv.hooks.OnBasicAuth = onBasicAuth
 	}
-	// onConnected
+	if onEnhancedAuthWrappers != nil {
+		onEnhancedAuth := func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse) {
+			return &EnhancedAuthResponse{
+				Code: codes.Success,
+			}
+		}
+		for i := len(onEnhancedAuthWrappers); i > 0; i-- {
+			onEnhancedAuth = onEnhancedAuthWrappers[i-1](onEnhancedAuth)
+		}
+		srv.hooks.OnEnhancedAuth = onEnhancedAuth
+	}
+
 	if onConnectedWrappers != nil {
 		onConnected := func(ctx context.Context, client Client) {}
 		for i := len(onConnectedWrappers); i > 0; i-- {
@@ -798,7 +836,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnConnected = onConnected
 	}
-	// onSessionCreated
 	if onSessionCreatedWrapper != nil {
 		onSessionCreated := func(ctx context.Context, client Client) {}
 		for i := len(onSessionCreatedWrapper); i > 0; i-- {
@@ -806,8 +843,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnSessionCreated = onSessionCreated
 	}
-
-	// onSessionResumed
 	if onSessionResumedWrapper != nil {
 		onSessionResumed := func(ctx context.Context, client Client) {}
 		for i := len(onSessionResumedWrapper); i > 0; i-- {
@@ -815,8 +850,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnSessionResumed = onSessionResumed
 	}
-
-	// onSessionTerminated
 	if onSessionTerminatedWrapper != nil {
 		onSessionTerminated := func(ctx context.Context, client Client, reason SessionTerminatedReason) {}
 		for i := len(onSessionTerminatedWrapper); i > 0; i-- {
@@ -824,26 +857,24 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnSessionTerminated = onSessionTerminated
 	}
-
-	// onSubscribe
 	if onSubscribeWrappers != nil {
-		onSubscribe := func(ctx context.Context, client Client, topic packets.Topic) (qos uint8) {
-			return topic.Qos
+		onSubscribe := func(ctx context.Context, client Client, subscribe *packets.Subscribe) (*SubscribeResponse, *codes.ErrorDetails) {
+			return &SubscribeResponse{
+				Topics: subscribe.Topics,
+			}, nil
 		}
 		for i := len(onSubscribeWrappers); i > 0; i-- {
 			onSubscribe = onSubscribeWrappers[i-1](onSubscribe)
 		}
 		srv.hooks.OnSubscribe = onSubscribe
 	}
-	// onSubscribed
 	if onSubscribedWrappers != nil {
-		onSubscribed := func(ctx context.Context, client Client, topic packets.Topic) {}
+		onSubscribed := func(ctx context.Context, client Client, subscription subscription.Subscription) {}
 		for i := len(onSubscribedWrappers); i > 0; i-- {
 			onSubscribed = onSubscribedWrappers[i-1](onSubscribed)
 		}
 		srv.hooks.OnSubscribed = onSubscribed
 	}
-	//onUnsubscribed
 	if onUnsubscribedWrappers != nil {
 		onUnsubscribed := func(ctx context.Context, client Client, topicName string) {}
 		for i := len(onUnsubscribedWrappers); i > 0; i-- {
@@ -851,17 +882,15 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
-	// onMsgArrived
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
-			return true
+		onMsgArrived := func(ctx context.Context, client Client, pub *packets.Publish) (packets.Message, error) {
+			return MessageFromPublish(pub), nil
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
 			onMsgArrived = onMsgArrivedWrappers[i-1](onMsgArrived)
 		}
 		srv.hooks.OnMsgArrived = onMsgArrived
 	}
-	// onDeliver
 	if onDeliverWrappers != nil {
 		onDeliver := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onDeliverWrappers); i > 0; i-- {
@@ -869,7 +898,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnDeliver = onDeliver
 	}
-	// onAcked
 	if onAckedWrappers != nil {
 		onAcked := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onAckedWrappers); i > 0; i-- {
@@ -877,7 +905,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnAcked = onAcked
 	}
-	// onClose hooks
 	if onCloseWrappers != nil {
 		onClose := func(ctx context.Context, client Client, err error) {}
 		for i := len(onCloseWrappers); i > 0; i-- {
@@ -885,7 +912,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnClose = onClose
 	}
-	// onStop
 	if onStopWrappers != nil {
 		onStop := func(ctx context.Context) {}
 		for i := len(onStopWrappers); i > 0; i-- {
@@ -893,8 +919,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnStop = onStop
 	}
-
-	// onMsgDropped
 	if onMsgDroppedWrappers != nil {
 		onMsgDropped := func(ctx context.Context, client Client, msg packets.Message) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
@@ -902,7 +926,6 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnMsgDropped = onMsgDropped
 	}
-
 	return nil
 }
 
@@ -910,7 +933,7 @@ func (srv *server) wsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := defaultUpgrader.Upgrade(w, r, nil)
 		if err != nil {
-			zaplog.Warn("websocket upgrade error", zap.String("msg", err.Error()))
+			zaplog.Warn("websocket upgrade error", zap.String("Msg", err.Error()))
 			return
 		}
 		defer c.Close()
@@ -938,6 +961,7 @@ func (srv *server) Run() {
 		panic(err)
 	}
 	srv.status = serverStatusStarted
+	srv.wg.Add(1)
 	go srv.eventLoop()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
@@ -951,7 +975,7 @@ func (srv *server) Run() {
 }
 
 // Stop gracefully stops the mqtt server by the following steps:
-//  1. Closing all open TCP listeners and shutting down all open websocket servers
+//  1. Closing all opening TCP listeners and shutting down all opening websocket servers
 //  2. Closing all idle connections
 //  3. Waiting for all connections have been closed
 //  4. Triggering OnStop()
@@ -967,6 +991,7 @@ func (srv *server) Stop(ctx context.Context) error {
 	default:
 		close(srv.exitChan)
 	}
+	srv.wg.Wait()
 	for _, l := range srv.tcpListener {
 		l.Close()
 	}

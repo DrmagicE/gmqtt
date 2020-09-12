@@ -5,6 +5,7 @@ listeners:
     - address: ":1234"
 mqtt:
   session_expiry: 3m
+  session_expiry_check_timer: 20s
   message_expiry: 1m
   max_packet_size: 200
   server_receive_maximum: 65535

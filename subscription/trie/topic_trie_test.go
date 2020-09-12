@@ -203,7 +203,7 @@ func TestTopicTrie_matchedClients(t *testing.T) {
 	a := assert.New(t)
 	for _, v := range testTopicMatch {
 		trie := newTopicTrie()
-		trie.subscribe("cid", v.subTopic, subOpts{})
+		trie.subscribe("cid", v.subTopic, sub{})
 		qos := trie.getMatchedTopicFilter(v.topic)
 		if v.isMatch {
 			a.EqualValues(qos["cid"][0].QoS(), 0)
@@ -219,7 +219,7 @@ func TestTopicTrie_matchedClients_Qos(t *testing.T) {
 	for _, v := range topicMatchQosTest {
 		trie := newTopicTrie()
 		for _, tt := range v.topics {
-			trie.subscribe("cid", tt.Name, subOpts{
+			trie.subscribe("cid", tt.Name, sub{
 				qos: tt.Qos,
 			})
 		}
@@ -233,7 +233,7 @@ func TestTopicTrie_subscribeAndFind(t *testing.T) {
 	trie := newTopicTrie()
 	for cid, v := range testSubscribeAndFind.subTopics {
 		for _, topic := range v {
-			trie.subscribe(cid, topic.Name, subOpts{
+			trie.subscribe(cid, topic.Name, sub{
 				qos: topic.Qos,
 			})
 		}
@@ -258,7 +258,7 @@ func TestTopicTrie_unsubscribe(t *testing.T) {
 	trie := newTopicTrie()
 	for cid, v := range testUnsubscribe.subTopics {
 		for _, topic := range v {
-			trie.subscribe(cid, topic.Name, subOpts{
+			trie.subscribe(cid, topic.Name, sub{
 				qos: topic.Qos,
 			})
 		}
@@ -284,7 +284,7 @@ func TestTopicTrie_preOrderTraverse(t *testing.T) {
 	a := assert.New(t)
 	trie := newTopicTrie()
 	for _, v := range testPreOrderTraverse.topics {
-		trie.subscribe(testPreOrderTraverse.clientID, v.Name, subOpts{
+		trie.subscribe(testPreOrderTraverse.clientID, v.Name, sub{
 			qos: v.Qos,
 		})
 	}

@@ -18,8 +18,8 @@ func TestReadWriteDisconnectPacket_V5(t *testing.T) {
 		{
 			testname:   "omit properties when code = 0",
 			code:       codes.Success,
-			properties: nil,
-			want:       []byte{0xe0, 0},
+			properties: &Properties{},
+			want:       []byte{0xe0, 0x02, 0x00, 0x00},
 		},
 		{
 			testname: "code = 0 with properties",

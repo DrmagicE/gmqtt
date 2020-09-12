@@ -2,7 +2,8 @@ package gmqtt
 
 // HookWrapper groups all hook wrappers function
 type HookWrapper struct {
-	OnConnectWrapper           OnConnectWrapper
+	OnBasicAuthWrapper         OnBasicAuthWrapper
+	OnEnhancedAuthWrapper      OnEnhancedAuthWrapper
 	OnConnectedWrapper         OnConnectedWrapper
 	OnSessionCreatedWrapper    OnSessionCreatedWrapper
 	OnSessionResumedWrapper    OnSessionResumedWrapper

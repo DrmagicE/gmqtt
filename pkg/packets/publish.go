@@ -26,29 +26,6 @@ func (p *Publish) String() string {
 		p.Version, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload, p.Properties)
 }
 
-// CopyPublish 将 publish 复制一份
-//
-// CopyPublish returns the copied publish struct for distribution
-func (p *Publish) CopyPublish() *Publish {
-	pub := &Publish{
-		Version:    p.Version,
-		Dup:        p.Dup,
-		Qos:        p.Qos,
-		Retain:     p.Retain,
-		PacketID:   p.PacketID,
-		TopicName:  p.TopicName,
-		Payload:    p.Payload,
-		Properties: p.Properties,
-	}
-	// TODO property Copy
-
-	/*	pub.Payload = make([]byte, len(p.Payload))
-		pub.TopicName = make([]byte, len(p.TopicName))
-		copy(pub.TopicName, p.TopicName)
-		copy(pub.Payload, p.Payload)*/
-	return pub
-}
-
 // NewPublishPacket returns a Publish instance by the given FixHeader and io.Reader.
 func NewPublishPacket(fh *FixHeader, version Version, r io.Reader) (*Publish, error) {
 	p := &Publish{FixHeader: fh, Version: version}
@@ -136,21 +113,23 @@ func (p *Publish) Unpack(r io.Reader) error {
 }
 
 // NewPuback returns the puback struct related to the publish struct in QoS 1
-func (p *Publish) NewPuback(code codes.Code) *Puback {
+func (p *Publish) NewPuback(code codes.Code, ppt *Properties) *Puback {
 	pub := &Puback{
-		Version:  p.Version,
-		Code:     code,
-		PacketID: p.PacketID,
+		Version:    p.Version,
+		Code:       code,
+		PacketID:   p.PacketID,
+		Properties: ppt,
 	}
 	return pub
 }
 
 // NewPubrec returns the pubrec struct related to the publish struct in QoS 2
-func (p *Publish) NewPubrec(code codes.Code) *Pubrec {
+func (p *Publish) NewPubrec(code codes.Code, ppt *Properties) *Pubrec {
 	pub := &Pubrec{
-		Version:  p.Version,
-		Code:     code,
-		PacketID: p.PacketID,
+		Version:    p.Version,
+		Code:       code,
+		PacketID:   p.PacketID,
+		Properties: ppt,
 	}
 	return pub
 }

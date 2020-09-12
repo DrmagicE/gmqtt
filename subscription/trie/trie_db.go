@@ -46,16 +46,16 @@ func iterateShared(fn subscription.IterateFn, options subscription.IterationOpti
 		}
 		if options.ClientID != "" { // 指定topicName & 指定clientID
 			if c := node.shared[shareName]; c != nil {
-				if subOpts, ok := c[options.ClientID]; ok {
-					if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+				if sub, ok := c[options.ClientID]; ok {
+					if !fn(options.ClientID, sub.subscription(node.topicName)) {
 						return false
 					}
 				}
 			}
 		} else {
 			if c := node.shared[shareName]; c != nil {
-				for clientID, subOpts := range c {
-					if !fn(clientID, subOpts.subscription(node.topicName)) {
+				for clientID, sub := range c {
+					if !fn(clientID, sub.subscription(node.topicName)) {
 						return false
 					}
 				}
@@ -90,8 +90,8 @@ func iterateShared(fn subscription.IterateFn, options subscription.IterationOpti
 	if options.ClientID != "" {
 		for topicFilter, v := range index[options.ClientID] {
 			for _, c := range v.shared {
-				if subOpts, ok := c[options.ClientID]; ok {
-					if !fn(options.ClientID, subOpts.subscription(topicFilter)) {
+				if sub, ok := c[options.ClientID]; ok {
+					if !fn(options.ClientID, sub.subscription(topicFilter)) {
 						return false
 					}
 				}
@@ -111,15 +111,15 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 			return true
 		}
 		if options.ClientID != "" { // 指定topicName & 指定clientID
-			if subOpts, ok := node.clients[options.ClientID]; ok {
-				if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+			if sub, ok := node.clients[options.ClientID]; ok {
+				if !fn(options.ClientID, sub.subscription(node.topicName)) {
 					return false
 				}
 			}
 
 			for _, v := range node.shared {
-				if subOpts, ok := v[options.ClientID]; ok {
-					if !fn(options.ClientID, subOpts.subscription(node.topicName)) {
+				if sub, ok := v[options.ClientID]; ok {
+					if !fn(options.ClientID, sub.subscription(node.topicName)) {
 						return false
 					}
 				}
@@ -127,14 +127,14 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 
 		} else {
 			// 指定topic name 不指定clientid
-			for clientID, subOpts := range node.clients {
-				if !fn(clientID, subOpts.subscription(node.topicName)) {
+			for clientID, sub := range node.clients {
+				if !fn(clientID, sub.subscription(node.topicName)) {
 					return false
 				}
 			}
 			for _, c := range node.shared {
-				for clientID, subOpts := range c {
-					if !fn(clientID, subOpts.subscription(node.topicName)) {
+				for clientID, sub := range c {
+					if !fn(clientID, sub.subscription(node.topicName)) {
 						return false
 					}
 				}
@@ -169,8 +169,8 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 	// 查询指定clientID下的所有topic
 	if options.ClientID != "" {
 		for topicFilter, v := range index[options.ClientID] {
-			subOpts := v.clients[options.ClientID]
-			if !fn(options.ClientID, subOpts.subscription(topicFilter)) {
+			sub := v.clients[options.ClientID]
+			if !fn(options.ClientID, sub.subscription(topicFilter)) {
 				return false
 			}
 		}
@@ -190,8 +190,11 @@ func (db *trieDB) Iterate(fn subscription.IterateFn, options subscription.Iterat
 		}
 	}
 	if options.Type&subscription.TypeNonShared == subscription.TypeNonShared {
-		if !iterateNonShared(fn, options, db.userIndex, db.userTrie) {
-			return
+		// The Server MUST NOT match Topic Filters starting with a wildcard character (# or +) with Topic Names beginning with a $ character [MQTT-4.7.2-1]
+		if !(options.TopicName != "" && isSystemTopic(options.TopicName)) {
+			if !iterateNonShared(fn, options, db.userIndex, db.userTrie) {
+				return
+			}
 		}
 	}
 	if options.Type&subscription.TypeSYS == subscription.TypeSYS {

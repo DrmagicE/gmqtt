@@ -5,24 +5,24 @@ import (
 )
 
 var (
-	ErrMalformed = &Error{code: MalformedPacket}
-	ErrProtocol  = &Error{code: ProtocolError}
+	ErrMalformed = &Error{Code: MalformedPacket}
+	ErrProtocol  = &Error{Code: ProtocolError}
 )
 
-// There are the possible code in v311 connack packet.
+// There are the possible Code in v311 connack packet.
 const (
-	Accepted                    = 0x00
-	UnacceptableProtocolVersion = 0x01
-	IdentifierRejected          = 0x02
-	ServerUnavaliable           = 0x03
-	BadUsernameorPsw            = 0x04
-	NotAuthorizedV3             = 0x05
+	V3Accepted                    = 0x00
+	V3UnacceptableProtocolVersion = 0x01
+	V3IdentifierRejected          = 0x02
+	V3ServerUnavaliable           = 0x03
+	V3BadUsernameorPassword       = 0x04
+	V3NotAuthorized               = 0x05
 )
 
 //  Code
 type Code = byte
 
-//  There are the possible reason code in v5
+//  There are the possible reason Code in v5
 const (
 	Success                     Code = 0x00
 	NormalDisconnection         Code = 0x00
@@ -70,18 +70,28 @@ const (
 	WildcardSubNotSupported     Code = 0xA2
 )
 
-// Error wraps a pointer of a status proto. It implements error and Status,
-// and a nil *Error should never be returned by this package.
+// Error wraps a MQTT reason code and error details.
 type Error struct {
-	code Code
+	// Code is the MQTT Reason Code
+	Code Code
+	ErrorDetails
 }
 
-func (e *Error) Code() Code {
-	return e.code
+// ErrorDetails wraps reason string and user property for diagnostics.
+type ErrorDetails struct {
+	// ReasonString is the reason string field in property.
+	// https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901029
+	ReasonString []byte
+	// UserProperties is the user property field in property.
+	UserProperties []struct {
+		K []byte
+		V []byte
+	}
 }
+
 func (e *Error) Error() string {
-	return fmt.Sprintf("operation error: code = %x", e.code)
+	return fmt.Sprintf("operation error: Code = %x", e.Code)
 }
 func NewError(code Code) *Error {
-	return &Error{code: code}
+	return &Error{Code: code}
 }

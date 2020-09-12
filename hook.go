@@ -6,6 +6,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 type Hooks struct {
@@ -13,10 +14,12 @@ type Hooks struct {
 	OnStop
 	OnSubscribe
 	OnSubscribed
+	OnUnSubscribe
 	OnUnsubscribed
 	OnMsgArrived
-	OnConnect
-	OnAuth
+	OnBasicAuth
+	OnEnhancedAuth
+	OnReAuth
 	OnConnected
 	OnSessionCreated
 	OnSessionResumed
@@ -48,12 +51,23 @@ OnSubscribe returns the maximum available QoS for the topic:
  0x02 - Success - Maximum QoS 2
  0x80 - Failure
 */
-type OnSubscribe func(ctx context.Context, client Client, topic packets.Topic) (qos uint8)
+type OnSubscribe func(ctx context.Context, client Client, subscribe *packets.Subscribe) (resp *SubscribeResponse, err *codes.ErrorDetails)
+
+type SubscribeResponse struct {
+	// Topics is the topics that will be subscribed, and the length MUST equal to the length of Topics field in given subscribe packets.
+	// If you don't want to modify the topics, set this field equal to subscribe.Topics.
+	Topics []packets.Topic
+	// ID is the subscription identifier.
+	// This field will be ignored if the client version is not v5.
+	// nil =  Use default subscription identifier which is defined by given subscribe packet.
+	// 0 = Delete subscription identifier.
+	ID *uint32
+}
 
 type OnSubscribeWrapper func(OnSubscribe) OnSubscribe
 
 // OnSubscribed will be called after the topic subscribe successfully
-type OnSubscribed func(ctx context.Context, client Client, topic packets.Topic)
+type OnSubscribed func(ctx context.Context, client Client, subscription subscription.Subscription)
 
 type OnSubscribedWrapper func(OnSubscribed) OnSubscribed
 
@@ -62,51 +76,72 @@ type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
 
 type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
-// OnMsgArrived 返回接收到的publish报文是否允许转发，返回false则该报文不会被继续转发
-//
-// OnMsgArrived returns whether the publish in will be delivered or not.
-// If returns false, the in will not be delivered to any clients.
-type OnMsgArrived func(ctx context.Context, client Client, msg packets.Message) (valid bool)
+type OnUnSubscribe func(ctx context.Context, client Client, unsubscribe *packets.Unsubscribe) (topicNames []string, err *codes.ErrorDetails)
+
+// OnMsgArrived will be called when receive a publish packets.
+// The returned message will be passed to topic match process and delivered to those matched clients.
+// If return nil message, no message will be deliver.
+// The error is for V5 client to provide additional information for diagnostics and will be ignored if the version of current client is V3.
+// If the returned error type is *codes.Error, the code, reason string and user property will be set into the ack packet(puback for qos1, and pubrel for qos2);
+// otherwise, the code,reason string  will be set to 0x80 and error.Error().
+type OnMsgArrived func(ctx context.Context, client Client, publish *packets.Publish) (packets.Message, error)
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
 
-// OnClose tcp连接关闭之后触发
-//
 // OnClose will be called after the tcp connection of the client has been closed
 type OnClose func(ctx context.Context, client Client, err error)
 
 type OnCloseWrapper func(OnClose) OnClose
 
-// OnConnect 当合法的connect报文到达的时候触发，返回connack中响应码
-//
-// OnConnect will be called when a valid connect in is received.
-// It returns the code of the connack in
-type OnConnect func(ctx context.Context, req ConnectRequest, client Client) *AuthResponse
-
-type ConnectRequest interface {
-	Packet() *packets.Connect
-	DefaultConnackProperties() *packets.Properties
-}
-type AuthRequest interface {
-	Packet() *packets.Auth
-	ConnectRequest() ConnectRequest
+type ConnectRequest struct {
+	Connect                  *packets.Connect
+	DefaultConnackProperties *packets.Properties
 }
 
-type AuthResponseType byte
+// OnBasicAuth will be called when receive v311 connect packet or v5 connect packet with empty auth method property.
+type OnBasicAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *ConnectResponse)
+type ConnectResponse struct {
+	Code              codes.Code
+	ConnackProperties *packets.Properties
+}
+type OnBasicAuthWrapper func(OnBasicAuth) OnBasicAuth
 
-const (
-	BasicAuth AuthResponseType = iota
-	EnhancedAuth
-)
+// OnEnhancedAuth will be called when receive v5 connect packet with auth method property.
+type OnEnhancedAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse)
+type EnhancedAuthResponse struct {
+	Code              codes.Code
+	OnAuth            OnAuth
+	AuthData          []byte
+	ConnackProperties *packets.Properties
+}
+type OnEnhancedAuthWrapper func(OnEnhancedAuth) OnEnhancedAuth
+
+type AuthRequest struct {
+	Auth                     *packets.Auth
+	DefaultConnackProperties *packets.Properties
+}
 
 type AuthResponse struct {
-	Code       codes.Code
-	Properties *packets.Properties
+	codes codes.Code
+	// AuthData is the auth data property of the auth packet.
+	AuthData []byte
+	// ConnackProperties is the connack properties.
+	ConnackProperties *packets.Properties
 }
 
-type OnConnectWrapper func(OnConnect) OnConnect
+type OnAuth func(ctx context.Context, client Client, authRequest *AuthRequest) *AuthResponse
 
-type OnAuth func(ctx context.Context, authRequest AuthRequest, client Client) *AuthResponse
+type OnReAuthWrapper func(OnReAuth) OnReAuth
+
+// ReAuthResponse is the response of the OnReAuth hook.
+type ReAuthResponse struct {
+	// Continue indicate that whether more authentication data is needed.
+	Continue bool
+	// AuthData is the auth data property of the auth packet.
+	AuthData []byte
+}
+
+type OnReAuth func(ctx context.Context, client Client, authData []byte) (*ReAuthResponse, error)
 
 type OnAuthWrapper func(OnAuth) OnAuth
 
@@ -162,7 +197,7 @@ type OnAckedWrapper func(OnAcked) OnAcked
 
 // OnMessageDropped 丢弃报文后触发
 //
-// OnMsgDropped will be called after the msg dropped
+// OnMsgDropped will be called after the Msg dropped
 type OnMsgDropped func(ctx context.Context, client Client, msg packets.Message)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped

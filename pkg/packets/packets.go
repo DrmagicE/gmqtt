@@ -90,6 +90,8 @@ type Message interface {
 	PayloadFormat() PayloadFormat
 	ResponseTopic() string
 	UserProperties() []UserProperty
+
+	TotalBytes() uint32
 }
 
 // FixHeader represents the FixHeader of the MQTT packet

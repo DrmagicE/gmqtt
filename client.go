@@ -3,6 +3,7 @@ package gmqtt
 
 import (
 	"bufio"
+	"bytes"
 	"container/list"
 	"context"
 	"crypto/md5"
@@ -11,9 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,13 +42,24 @@ const (
 const (
 	readBufferSize  = 4096
 	writeBufferSize = 4096
-	redeliveryTime  = 20
 )
 
 var (
 	bufioReaderPool sync.Pool
 	bufioWriterPool sync.Pool
 )
+
+func kvsToProperties(kvs []struct {
+	K []byte
+	V []byte
+}) []packets.UserProperty {
+	u := make([]packets.UserProperty, len(kvs))
+	for k, v := range kvs {
+		u[k].K = v.K
+		u[k].V = v.V
+	}
+	return u
+}
 
 func newBufioReaderSize(r io.Reader, size int) *bufio.Reader {
 	if v := bufioReaderPool.Get(); v != nil {
@@ -122,7 +134,7 @@ type client struct {
 	errOnce       sync.Once
 	err           error
 	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
-	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will msg
+	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
 	ready         chan struct{}  //close after session prepared
 
 	connectedAt    int64
@@ -152,24 +164,6 @@ func (client *client) Version() packets.Version {
 
 func (client *client) Disconnect(disconnect *packets.Disconnect) {
 	client.write(disconnect)
-}
-
-type ClientSettings struct {
-	SessionExpiry                 uint32
-	ReceiveMaximum                uint16
-	MaximumQoS                    byte
-	RetainAvailable               bool
-	MaximumPacketSize             uint32
-	AssignedClientID              []byte
-	TopicAliasMaximum             uint16
-	ReasonString                  string
-	UserProperties                []packets.UserProperty
-	WildcardSubscriptionAvailable bool
-	SubscriptionIDAvailable       bool
-	SharedSubscriptionAvailable   bool
-	ServerKeepAlive               uint16
-	ResponseInformation           string
-	ServerReference               string
 }
 
 type aliasMapper struct {
@@ -261,6 +255,9 @@ type ClientOptions struct {
 	SubIDAvailable       bool
 	SharedSubAvailable   bool
 
+	// AuthMethod v5 only
+	AuthMethod []byte
+
 	Will struct {
 		Flag       bool
 		Retain     bool
@@ -276,22 +273,19 @@ func (client *client) setError(err error) {
 		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
 			client.err = err
-
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
 					if client.IsConnected() {
 						// send Disconnect
 						client.out <- &packets.Disconnect{
 							Version: packets.Version5,
-							Code:    code.Code(),
+							Code:    code.Code,
+							Properties: &packets.Properties{
+								ReasonString: code.ReasonString,
+								User:         kvsToProperties(code.UserProperties),
+							},
 						}
 
-					} else {
-						// send connack
-						client.out <- &packets.Connack{
-							Version: client.version,
-							Code:    code.Code(),
-						}
 					}
 				}
 			}
@@ -308,62 +302,69 @@ func (client *client) writeLoop() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-	for packet := range client.out {
-		switch p := packet.(type) {
-		case *packets.Publish:
-			client.server.statsManager.messageSent(p.Qos)
-			client.statsManager.messageSent(p.Qos)
 
-			if client.version == packets.Version5 {
-				if client.opts.ClientTopicAliasMax > 0 {
-					// use topic alias if exist
-					if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
-						p.TopicName = []byte{}
-						p.Properties.TopicAlias = &id
-					} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
-						// create new alias
-						// TODO
-						//  增加钩子函数决定是否对当前topic 使用topicAlias
-						//  可能的input: packets.Message， 以及当前的alias情况。
-						next := client.aliasMapper.nextAlias
-						p.Properties.TopicAlias = &next
-						client.aliasMapper.nextAlias++
-						client.aliasMapper.client[string(p.TopicName)] = next
+	for {
+		select {
+		case <-client.close:
+			return
+		case packet := <-client.out:
+			switch p := packet.(type) {
+			case *packets.Publish:
+				client.server.statsManager.messageSent(p.Qos)
+				client.statsManager.messageSent(p.Qos)
+
+				if client.version == packets.Version5 {
+					if client.opts.ClientTopicAliasMax > 0 {
+						// use topic alias if exist
+						if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
+							p.TopicName = []byte{}
+							p.Properties.TopicAlias = &id
+						} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
+							// create new alias
+							// TODO
+							//  增加钩子函数决定是否对当前topic 使用topicAlias
+							//  可能的input: packets.Message， 以及当前的alias情况。
+							next := client.aliasMapper.nextAlias
+							p.Properties.TopicAlias = &next
+							client.aliasMapper.nextAlias++
+							client.aliasMapper.client[string(p.TopicName)] = next
+						}
 					}
 				}
-			}
-			// onDeliver hook
-			if client.server.hooks.OnDeliver != nil {
-				client.server.hooks.OnDeliver(context.Background(), client, messageFromPublish(p))
-			}
+				// onDeliver hook
+				if client.server.hooks.OnDeliver != nil {
+					client.server.hooks.OnDeliver(context.Background(), client, MessageFromPublish(p))
+				}
 
-		case *packets.Puback, *packets.Pubcomp:
-			if client.version == packets.Version5 {
-				client.addServerQuota()
+			case *packets.Puback, *packets.Pubcomp:
+				if client.version == packets.Version5 {
+					client.addServerQuota()
+				}
+			// case *packets.Pubrel:
+			case *packets.Pubrec:
+				if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
+					client.addServerQuota()
+				}
 			}
-		// case *packets.Pubrel:
-		case *packets.Pubrec:
-			if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
-				client.addServerQuota()
+			err = client.writePacket(packet)
+			if err != nil {
+				return
 			}
-		}
-		err = client.writePacket(packet)
-		if err != nil {
-			return
-		}
-		client.server.statsManager.packetSent(packet)
-		// 发了disconnect之后要关闭connection
-		if _, ok := packet.(*packets.Disconnect); ok {
-			return
+			client.server.statsManager.packetSent(packet)
+			// 发了disconnect之后要关闭connection
+			if _, ok := packet.(*packets.Disconnect); ok {
+				client.rwc.Close()
+				return
+			}
 		}
 	}
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
 
-	if ce := zaplog.Check(zapcore.DebugLevel, "sending in"); ce != nil {
+	if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
 		ce.Write(
-			zap.String("in", packet.String()),
+			zap.String("packet", packet.String()),
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			zap.String("client_id", client.opts.ClientID),
 		)
@@ -441,9 +442,9 @@ func (client *client) readLoop() {
 			return
 		}
 
-		if ce := zaplog.Check(zapcore.DebugLevel, "received in"); ce != nil {
+		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
 			ce.Write(
-				zap.String("in", packet.String()),
+				zap.String("packet", packet.String()),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.String("client_id", client.opts.ClientID),
 			)
@@ -510,29 +511,6 @@ func getRandomUUID() string {
 	return fmt.Sprintf(`%x`, string(b[:]))
 }
 
-type authRequest struct {
-	connectRequest *connectRequest
-	auth           *packets.Auth
-}
-
-func (a *authRequest) Packet() *packets.Auth {
-	return a.auth
-}
-
-func (a *authRequest) ConnectRequest() ConnectRequest {
-	return a.connectRequest
-}
-
-type connectRequest struct {
-	connect *packets.Connect
-	ppt     *packets.Properties
-	config  *Config
-}
-
-func (c *connectRequest) Packet() *packets.Connect {
-	return c.connect
-}
-
 func bool2Byte(bo bool) *byte {
 	var b byte
 	if bo {
@@ -565,34 +543,6 @@ func convertUint32(u *uint32, defaultValue uint32) uint32 {
 
 }
 
-func (c *connectRequest) DefaultConnackProperties() *packets.Properties {
-	if c.connect.Version != packets.Version5 {
-		return nil
-	}
-	if c.ppt == nil {
-		ppt := &packets.Properties{
-			SessionExpiryInterval: c.connect.Properties.SessionExpiryInterval,
-			ReceiveMaximum:        &c.config.ReceiveMax,
-			MaximumQoS:            &c.config.MaximumQoS,
-			RetainAvailable:       bool2Byte(c.config.RetainAvailable),
-			MaximumPacketSize:     &c.config.MaxPacketSize,
-			TopicAliasMaximum:     &c.config.TopicAliasMax,
-			WildcardSubAvailable:  bool2Byte(c.config.WildcardAvailable),
-			SubIDAvailable:        bool2Byte(c.config.SubscriptionIDAvailable),
-			SharedSubAvailable:    bool2Byte(c.config.SharedSubAvailable),
-		}
-
-		if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(c.config.SessionExpiry.Seconds()) {
-			ppt.SessionExpiryInterval = i
-		}
-		if c.connect.KeepAlive > c.config.MaxKeepAlive {
-			ppt.ServerKeepAlive = &c.config.MaxKeepAlive
-		}
-		c.ppt = ppt
-	}
-	return c.ppt
-}
-
 func (client *client) connectWithTimeOut() (ok bool) {
 	var err error
 	srv := client.server
@@ -607,21 +557,24 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	var conn *packets.Connect
-	var connRequest *connectRequest
+	// connack Properties
+	var ppt *packets.Properties
+	// for enhanced auth
+	var onAuth OnAuth
 	for {
 		select {
 		case p := <-client.in:
 			if p == nil {
 				return
 			}
-			var ack *AuthResponse
+			code := codes.Success
+			var authData []byte
 			switch p.(type) {
 			case *packets.Connect:
 				if conn != nil {
 					err = codes.ErrProtocol
 					return
 				}
-
 				// set default options.
 				client.opts.RetainAvailable = client.config.RetainAvailable
 				client.opts.WildcardSubAvailable = client.config.WildcardAvailable
@@ -632,105 +585,184 @@ func (client *client) connectWithTimeOut() (ok bool) {
 
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
-				connRequest = &connectRequest{
-					config:  &client.server.config,
-					connect: conn,
-				}
-				if srv.hooks.OnConnect != nil {
-					ack = client.server.hooks.OnConnect(context.Background(), connRequest, client)
+				// default connack properties
+				ppt = client.defaultConnackProperties(conn)
+				if client.version == packets.Version311 || (client.version == packets.Version5 && len(conn.Properties.AuthMethod) != 0) {
+					// basic auth
+					if srv.hooks.OnBasicAuth != nil {
+						resp := srv.hooks.OnBasicAuth(context.Background(), client, &ConnectRequest{
+							Connect:                  conn,
+							DefaultConnackProperties: ppt,
+						})
+						code = resp.Code
+						if resp.ConnackProperties != nil {
+							// override connack properties
+							ppt = resp.ConnackProperties
+						}
+					}
 				} else {
-					ack = &AuthResponse{
-						Code:       codes.Success,
-						Properties: connRequest.DefaultConnackProperties(),
+					// enhanced auth
+					if srv.hooks.OnEnhancedAuth != nil {
+						resp := srv.hooks.OnEnhancedAuth(context.Background(), client, &ConnectRequest{
+							Connect:                  conn,
+							DefaultConnackProperties: ppt,
+						})
+						code = resp.Code
+						authData = resp.AuthData
+						onAuth = resp.OnAuth
+						if resp.ConnackProperties != nil {
+							// override connack properties
+							ppt = resp.ConnackProperties
+						}
 					}
 				}
 			case *packets.Auth:
-				if conn == nil {
+				if conn == nil || client.version == packets.Version311 {
 					err = codes.ErrProtocol
 					return
 				}
-				if srv.hooks.OnAuth != nil {
-					ack = client.server.hooks.OnAuth(context.Background(), &authRequest{
-						connectRequest: connRequest,
-						auth:           p.(*packets.Auth),
-					}, client)
+				if onAuth != nil {
+					authResp := onAuth(context.Background(), client, &AuthRequest{
+						Auth:                     p.(*packets.Auth),
+						DefaultConnackProperties: ppt,
+					})
+					code = authResp.codes
+					authData = authResp.AuthData
+					if authResp.ConnackProperties != nil {
+						// override connack properties
+						ppt = authResp.ConnackProperties
+					}
+				} else {
+					err = codes.ErrProtocol
+					return
 				}
 			}
-			if ack.Code == codes.ContinueAuthentication {
+			// authentication faile
+			if code != codes.Success && code != codes.ContinueAuthentication {
+				client.out <- &packets.Connack{
+					Code:       code,
+					Properties: ppt,
+				}
+				return
+			}
+			if code == codes.ContinueAuthentication && authData != nil {
 				client.out <- &packets.Auth{
-					Code:       ack.Code,
-					Properties: ack.Properties,
+					Code: code,
+					Properties: &packets.Properties{
+						AuthMethod: conn.Properties.AuthMethod,
+						AuthData:   authData,
+					},
 				}
 				continue
 			}
-			if ack.Code == codes.Success {
-				if client.version == packets.Version5 {
-					ppt := ack.Properties
-					client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
-					client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
-					client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
-					client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
+			// code = codes.Success
+			if client.version == packets.Version5 {
+				client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
+				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
+				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
+				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
 
-					client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, 0)
+				client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, 0)
 
-					client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, 65535)
-					client.opts.ServerReceiveMax = convertUint16(ack.Properties.ReceiveMaximum, 65535)
+				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, 65535)
+				client.opts.ServerReceiveMax = convertUint16(ppt.ReceiveMaximum, 65535)
 
-					client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, 0)
-					client.opts.ServerMaxPacketSize = convertUint32(ack.Properties.MaximumPacketSize, 0)
+				client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, 0)
+				client.opts.ServerMaxPacketSize = convertUint32(ppt.MaximumPacketSize, 0)
 
-					client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, 0)
-					client.opts.ServerTopicAliasMax = convertUint16(ack.Properties.TopicAliasMaximum, 0)
+				client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, 0)
+				client.opts.ServerTopicAliasMax = convertUint16(ppt.TopicAliasMaximum, 0)
 
-					client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
-					client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
+				client.opts.AuthMethod = conn.Properties.AuthMethod
 
-					client.aliasMapper.client = make(map[string]uint16)
-					client.aliasMapper.server = make([][]byte, client.opts.ServerReceiveMax+1)
+				client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
+				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
 
-					if len(conn.ClientID) == 0 {
-						if len(ppt.AssignedClientID) != 0 {
-							client.opts.ClientID = string(ppt.AssignedClientID)
-						} else {
-							client.opts.ClientID = getRandomUUID()
-							ppt.AssignedClientID = []byte(client.opts.ClientID)
-						}
+				client.aliasMapper.client = make(map[string]uint16)
+				client.aliasMapper.server = make([][]byte, client.opts.ServerReceiveMax+1)
+
+				if len(conn.ClientID) == 0 {
+					if len(ppt.AssignedClientID) != 0 {
+						client.opts.ClientID = string(ppt.AssignedClientID)
 					} else {
-						client.opts.ClientID = string(conn.ClientID)
-					}
-					client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
-
-				} else {
-					if len(conn.ClientID) == 0 {
 						client.opts.ClientID = getRandomUUID()
-					} else {
-						client.opts.ClientID = string(conn.ClientID)
+						ppt.AssignedClientID = []byte(client.opts.ClientID)
 					}
-					client.opts.KeepAlive = conn.KeepAlive
+				} else {
+					client.opts.ClientID = string(conn.ClientID)
 				}
-				if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
-					client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
+				client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
+
+				recvMax := int(convertUint16(ppt.ReceiveMaximum, math.MaxUint16))
+				if recvMax >= client.config.MaxInflight {
+					client.config.MaxInflight = recvMax
+				}
+				if recvMax >= client.config.MaxAwaitRel {
+					client.config.MaxAwaitRel = recvMax
 				}
 
-				client.opts.CleanStart = conn.CleanStart
-
-				client.opts.Will.Flag = conn.WillFlag
-				client.opts.Will.Payload = conn.WillMsg
-				client.opts.Will.Qos = conn.WillQos
-				client.opts.Will.Retain = conn.WillRetain
-				client.opts.Will.Topic = conn.WillTopic
-				client.opts.Will.Properties = conn.WillProperties
-				client.server.registerClient(conn, ack, client)
-				return
+			} else {
+				if len(conn.ClientID) == 0 {
+					client.opts.ClientID = getRandomUUID()
+				} else {
+					client.opts.ClientID = string(conn.ClientID)
+				}
+				client.opts.KeepAlive = conn.KeepAlive
 			}
-			err = codes.NewError(ack.Code)
+
+			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
+				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
+			}
+
+			client.opts.CleanStart = conn.CleanStart
+			client.opts.Username = string(conn.Username)
+			client.opts.Will.Flag = conn.WillFlag
+			client.opts.Will.Payload = conn.WillMsg
+			client.opts.Will.Qos = conn.WillQos
+			client.opts.Will.Retain = conn.WillRetain
+			client.opts.Will.Topic = conn.WillTopic
+			client.opts.Will.Properties = conn.WillProperties
+			client.server.registerClient(conn, ppt, client)
 			return
 		case <-timeout.C:
 			err = ErrConnectTimeOut
 			return
 		}
 	}
+}
 
+func errDetailsToProperties(errDetails *codes.ErrorDetails) *packets.Properties {
+	return &packets.Properties{
+		ReasonString: errDetails.ReasonString,
+		User:         kvsToProperties(errDetails.UserProperties),
+	}
+}
+func (client *client) defaultConnackProperties(connect *packets.Connect) *packets.Properties {
+	if connect.Version != packets.Version5 {
+		return nil
+	}
+	ppt := &packets.Properties{
+		SessionExpiryInterval: connect.Properties.SessionExpiryInterval,
+		ReceiveMaximum:        &client.config.ReceiveMax,
+		MaximumQoS:            &client.config.MaximumQoS,
+		RetainAvailable:       bool2Byte(client.config.RetainAvailable),
+		TopicAliasMaximum:     &client.config.TopicAliasMax,
+		WildcardSubAvailable:  bool2Byte(client.config.WildcardAvailable),
+		SubIDAvailable:        bool2Byte(client.config.SubscriptionIDAvailable),
+		SharedSubAvailable:    bool2Byte(client.config.SharedSubAvailable),
+	}
+	if client.config.MaxPacketSize != 0 {
+		ppt.MaximumPacketSize = &client.config.MaxPacketSize
+	}
+
+	if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(client.config.SessionExpiry.Seconds()) {
+		ppt.SessionExpiryInterval = i
+	}
+	if connect.KeepAlive > client.config.MaxKeepAlive {
+		ppt.ServerKeepAlive = &client.config.MaxKeepAlive
+	}
+
+	return ppt
 }
 
 func (client *client) newSession() {
@@ -741,7 +773,6 @@ func (client *client) newSession() {
 		msgQueue:     list.New(),
 		lockedPid:    make(map[packets.PacketID]bool),
 		freePid:      1,
-		config:       &client.server.config,
 	}
 	client.session = s
 }
@@ -803,69 +834,80 @@ func (client *client) write(packets packets.Packet) {
 }
 
 //Subscribe handler
+// test case:
+// 1. 有request problem info的话，可以返回string和User，否则不返回
 func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	srv := client.server
-	if srv.hooks.OnSubscribe != nil {
-		for k, v := range sub.Topics {
-			qos := srv.hooks.OnSubscribe(context.Background(), client, v)
-			sub.Topics[k].Qos = qos
-		}
+	suback := &packets.Suback{
+		Version:    sub.Version,
+		PacketID:   sub.PacketID,
+		Properties: nil,
+		Payload:    make([]codes.Code, len(sub.Topics)),
 	}
-	var msgs []packets.Message
-
-	suback := sub.NewSuback()
+	var topics []packets.Topic
 	var subID uint32
-
 	if client.version == packets.Version5 {
 		if client.opts.SubIDAvailable && len(sub.Properties.SubscriptionIdentifier) != 0 {
 			subID = sub.Properties.SubscriptionIdentifier[0]
 		}
 		if !client.config.SubscriptionIDAvailable && subID != 0 {
-			return codes.NewError(codes.SubIDNotSupported)
+			return &codes.Error{
+				Code: codes.SubIDNotSupported,
+			}
 		}
 	}
 
-	for k, v := range sub.Topics {
-		var isShared bool
-		if client.version == packets.Version5 {
+	if srv.hooks.OnSubscribe != nil {
+		resp, errDetails := srv.hooks.OnSubscribe(context.Background(), client, sub)
+		topics = resp.Topics
+		if resp.ID != nil {
+			subID = *resp.ID
+		}
+		if errDetails != nil && client.version == packets.Version5 {
+			if client.opts.RequestProblemInfo {
+				suback.Properties = &packets.Properties{
+					ReasonString: errDetails.ReasonString,
+					User:         kvsToProperties(errDetails.UserProperties),
+				}
+			}
+		}
+	} else {
+		topics = sub.Topics
+	}
 
-			if strings.HasPrefix(v.Name, "$share/") {
+	for k, v := range topics {
+		var isShared bool
+		var sub subscription.Subscription
+		code := v.Qos
+		sub = subscription.FromTopic(v, subID)
+		if client.version == packets.Version5 {
+			if sub.ShareName() != "" {
 				isShared = true
 				if !client.opts.SharedSubAvailable {
-					v.Qos = codes.SharedSubNotSupported
+					code = codes.SharedSubNotSupported
 				}
 			}
 			if !client.opts.SubIDAvailable && subID != 0 {
-				v.Qos = codes.SubIDNotSupported
+				code = codes.SubIDNotSupported
 			}
-
 			if !client.opts.WildcardSubAvailable {
-				for _, c := range v.Name {
+				for _, c := range sub.TopicFilter() {
 					if c == '+' || c == '#' {
-						v.Qos = codes.WildcardSubNotSupported
+						code = codes.WildcardSubNotSupported
 						break
 					}
 				}
 			}
 		}
-		if v.Qos < packets.SubscribeFailure {
-			topic := packets.Topic{
-				SubOptions: packets.SubOptions{
-					Qos:               v.Qos,
-					RetainAsPublished: v.RetainAsPublished,
-					NoLocal:           v.NoLocal,
-					RetainHandling:    v.RetainHandling,
-				},
-				Name: v.Name,
-			}
-			subRs := srv.subscriptionsDB.Subscribe(client.opts.ClientID, subscription.FromTopic(topic, subID))
-
+		suback.Payload[k] = code
+		if code < packets.SubscribeFailure {
+			subRs := srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
 			if srv.hooks.OnSubscribed != nil {
-				srv.hooks.OnSubscribed(context.Background(), client, topic)
+				srv.hooks.OnSubscribed(context.Background(), client, sub)
 			}
 			zaplog.Info("subscribe succeeded",
 				zap.String("topic", v.Name),
-				zap.Uint8("qos", suback.Payload[k]),
+				zap.Uint8("qos", v.Qos),
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
@@ -873,14 +915,14 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			// Gmqtt follows the mosquitto implementation which will send retain messages to no-local subscriptions.
 			// For details: https://github.com/eclipse/mosquitto/issues/1796
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
-				msgs = srv.retainedDB.GetMatchedMessages(topic.Name)
+				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter())
 				for _, v := range msgs {
 					publish := messageToPublish(v, client.version)
 					if publish.Qos > subRs[0].Subscription.QoS() {
 						publish.Qos = subRs[0].Subscription.QoS()
 					}
 					publish.Dup = false
-					if !topic.RetainAsPublished {
+					if !sub.RetainAsPublished() {
 						publish.Retain = false
 					}
 					client.publishMessageHandler(publish)
@@ -895,7 +937,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			)
 		}
 	}
-
 	client.write(suback)
 	return nil
 }
@@ -907,18 +948,23 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 
 	// check retain available
 	if !client.opts.RetainAvailable && pub.Retain {
-		return codes.NewError(codes.RetainNotSupported)
+		return &codes.Error{
+			Code: codes.RetainNotSupported,
+		}
 	}
-
 	if client.version == packets.Version5 && pub.Properties.TopicAlias != nil {
 		if *pub.Properties.TopicAlias >= client.opts.ServerTopicAliasMax {
-			return codes.NewError(codes.TopicAliasInvalid)
+			return &codes.Error{
+				Code: codes.TopicAliasInvalid,
+			}
 		} else {
 			topicAlias := *pub.Properties.TopicAlias
 			name := client.aliasMapper.server[int(topicAlias)]
 			if len(pub.TopicName) == 0 {
 				if len(name) == 0 {
-					return codes.NewError(codes.TopicAliasInvalid)
+					return &codes.Error{
+						Code: codes.TopicAliasInvalid,
+					}
 				}
 				pub.TopicName = name
 			} else {
@@ -934,7 +980,9 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 			s.unackpublish[pub.PacketID] = true
 		}
 	}
-	msg := messageFromPublish(pub)
+
+	var msg packets.Message
+	msg = MessageFromPublish(pub)
 	if pub.Retain {
 		if len(pub.Payload) == 0 {
 			srv.retainedDB.Remove(string(pub.TopicName))
@@ -943,36 +991,50 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 	}
 
+	var err error
 	var topicMatched bool
 	if !dup {
-		var valid = true
 		if srv.hooks.OnMsgArrived != nil {
-			// TODO 支持返回 code
-			valid = srv.hooks.OnMsgArrived(context.Background(), client, msg)
+			msg, err = srv.hooks.OnMsgArrived(context.Background(), client, pub)
 		}
-		if valid {
+		if msg != nil {
 			srv.mu.Lock()
-			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, packets.TotalBytes(pub), msg)
+			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, "", msg)
 			srv.mu.Unlock()
 		}
 	}
 
 	var ack packets.Packet
+	// ack properties
+	var ppt *packets.Properties
 	code := codes.Success
-	if client.version == packets.Version5 && !topicMatched {
-		code = codes.NotMatchingSubscribers
+	if client.version == packets.Version5 {
+		if !topicMatched {
+			code = codes.NotMatchingSubscribers
+		}
+		if err != nil {
+			if codeErr, ok := err.(*codes.Error); ok {
+				ppt = errDetailsToProperties(&codeErr.ErrorDetails)
+				code = codeErr.Code
+			} else {
+				ppt = &packets.Properties{
+					ReasonString: []byte(err.Error()),
+				}
+				code = codes.UnspecifiedError
+			}
+		}
 	}
 	if pub.Qos == packets.Qos1 {
-		ack = pub.NewPuback(code)
+		ack = pub.NewPuback(code, ppt)
 	}
 	if pub.Qos == packets.Qos2 {
-		ack = pub.NewPubrec(code)
+		ack = pub.NewPubrec(code, ppt)
 		if code >= codes.UnspecifiedError {
 			delete(s.unackpublish, pub.PacketID)
 		}
 	}
 	if ack != nil {
-		client.out <- ack
+		client.write(ack)
 	}
 	return nil
 
@@ -1010,11 +1072,23 @@ func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
 }
 func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	srv := client.server
-	unSuback := unSub.NewUnSubBack()
-	for k, topicName := range unSub.Topics {
+	unSuback := &packets.Unsuback{
+		Version:    unSub.Version,
+		PacketID:   unSub.PacketID,
+		Properties: nil,
+		Payload:    make([]codes.Code, len(unSub.Topics)),
+	}
+	topics := unSub.Topics
+	if srv.hooks.OnUnSubscribe != nil {
+		var errDetails *codes.ErrorDetails
+		topics, errDetails = srv.hooks.OnUnSubscribe(context.Background(), client, unSub)
+		if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
+			unSuback.Properties = errDetailsToProperties(errDetails)
+		}
+	}
+	for k, topicName := range topics {
 		srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
 		if srv.hooks.OnUnsubscribed != nil {
-			// TODO return ack code
 			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 		}
 		zaplog.Info("unsubscribed",
@@ -1023,12 +1097,42 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 		)
 		if client.version == packets.Version5 {
-			// TODO get code from hook
 			unSuback.Payload[k] = codes.Success
 		}
-
 	}
 	client.write(unSuback)
+
+}
+
+func (client *client) reAuthHandler(auth *packets.Auth) *codes.Error {
+	srv := client.server
+	// default code
+	code := codes.Success
+	var resp *ReAuthResponse
+	var err error
+	if srv.hooks.OnReAuth != nil {
+		resp, err = srv.hooks.OnReAuth(context.Background(), client, auth.Properties.AuthData)
+		if err != nil {
+			if c, ok := err.(*codes.Error); ok {
+				return c
+			} else {
+				return codes.NewError(codes.UnspecifiedError)
+			}
+		}
+	} else {
+		return codes.ErrProtocol
+	}
+	if resp.Continue {
+		code = codes.ContinueAuthentication
+	}
+	client.write(&packets.Auth{
+		Code: code,
+		Properties: &packets.Properties{
+			AuthMethod: client.opts.AuthMethod,
+			AuthData:   resp.AuthData,
+		},
+	})
+	return nil
 
 }
 
@@ -1041,7 +1145,7 @@ func (client *client) readHandle() {
 		}
 		client.setError(err)
 		client.wg.Done()
-		close(client.out)
+		close(client.close)
 	}()
 	for packet := range client.in {
 		if client.version == packets.Version5 {
@@ -1083,6 +1187,18 @@ func (client *client) readHandle() {
 			//正常关闭
 			client.cleanWillFlag = true
 			return
+		case *packets.Auth:
+			auth := packet.(*packets.Auth)
+			if client.version != packets.Version5 {
+				err = codes.ErrProtocol
+				return
+			}
+			if !bytes.Equal(client.opts.AuthMethod, auth.Properties.AuthData) {
+				err = codes.ErrProtocol
+				return
+			}
+			err = client.reAuthHandler(auth)
+
 		default:
 			err = codes.ErrProtocol
 		}
@@ -1094,69 +1210,15 @@ func (client *client) readHandle() {
 
 }
 
-//重传处理, 除了重传递publish之外，pubrel也要重传
-//func (client *client) redeliver() {
-//	var err error
-//	s := client.session
-//	defer func() {
-//		if re := recover(); re != nil {
-//			err = errors.New(fmt.Sprint(re))
-//		}
-//		client.setError(err)
-//		client.wg.Done()
-//	}()
-//	timer := time.NewTicker(retryCheckInterval)
-//	defer timer.Stop()
-//	for {
-//		select {
-//		case <-client.close: //关闭广播
-//			return
-//		case <-timer.C: //重发ticker
-//			now := time.Now()
-//			s.inflightMu.Lock()
-//			for inflight := s.inflight.Front(); inflight != nil; inflight = inflight.Next() {
-//				if inflight, ok := inflight.Value.(*inflightElem); ok {
-//					if now.Sub(inflight.at) >= retryInterval {
-//						pub := inflight.in
-//						p := pub.CopyPublish()
-//						p.Dup = true
-//						client.write(p)
-//					}
-//				}
-//			}
-//			s.inflightMu.Unlock()
-//
-//			s.awaitRelMu.Lock()
-//			for awaitRel := s.awaitRel.Front(); awaitRel != nil; awaitRel = awaitRel.Next() {
-//				if awaitRel, ok := awaitRel.Value.(*awaitRelElem); ok {
-//					if now.Sub(awaitRel.at) >= retryInterval {
-//						pubrel := &packets.Pubrel{
-//							FixHeader: &packets.FixHeader{
-//								PacketType:   packets.PUBREL,
-//								Flags:        packets.FlagPubrel,
-//								RemainLength: 2,
-//							},
-//							PacketID: awaitRel.pid,
-//						}
-//						client.write(pubrel)
-//					}
-//				}
-//			}
-//			s.awaitRelMu.Unlock()
-//		}
-//	}
-//}
-
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
 func (client *client) serve() {
 	defer client.internalClose()
 	client.wg.Add(2)
-	go client.readLoop()                       //read in
-	go client.writeLoop()                      //write in
+	go client.readLoop()                       //read
+	go client.writeLoop()                      //write
 	if ok := client.connectWithTimeOut(); ok { //链接成功,建立session
 		client.wg.Add(1)
 		go client.readHandle()
-		//go client.redeliver()
 	}
 	client.wg.Wait()
 	client.rwc.Close()

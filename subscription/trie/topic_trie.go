@@ -12,40 +12,76 @@ type topicTrie = topicNode
 // children
 type children = map[string]*topicNode
 
-type subOpts struct {
+// sub implements subscription.Subscription interface
+type sub struct {
 	shareName      string
+	topicFilter    string
 	qos            byte
 	noLocal        bool
 	rap            bool
 	retainHandling byte
-	// subscription identifier
-	id uint32
+	id             uint32
 }
 
-func fromSubscription(sub subscription.Subscription) subOpts {
-	return subOpts{
-		shareName:      sub.ShareName(),
-		qos:            sub.QoS(),
-		noLocal:        sub.NoLocal(),
-		rap:            sub.RetainAsPublished(),
-		retainHandling: sub.RetainHandling(),
-		id:             sub.ID(),
+func (s sub) ShareName() string {
+	return s.shareName
+}
+
+func (s sub) TopicFilter() string {
+	return s.topicFilter
+}
+
+func (s sub) ID() uint32 {
+	return s.id
+}
+
+func (s sub) QoS() byte {
+	return s.qos
+}
+
+func (s sub) NoLocal() bool {
+	return s.noLocal
+}
+
+func (s sub) RetainAsPublished() bool {
+	return s.rap
+}
+
+func (s sub) RetainHandling() byte {
+	return s.retainHandling
+}
+
+func fromSubscription(s subscription.Subscription) sub {
+	return sub{
+		shareName:      s.ShareName(),
+		qos:            s.QoS(),
+		noLocal:        s.NoLocal(),
+		rap:            s.RetainAsPublished(),
+		retainHandling: s.RetainHandling(),
+		id:             s.ID(),
 	}
 }
 
-func (s *subOpts) subscription(topicFilter string) subscription.Subscription {
-	return subscription.New(
-		topicFilter,
-		s.qos,
-		subscription.ShareName(s.shareName),
-		subscription.NoLocal(s.noLocal),
-		subscription.ID(s.id),
-		subscription.RetainHandling(s.retainHandling),
-		subscription.RetainAsPublished(s.rap),
-	)
+func (s *sub) subscription(topicFilter string) subscription.Subscription {
+	return &sub{
+		shareName:      s.shareName,
+		topicFilter:    topicFilter,
+		noLocal:        s.noLocal,
+		rap:            s.rap,
+		retainHandling: s.retainHandling,
+		id:             s.id,
+		qos:            s.qos,
+	}
+	//return subscription.New(topicFilter, s.qos,
+	//	subscription.ShareName(s.shareName),
+	//	subscription.NoLocal(s.noLocal),
+	//	subscription.RetainAsPublished(s.rap),
+	//	subscription.RetainHandling(s.retainHandling),
+	//	subscription.ID(s.id),
+	//)
 }
 
-type clientOpts map[string]subOpts
+type clientOpts map[string]sub
 
 // topicNode
 type topicNode struct {
@@ -80,7 +116,7 @@ func (t *topicNode) newChild() *topicNode {
 }
 
 // subscribe add a subscription and return the added node
-func (t *topicTrie) subscribe(clientID string, topicName string, opts subOpts) *topicNode {
+func (t *topicTrie) subscribe(clientID string, topicName string, s sub) *topicNode {
 	topicSlice := strings.Split(topicName, "/")
 	var pNode = t
 	for _, lv := range topicSlice {
@@ -90,16 +126,15 @@ func (t *topicTrie) subscribe(clientID string, topicName string, opts subOpts) *
 		pNode = pNode.children[lv]
 	}
 	// shared subscription
-	if opts.shareName != "" {
-		if pNode.shared[opts.shareName] == nil {
-			pNode.shared[opts.shareName] = make(clientOpts)
+	if s.shareName != "" {
+		if pNode.shared[s.shareName] == nil {
+			pNode.shared[s.shareName] = make(clientOpts)
 		}
-		pNode.shared[opts.shareName][clientID] = opts
+		pNode.shared[s.shareName][clientID] = s
 	} else {
 		// non-shared
-		pNode.clients[clientID] = opts
+		pNode.clients[clientID] = s
 	}
-
 	pNode.topicName = topicName
 	return pNode
 }

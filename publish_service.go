@@ -10,21 +10,21 @@ type PublishService interface {
 	// Calling this method will not trigger OnMsgArrived hook.
 	Publish(message packets.Message)
 	// PublishToClient publish a message to a specific client.
-	// If match sets to true, the message will send to the client
-	// only if the client is subscribed to a topic that matches the message.
-	// If match sets to false, the message will send to the client directly even
-	// there are no matched subscriptions.
+	// The message will send to the client only if the client is subscribed to a topic that matches the message.
 	// Calling this method will not trigger OnMsgArrived hook.
-	PublishToClient(clientID string, message packets.Message, match bool)
+	PublishToClient(clientID string, message packets.Message)
 }
 type publishService struct {
 	server *server
 }
 
 func (p *publishService) Publish(message packets.Message) {
-	//TODO
-
+	p.server.mu.Lock()
+	p.server.deliverMessageHandler("", "", message)
+	p.server.mu.Unlock()
 }
-func (p *publishService) PublishToClient(clientID string, message packets.Message, match bool) {
-	//TODO
+func (p *publishService) PublishToClient(clientID string, message packets.Message) {
+	p.server.mu.Lock()
+	p.server.deliverMessageHandler("", clientID, message)
+	p.server.mu.Unlock()
 }

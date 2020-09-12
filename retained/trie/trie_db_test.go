@@ -17,6 +17,34 @@ type mockMsg struct {
 	payload  []byte
 }
 
+func (m *mockMsg) ContentType() string {
+	return ""
+}
+
+func (m *mockMsg) CorrelationData() []byte {
+	return nil
+}
+
+func (m *mockMsg) MessageExpiry() uint32 {
+	return 0
+}
+
+func (m *mockMsg) PayloadFormat() packets.PayloadFormat {
+	return packets.PayloadFormatString
+}
+
+func (m *mockMsg) ResponseTopic() string {
+	return ""
+}
+
+func (m *mockMsg) UserProperties() []packets.UserProperty {
+	return nil
+}
+
+func (m *mockMsg) TotalBytes() uint32 {
+	return 0
+}
+
 func (m *mockMsg) Dup() bool {
 	return m.dup
 }
