@@ -72,13 +72,6 @@ func (s *sub) subscription(topicFilter string) subscription.Subscription {
 		id:             s.id,
 		qos:            s.qos,
 	}
-	//return subscription.New(topicFilter, s.qos,
-	//	subscription.ShareName(s.shareName),
-	//	subscription.NoLocal(s.noLocal),
-	//	subscription.RetainAsPublished(s.rap),
-	//	subscription.RetainHandling(s.retainHandling),
-	//	subscription.ID(s.id),
-	//)
 }
 
 type clientOpts map[string]sub

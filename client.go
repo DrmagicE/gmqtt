@@ -575,6 +575,13 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					err = codes.ErrProtocol
 					return
 				}
+				if !client.config.AllowZeroLenClientID && len(conn.ClientID) == 0 {
+					err = &codes.Error{
+						Code: codes.ClientIdentifierNotValid,
+					}
+					return
+				}
+
 				// set default options.
 				client.opts.RetainAvailable = client.config.RetainAvailable
 				client.opts.WildcardSubAvailable = client.config.WildcardAvailable
@@ -661,7 +668,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
 				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
 				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
-
 				client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, 0)
 
 				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, 65535)

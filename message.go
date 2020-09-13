@@ -75,6 +75,7 @@ func (m *Msg) Payload() []byte {
 	return m.payload
 }
 
+// MessageFromPublish create a packets.Message implementation from publish packets
 func MessageFromPublish(p *packets.Publish) *Msg {
 	m := &Msg{
 		dup:      p.Dup,

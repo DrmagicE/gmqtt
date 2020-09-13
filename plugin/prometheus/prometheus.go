@@ -19,6 +19,20 @@ var log *zap.Logger
 
 const metricPrefix = "gmqtt_"
 
+// Config is the configration of prometheus exporter plugin
+type Config struct {
+	// ListenAddress is the address that the exporter will listen on.
+	ListenAddress string `yaml:"listen_address"`
+	// Path is the exporter url path.
+	Path string `yaml:"path"`
+}
+
+// DefaultConfig is the default configration.
+var DefaultConfig = Config{
+	ListenAddress: ":8082",
+	Path:          "/metrics",
+}
+
 // Prometheus served as a prometheus exporter that exposes gmqtt metrics.
 type Prometheus struct {
 	statsManager gmqtt.StatsManager
@@ -37,10 +51,10 @@ func New(httpSever *http.Server, path string) *Prometheus {
 func (p *Prometheus) Load(service gmqtt.Server) error {
 	log = gmqtt.LoggerWithField(zap.String("plugin", name))
 	p.statsManager = service.GetStatsManager()
-	r := prometheus.NewPedanticRegistry()
+	r := prometheus.DefaultRegisterer
 	r.MustRegister(p)
 	mu := http.NewServeMux()
-	mu.Handle(p.path, promhttp.HandlerFor(r, promhttp.HandlerOpts{}))
+	mu.Handle(p.path, promhttp.Handler())
 	p.httpServer.Handler = mu
 	go func() {
 		err := p.httpServer.ListenAndServe()
