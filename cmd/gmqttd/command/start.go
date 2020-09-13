@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/config"
 	"github.com/DrmagicE/gmqtt/pkg/pidfile"
+	"github.com/DrmagicE/gmqtt/plugin/prometheus"
 )
 
 type NoopFlag struct {
@@ -32,6 +34,8 @@ func (NoopFlag) Type() string {
 
 var (
 	configFile string
+	// tcp listener address
+	addresses []string
 	// Global logger
 	logger *zap.Logger
 )
@@ -49,7 +53,6 @@ func rootFlagSet() *pflag.FlagSet {
 	must(err)
 	fs.StringVar(&configFile, "config", d+"/gmqttd.yml", "The configration file path")
 	return fs
-
 }
 
 func installSignal(srv gmqtt.Server) {
@@ -71,10 +74,11 @@ func installSignal(srv gmqtt.Server) {
 				// if config file not exist, use default configration.
 				c = config.DefaultConfig
 			} else {
-				// TODO log error
+				logger.Error("reload error", zap.Error(err))
+
 			}
 			srv.ApplyConfig(c.MQTT)
-			fmt.Println("reload")
+			logger.Info("gmqtt reloaded")
 		case <-stopSignalCh:
 			srv.Stop(context.Background())
 			return
@@ -86,12 +90,8 @@ func installSignal(srv gmqtt.Server) {
 // NewStartCmd creates a *cobra.Command object for start command.
 func NewStartCmd() *cobra.Command {
 	cfg := &config.DefaultConfig
-	var addresses []string
 	rfs := rootFlagSet()
-	startFlagSet := pflag.NewFlagSet("start", pflag.ExitOnError)
-	startFlagSet.StringSliceVar(&addresses, "address", []string{"0.0.0.0:1883"}, "The TCP listening address of the broker")
-	cfg.AddFlags(startFlagSet)
-	rfs.AddFlagSet(startFlagSet)
+	cfg.AddFlags(rfs)
 	cmd := &cobra.Command{
 		Use:                "start",
 		Short:              "Start gmqtt broker",
@@ -116,26 +116,24 @@ func NewStartCmd() *cobra.Command {
 			must(err)
 			err = c.Validate()
 			must(err)
-
 			pid, err := pidfile.New(c.PidFile)
 			must(err)
 			defer pid.Remove()
-
 			tcpListeners, websockets, err := c.GetListeners()
 			must(err)
 			l, err := c.GetLogger(c.Log)
+			logger = l
 			must(err)
 			s := gmqtt.NewServer(
 				gmqtt.WithConfig(c.MQTT),
 				gmqtt.WithTCPListener(tcpListeners...),
 				gmqtt.WithWebsocketServer(websockets...),
 				//gmqtt.WithPlugin(management.New(":8081", nil)),
-				//gmqtt.WithPlugin(prometheus.New(&http.Server{
-				//	Addr: ":8082",
-				//}, "/metrics")),
+				gmqtt.WithPlugin(prometheus.New(&http.Server{
+					Addr: c.Plugins.Prometheus.ListenAddress,
+				}, c.Plugins.Prometheus.Path)),
 				gmqtt.WithLogger(l),
 			)
-			fmt.Println(c.MQTT)
 			s.Run()
 			installSignal(s)
 		},

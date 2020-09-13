@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
-	_ "net/http/pprof"
+	"github.com/spf13/cobra"
 
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/command"
-	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{

@@ -1,29 +1,35 @@
 listeners:
     - address: ":1883"
+    - address: ":8883"
       websocket:
         path: "/"
-    - address: ":1234"
 mqtt:
-  session_expiry: 3m
+  session_expiry: 2h
   session_expiry_check_timer: 20s
-  message_expiry: 1m
-  max_packet_size: 200
-  server_receive_maximum: 65535
-  max_keepalive: 0 # unlimited
-  topic_alias_maximum: 0 # 0 means not Supported 这个是允许为空的。如果没有设置，应该以10为准
+  message_expiry: 2h
+  max_packet_size: 0 # 0 means no limit
+  server_receive_maximum: 100
+  max_keepalive: 60
+  topic_alias_maximum: 10
   subscription_identifier_available: true
   wildcard_subscription_available: true
   shared_subscription_available: true
   maximum_qos: 2
   retain_available: true
   max_queued_messages: 1000
-  max_inflight: 32
+  max_inflight: 100
   max_awaiting_rel: 100
   queue_qos0_messages: true
   delivery_mode: overlap # overlap or onlyonce
   allow_zero_length_clientid: true
+
+plugins:
+  prometheus:
+    path: "/metrics"
+    listen_address: ":8082"
+
 log:
-  level: debug # debug | info | warning | error
+  level: info # debug | info | warning | error
 
 
 
