@@ -1,4 +1,4 @@
-package gmqtt
+package server
 
 import (
 	"fmt"

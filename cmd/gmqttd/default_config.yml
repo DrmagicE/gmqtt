@@ -20,7 +20,7 @@ mqtt:
   max_inflight: 100
   max_awaiting_rel: 100
   queue_qos0_messages: true
-  delivery_mode: overlap # overlap or onlyonce
+  delivery_mode: onlyonce # overlap or onlyonce
   allow_zero_length_clientid: true
 
 plugins:
@@ -29,7 +29,7 @@ plugins:
     listen_address: ":8082"
 
 log:
-  level: info # debug | info | warning | error
+  level: warn # debug | info | warn | error
 
 
 

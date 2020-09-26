@@ -8,36 +8,18 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/config"
 	"github.com/DrmagicE/gmqtt/pkg/pidfile"
 	"github.com/DrmagicE/gmqtt/plugin/prometheus"
+	"github.com/DrmagicE/gmqtt/server"
 )
 
-type NoopFlag struct {
-}
-
-func (NoopFlag) String() string {
-	return ""
-}
-func (NoopFlag) Set(string) error {
-	return nil
-}
-func (NoopFlag) Type() string {
-	return ""
-}
-
 var (
-	configFile string
-	// tcp listener address
-	addresses []string
-	// Global logger
-	logger *zap.Logger
+	ConfigFile string
+	logger     *zap.Logger
 )
 
 func must(err error) {
@@ -47,15 +29,7 @@ func must(err error) {
 	}
 }
 
-func rootFlagSet() *pflag.FlagSet {
-	fs := pflag.NewFlagSet("root", pflag.ExitOnError)
-	d, err := homedir.Dir()
-	must(err)
-	fs.StringVar(&configFile, "config", d+"/gmqttd.yml", "The configration file path")
-	return fs
-}
-
-func installSignal(srv gmqtt.Server) {
+func installSignal(srv server.Server) {
 	// reload
 	reloadSignalCh := make(chan os.Signal, 1)
 	signal.Notify(reloadSignalCh, syscall.SIGHUP)
@@ -69,7 +43,7 @@ func installSignal(srv gmqtt.Server) {
 		case <-reloadSignalCh:
 			var c config.Config
 			var err error
-			c, err = config.ParseConfig(configFile)
+			c, err = config.ParseConfig(ConfigFile)
 			if os.IsNotExist(err) {
 				// if config file not exist, use default configration.
 				c = config.DefaultConfig
@@ -90,30 +64,21 @@ func installSignal(srv gmqtt.Server) {
 // NewStartCmd creates a *cobra.Command object for start command.
 func NewStartCmd() *cobra.Command {
 	cfg := &config.DefaultConfig
-	rfs := rootFlagSet()
-	cfg.AddFlags(rfs)
 	cmd := &cobra.Command{
-		Use:                "start",
-		Short:              "Start gmqtt broker",
-		DisableFlagParsing: true,
+		Use:   "start",
+		Short: "Start gmqtt broker",
 		Run: func(cmd *cobra.Command, args []string) {
 			var err error
-			err = rfs.Parse(args)
 			must(err)
-			c, err := config.ParseConfig(configFile)
+			c, err := config.ParseConfig(ConfigFile)
+			var useDefault bool
 			if os.IsNotExist(err) {
 				// if config file not exist, use default configration.
 				c = *cfg
+				useDefault = true
 			} else {
 				must(err)
 			}
-			fs := pflag.NewFlagSet("", pflag.ExitOnError)
-			rootFlagSet().VisitAll(func(f *pflag.Flag) {
-				fs.VarP(NoopFlag{}, f.Name, f.Shorthand, f.Usage)
-			})
-			c.AddFlags(fs)
-			err = fs.Parse(args)
-			must(err)
 			err = c.Validate()
 			must(err)
 			pid, err := pidfile.New(c.PidFile)
@@ -122,17 +87,20 @@ func NewStartCmd() *cobra.Command {
 			tcpListeners, websockets, err := c.GetListeners()
 			must(err)
 			l, err := c.GetLogger(c.Log)
-			logger = l
 			must(err)
-			s := gmqtt.NewServer(
-				gmqtt.WithConfig(c.MQTT),
-				gmqtt.WithTCPListener(tcpListeners...),
-				gmqtt.WithWebsocketServer(websockets...),
+			logger = l
+			if useDefault {
+				l.Warn("config file not exist, use default configration")
+			}
+			s := server.New(
+				server.WithConfig(c.MQTT),
+				server.WithTCPListener(tcpListeners...),
+				server.WithWebsocketServer(websockets...),
 				//gmqtt.WithPlugin(management.New(":8081", nil)),
-				gmqtt.WithPlugin(prometheus.New(&http.Server{
+				server.WithPlugin(prometheus.New(&http.Server{
 					Addr: c.Plugins.Prometheus.ListenAddress,
 				}, c.Plugins.Prometheus.Path)),
-				gmqtt.WithLogger(l),
+				server.WithLogger(l),
 			)
 			s.Run()
 			installSignal(s)

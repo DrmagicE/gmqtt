@@ -1,4 +1,4 @@
-package gmqtt
+package server
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/retained"
@@ -228,17 +229,17 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			c.opts.SubIDAvailable = true
 			c.version = v.version
 			for _, topic := range v.in.Topics {
-				var options []subscription.SubOptions
-				options = append(options,
-					subscription.NoLocal(topic.NoLocal),
-					subscription.RetainAsPublished(topic.RetainAsPublished),
-					subscription.RetainHandling(topic.RetainHandling))
-				if v.in.Properties != nil {
-					for _, id := range v.in.Properties.SubscriptionIdentifier {
-						options = append(options, subscription.ID(id))
-					}
+
+				sub := &gmqtt.Subscription{
+					TopicFilter:       topic.Name,
+					QoS:               topic.Qos,
+					NoLocal:           topic.NoLocal,
+					RetainAsPublished: topic.RetainAsPublished,
+					RetainHandling:    topic.RetainHandling,
 				}
-				sub := subscription.New(topic.Name, topic.Qos, options...)
+				if v.in.Properties != nil && len(v.in.Properties.SubscriptionIdentifier) != 0 {
+					sub.ID = v.in.Properties.SubscriptionIdentifier[0]
+				}
 				subDB.EXPECT().Subscribe(v.clientID, sub).Return(subscription.SubscribeResult{
 					{
 						Subscription:   sub,
@@ -246,7 +247,7 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 					},
 				})
 				// We are not going to test retained logic in this test case.
-				retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter()).Return(nil)
+				retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter).Return(nil)
 			}
 
 			err := c.subscribeHandler(v.in)
@@ -371,23 +372,23 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			c.version = v.version
 			for _, topic := range v.in.Topics {
 				var shareName, topicFilter string
-				var options []subscription.SubOptions
 
 				shared := strings.SplitN(topic.Name, "/", 3)
 				shareName = shared[1]
 				topicFilter = shared[2]
 
-				options = append(options,
-					subscription.NoLocal(topic.NoLocal),
-					subscription.RetainAsPublished(topic.RetainAsPublished),
-					subscription.RetainHandling(topic.RetainHandling),
-					subscription.ShareName(shareName))
-				if v.in.Properties != nil {
-					for _, id := range v.in.Properties.SubscriptionIdentifier {
-						options = append(options, subscription.ID(id))
-					}
+				sub := &gmqtt.Subscription{
+					ShareName:         shareName,
+					TopicFilter:       topicFilter,
+					QoS:               topic.Qos,
+					NoLocal:           topic.NoLocal,
+					RetainAsPublished: topic.RetainAsPublished,
+					RetainHandling:    topic.RetainHandling,
 				}
-				sub := subscription.New(topicFilter, topic.Qos, options...)
+				if v.in.Properties != nil && len(v.in.Properties.SubscriptionIdentifier) != 0 {
+					sub.ID = v.in.Properties.SubscriptionIdentifier[0]
+				}
+
 				if v.sharedSubAvailable {
 					subDB.EXPECT().Subscribe(v.clientID, sub).Return(subscription.SubscribeResult{
 						{
@@ -423,7 +424,7 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 		in                *packets.Subscribe
 		out               *packets.Suback
 		err               *codes.Error
-		retainedMsg       packets.Message
+		retainedMsg       *gmqtt.Message
 		retainedAvailable bool
 		expected          struct {
 			qos      uint8
@@ -460,7 +461,12 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 					codes.GrantedQoS1,
 				},
 			},
-			retainedMsg: NewMessage("/topic/A", []byte("b"), 1, Retained(true)),
+			retainedMsg: &gmqtt.Message{
+				Retained: true,
+				QoS:      1,
+				Topic:    "/topic/a",
+				Payload:  []byte("b"),
+			},
 			expected: struct {
 				qos      uint8
 				retained bool
@@ -589,7 +595,12 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 					codes.GrantedQoS2,
 				},
 			},
-			retainedMsg: NewMessage("/topic/A", []byte("b"), 1, Retained(true)),
+			retainedMsg: &gmqtt.Message{
+				QoS:      1,
+				Retained: true,
+				Topic:    "/topic/a",
+				Payload:  []byte("b"),
+			},
 			expected: struct {
 				qos      uint8
 				retained bool
@@ -626,7 +637,12 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 					codes.GrantedQoS2,
 				},
 			},
-			retainedMsg: NewMessage("/topic/A", []byte("b"), 1, Retained(true)),
+			retainedMsg: &gmqtt.Message{
+				QoS:      1,
+				Retained: true,
+				Topic:    "/topic/a",
+				Payload:  []byte("b"),
+			},
 			expected: struct {
 				qos      uint8
 				retained bool
@@ -663,7 +679,12 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 					codes.GrantedQoS2,
 				},
 			},
-			retainedMsg: NewMessage("/topic/A", []byte("b"), 1, Retained(true)),
+			retainedMsg: &gmqtt.Message{
+				QoS:      1,
+				Retained: true,
+				Topic:    "/topic/a",
+				Payload:  []byte("b"),
+			},
 			expected: struct {
 				qos      uint8
 				retained bool
@@ -699,17 +720,16 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			c.opts.RetainAvailable = v.retainedAvailable
 			c.version = v.version
 			for _, topic := range v.in.Topics {
-				var options []subscription.SubOptions
-				options = append(options,
-					subscription.NoLocal(topic.NoLocal),
-					subscription.RetainAsPublished(topic.RetainAsPublished),
-					subscription.RetainHandling(topic.RetainHandling))
-				if v.in.Properties != nil {
-					for _, id := range v.in.Properties.SubscriptionIdentifier {
-						options = append(options, subscription.ID(id))
-					}
+				sub := &gmqtt.Subscription{
+					TopicFilter:       topic.Name,
+					QoS:               topic.Qos,
+					NoLocal:           topic.NoLocal,
+					RetainAsPublished: topic.RetainAsPublished,
+					RetainHandling:    topic.RetainHandling,
 				}
-				sub := subscription.New(topic.Name, topic.Qos, options...)
+				if v.in.Properties != nil && len(v.in.Properties.SubscriptionIdentifier) != 0 {
+					sub.ID = v.in.Properties.SubscriptionIdentifier[0]
+				}
 				subDB.EXPECT().Subscribe(v.clientID, sub).Return(subscription.SubscribeResult{
 					{
 						Subscription:   sub,
@@ -717,7 +737,7 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 					},
 				})
 				if v.shouldSendRetained {
-					retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter()).Return([]packets.Message{v.retainedMsg})
+					retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter).Return([]*gmqtt.Message{v.retainedMsg})
 				}
 			}
 
@@ -818,9 +838,9 @@ func TestClient_publishHandler_common(t *testing.T) {
 
 			var deliverMessageCalled bool
 
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(MessageFromPublish(v.in), msg)
+				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				deliverMessageCalled = true
 				return v.topicMatched
 			}
@@ -929,9 +949,9 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				config:     DefaultConfig,
 				retainedDB: retainedDB,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(MessageFromPublish(v.in), msg)
+				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return v.topicMatched
 			}
 			c := srv.newClient(noopConn{})
@@ -943,7 +963,7 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				if len(v.in.Payload) == 0 {
 					retainedDB.EXPECT().Remove(string(v.in.TopicName))
 				} else {
-					retainedDB.EXPECT().AddOrReplace(MessageFromPublish(v.in))
+					retainedDB.EXPECT().AddOrReplace(gmqtt.MessageFromPublish(v.in))
 				}
 			}
 			err := c.publishHandler(v.in)
@@ -1027,9 +1047,9 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			srv := &server{
 				config: DefaultConfig,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
-				a.Equal(MessageFromPublish(v.in), msg)
+				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return true
 			}
 			c := srv.newClient(noopConn{})
@@ -1088,15 +1108,15 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	srv := &server{
 		config: DefaultConfig,
 	}
-	var deliveredMsg []packets.Message
-	srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+	var deliveredMsg []*gmqtt.Message
+	srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
 		a.Equal("cid", srcClientID)
 		deliveredMsg = append(deliveredMsg, msg)
 		return true
 	}
 	serverTopicAliasMax := uint16(5)
 	c := srv.newClient(noopConn{})
-	c.aliasMapper.server = make([][]byte, serverTopicAliasMax+1)
+	c.aliasMapper = make([][]byte, serverTopicAliasMax+1)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 	c.opts.ServerTopicAliasMax = serverTopicAliasMax
@@ -1108,8 +1128,8 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	a.Nil(err)
 
 	a.Len(deliveredMsg, 2)
-	a.Equal(MessageFromPublish(delivered), deliveredMsg[0])
-	a.Equal(MessageFromPublish(delivered), deliveredMsg[1])
+	a.Equal(gmqtt.MessageFromPublish(delivered), deliveredMsg[0])
+	a.Equal(gmqtt.MessageFromPublish(delivered), deliveredMsg[1])
 }
 
 func TestClient_pubackHandler(t *testing.T) {
@@ -1149,7 +1169,6 @@ func TestClient_pubackHandler(t *testing.T) {
 			a := assert.New(t)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			NewServer()
 			srv := defaultServer()
 			c := srv.newClient(noopConn{})
 			c.opts.ClientID = v.clientID
@@ -1183,7 +1202,6 @@ func TestClient_pubrelHandler(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	NewServer()
 	srv := defaultServer()
 	c := srv.newClient(noopConn{})
 	c.opts.ClientID = "cid"
@@ -1209,7 +1227,6 @@ func TestClient_pubrecHandler_ErrorV5(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	NewServer()
 	srv := defaultServer()
 	c := srv.newClient(noopConn{})
 	c.opts.ClientID = "cid"
@@ -1235,7 +1252,6 @@ func TestClient_pubrecHandler(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	NewServer()
 	srv := defaultServer()
 	c := srv.newClient(noopConn{})
 	c.opts.ClientID = "cid"
@@ -1264,7 +1280,6 @@ func TestClient_pubcompHandler(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	NewServer()
 	srv := defaultServer()
 	c := srv.newClient(noopConn{})
 	c.opts.ClientID = "cid"
@@ -1284,7 +1299,6 @@ func TestClient_pingreqHandler(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	NewServer()
 	srv := defaultServer()
 	c := srv.newClient(noopConn{})
 	c.opts.ClientID = "cid"
@@ -1430,9 +1444,9 @@ func TestMsg_TotalBytes(t *testing.T) {
 			b := bytes.NewBuffer(buf)
 			err := v.pub.Pack(b)
 			a.Nil(err)
-			var msg packets.Message
-			msg = MessageFromPublish(v.pub)
-			a.EqualValues(len(b.Bytes()), msg.TotalBytes())
+			var msg *gmqtt.Message
+			msg = gmqtt.MessageFromPublish(v.pub)
+			a.EqualValues(len(b.Bytes()), msg.TotalBytes(v.pub.Version))
 		})
 	}
 

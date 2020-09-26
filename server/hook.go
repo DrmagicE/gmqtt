@@ -1,12 +1,12 @@
-package gmqtt
+package server
 
 import (
 	"context"
 	"net"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 type Hooks struct {
@@ -67,7 +67,7 @@ type SubscribeResponse struct {
 type OnSubscribeWrapper func(OnSubscribe) OnSubscribe
 
 // OnSubscribed will be called after the topic subscribe successfully
-type OnSubscribed func(ctx context.Context, client Client, subscription subscription.Subscription)
+type OnSubscribed func(ctx context.Context, client Client, subscription *gmqtt.Subscription)
 
 type OnSubscribedWrapper func(OnSubscribed) OnSubscribed
 
@@ -80,11 +80,11 @@ type OnUnSubscribe func(ctx context.Context, client Client, unsubscribe *packets
 
 // OnMsgArrived will be called when receive a publish packets.
 // The returned message will be passed to topic match process and delivered to those matched clients.
-// If return nil message, no message will be deliver.
+// If return nil message or error, no message will be deliver.
 // The error is for V5 client to provide additional information for diagnostics and will be ignored if the version of current client is V3.
 // If the returned error type is *codes.Error, the code, reason string and user property will be set into the ack packet(puback for qos1, and pubrel for qos2);
 // otherwise, the code,reason string  will be set to 0x80 and error.Error().
-type OnMsgArrived func(ctx context.Context, client Client, publish *packets.Publish) (packets.Message, error)
+type OnMsgArrived func(ctx context.Context, client Client, publish *packets.Publish) (*gmqtt.Message, error)
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
 
@@ -184,20 +184,20 @@ type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 // OnDeliver 分发消息时触发
 //
 //  OnDeliver will be called when publishing a message to a client.
-type OnDeliver func(ctx context.Context, client Client, msg packets.Message)
+type OnDeliver func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnDeliverWrapper func(OnDeliver) OnDeliver
 
 // OnAcked 当客户端对qos1或qos2返回确认的时候调用
 //
 // OnAcked  will be called when receiving the ack in for a published qos1 or qos2 message.
-type OnAcked func(ctx context.Context, client Client, msg packets.Message)
+type OnAcked func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnAckedWrapper func(OnAcked) OnAcked
 
 // OnMessageDropped 丢弃报文后触发
 //
 // OnMsgDropped will be called after the Msg dropped
-type OnMsgDropped func(ctx context.Context, client Client, msg packets.Message)
+type OnMsgDropped func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped

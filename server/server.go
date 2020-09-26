@@ -1,4 +1,4 @@
-package gmqtt
+package server
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
 	subscription_trie "github.com/DrmagicE/gmqtt/subscription/trie"
@@ -28,7 +29,14 @@ var (
 	statusPanic       = "invalid server status"
 
 	plugins []Plugable
+
+	// DefaultTopicAliasMgrFactory is optional, see the topicalias package
+	DefaultTopicAliasMgrFactory topicAliasMgrFactory
 )
+
+type topicAliasMgrFactory interface {
+	New() TopicAliasManager
+}
 
 // Server status
 const (
@@ -68,6 +76,17 @@ type Server interface {
 	ApplyConfig(config Config)
 }
 
+// PublishService provides the ability to publish messages to the broker.
+type PublishService interface {
+	// Publish publish a message to broker.
+	// Calling this method will not trigger OnMsgArrived hook.
+	Publish(message *gmqtt.Message)
+	// PublishToClient publish a message to a specific client.
+	// The message will send to the client only if the client is subscribed to a topic that matches the message.
+	// Calling this method will not trigger OnMsgArrived hook.
+	PublishToClient(clientID string, message *gmqtt.Message)
+}
+
 // server represents a mqtt server instance.
 // Create a server by using NewServer()
 type server struct {
@@ -95,10 +114,10 @@ type server struct {
 	statsManager   StatsManager
 	publishService PublishService
 
-	msgRouter chan *Msg
-
+	// manage topic alias for V5 clients
+	topicAliasManager TopicAliasManager
 	// for testing
-	deliverMessageHandler func(srcClientID string, dstClientID string, msg packets.Message) (matched bool)
+	deliverMessageHandler func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool)
 }
 
 func (srv *server) ApplyConfig(config Config) {
@@ -200,10 +219,10 @@ func (srv *server) registerClient(connect *packets.Connect, ppt *packets.Propert
 			}
 			// send will message because session ends
 			if !sessionResume {
-				srv.deliverMessageHandler(oldClient.opts.ClientID, "", MessageFromPublish(willMsg))
+				srv.deliverMessageHandler(oldClient.opts.ClientID, "", gmqtt.MessageFromPublish(willMsg))
 			} else if oldClient.version == packets.Version5 && convertUint32(oldClient.opts.Will.Properties.WillDelayInterval, 0) == 0 {
 				// send will message because connection ends when will interval == 0
-				srv.deliverMessageHandler(oldClient.opts.ClientID, "", MessageFromPublish(willMsg))
+				srv.deliverMessageHandler(oldClient.opts.ClientID, "", gmqtt.MessageFromPublish(willMsg))
 			} else if m, ok := srv.willMessage[client.opts.ClientID]; ok {
 				close(m.cancel)
 				delete(srv.willMessage, client.opts.ClientID)
@@ -284,11 +303,12 @@ func (srv *server) registerClient(connect *packets.Connect, ppt *packets.Propert
 		}
 	}
 	delete(srv.offlineClients, client.opts.ClientID)
+	srv.topicAliasManager.Create(client)
 	return
 }
 
 type willMsg struct {
-	msg    packets.Message
+	msg    *gmqtt.Message
 	cancel chan struct{}
 }
 
@@ -322,7 +342,7 @@ func (srv *server) unregisterClient(client *client) {
 			Payload:    client.opts.Will.Payload,
 			Properties: client.opts.Will.Properties,
 		}
-		msg := MessageFromPublish(will)
+		msg := gmqtt.MessageFromPublish(will)
 		var willDelayInterval uint32
 		if client.version == packets.Version5 {
 			willDelayInterval = convertUint32(client.opts.Will.Properties.WillDelayInterval, 0)
@@ -383,23 +403,24 @@ func (srv *server) unregisterClient(client *client) {
 		}
 		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 	}
+	srv.topicAliasManager.Delete(client)
 }
 
 // deliverMessage send msg to matched client.
-func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg packets.Message) (matched bool) {
+func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions, key by share name.
 	sharedList := make(map[string][]struct {
 		clientID string
-		sub      subscription.Subscription
+		sub      *gmqtt.Subscription
 	})
 	maxQos := make(map[string]*struct {
-		sub    subscription.Subscription
+		sub    *gmqtt.Subscription
 		subIDs []uint32
 	})
-	totalBytes := msg.TotalBytes()
+	totalBytes := msg.TotalBytes(packets.Version5)
 	// 先取的所有的share 和unshare
-	srv.subscriptionsDB.Iterate(func(clientID string, sub subscription.Subscription) bool {
-		if sub.NoLocal() && clientID == srcClientID {
+	srv.subscriptionsDB.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+		if sub.NoLocal && clientID == srcClientID {
 			return true
 		}
 		if srv.clients[clientID].opts.ClientMaxPacketSize != 0 && totalBytes > srv.clients[clientID].opts.ClientMaxPacketSize {
@@ -407,23 +428,23 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 		}
 		matched = true
 		// shared
-		if sub.ShareName() != "" {
-			sharedList[sub.ShareName()] = append(sharedList[sub.ShareName()], struct {
+		if sub.ShareName != "" {
+			sharedList[sub.ShareName] = append(sharedList[sub.ShareName], struct {
 				clientID string
-				sub      subscription.Subscription
+				sub      *gmqtt.Subscription
 			}{clientID: clientID, sub: sub})
 		} else {
 			if srv.config.DeliveryMode == Overlap {
 				if c, ok := srv.clients[clientID]; ok {
-					publish := messageToPublish(msg, c.version)
-					if publish.Qos > sub.QoS() {
-						publish.Qos = sub.QoS()
+					publish := gmqtt.MessageToPublish(msg, c.version)
+					if publish.Qos > sub.QoS {
+						publish.Qos = sub.QoS
 					}
-					if c.version == packets.Version5 && sub.ID() != 0 {
-						publish.Properties.SubscriptionIdentifier = []uint32{sub.ID()}
+					if c.version == packets.Version5 && sub.ID != 0 {
+						publish.Properties.SubscriptionIdentifier = []uint32{sub.ID}
 					}
 					publish.Dup = false
-					if !sub.RetainAsPublished() {
+					if !sub.RetainAsPublished {
 						publish.Retain = false
 					}
 					c.publish(publish)
@@ -432,14 +453,14 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 				// OnlyOnce
 				if maxQos[clientID] == nil {
 					maxQos[clientID] = &struct {
-						sub    subscription.Subscription
+						sub    *gmqtt.Subscription
 						subIDs []uint32
-					}{sub: sub, subIDs: []uint32{sub.ID()}}
+					}{sub: sub, subIDs: []uint32{sub.ID}}
 				}
-				if maxQos[clientID].sub.QoS() < sub.QoS() {
+				if maxQos[clientID].sub.QoS < sub.QoS {
 					maxQos[clientID].sub = sub
 				}
-				maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID())
+				maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID)
 			}
 		}
 		return true
@@ -447,14 +468,14 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 		Type:      subscription.TypeAll,
 		ClientID:  dstClientID,
 		MatchType: subscription.MatchFilter,
-		TopicName: msg.Topic(),
+		TopicName: msg.Topic,
 	})
 	if srv.config.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if c := srv.clients[clientID]; c != nil {
-				publish := messageToPublish(msg, c.version)
-				if publish.Qos > v.sub.QoS() {
-					publish.Qos = v.sub.QoS()
+				publish := gmqtt.MessageToPublish(msg, c.version)
+				if publish.Qos > v.sub.QoS {
+					publish.Qos = v.sub.QoS
 				}
 				if c.version == packets.Version5 {
 					for _, id := range v.subIDs {
@@ -464,7 +485,7 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 					}
 				}
 				publish.Dup = false
-				if !v.sub.RetainAsPublished() {
+				if !v.sub.RetainAsPublished {
 					publish.Retain = false
 				}
 				c.publish(publish)
@@ -477,7 +498,7 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 	for _, v := range sharedList {
 		var rs struct {
 			clientID string
-			sub      subscription.Subscription
+			sub      *gmqtt.Subscription
 		}
 		if dstClientID != "" {
 			for _, vv := range v {
@@ -491,13 +512,13 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg pa
 			rs = v[rand.Intn(len(v))]
 		}
 		if c, ok := srv.clients[rs.clientID]; ok {
-			publish := messageToPublish(msg, c.version)
-			if publish.Qos > rs.sub.QoS() {
-				publish.Qos = rs.sub.QoS()
+			publish := gmqtt.MessageToPublish(msg, c.version)
+			if publish.Qos > rs.sub.QoS {
+				publish.Qos = rs.sub.QoS
 			}
-			publish.Properties.SubscriptionIdentifier = []uint32{v[0].sub.ID()}
+			publish.Properties.SubscriptionIdentifier = []uint32{v[0].sub.ID}
 			publish.Dup = false
-			if !rs.sub.RetainAsPublished() {
+			if !rs.sub.RetainAsPublished {
 				publish.Retain = false
 			}
 			c.publish(publish)
@@ -562,15 +583,16 @@ func defaultServer() *server {
 	subStore := subscription_trie.NewStore()
 	statsMgr := newStatsManager(subStore)
 	srv := &server{
-		status:          serverStatusInit,
-		exitChan:        make(chan struct{}),
-		clients:         make(map[string]*client),
-		offlineClients:  make(map[string]time.Time),
-		willMessage:     make(map[string]*willMsg),
-		retainedDB:      retained_trie.NewStore(),
-		subscriptionsDB: subStore,
-		config:          DefaultConfig,
-		statsManager:    statsMgr,
+		status:            serverStatusInit,
+		exitChan:          make(chan struct{}),
+		clients:           make(map[string]*client),
+		offlineClients:    make(map[string]time.Time),
+		willMessage:       make(map[string]*willMsg),
+		retainedDB:        retained_trie.NewStore(),
+		subscriptionsDB:   subStore,
+		config:            DefaultConfig,
+		statsManager:      statsMgr,
+		topicAliasManager: DefaultTopicAliasMgrFactory.New(),
 	}
 
 	srv.deliverMessageHandler = srv.deliverMessage
@@ -578,8 +600,8 @@ func defaultServer() *server {
 	return srv
 }
 
-// NewServer returns a gmqtt server instance with the given options
-func NewServer(opts ...Options) *server {
+// New returns a gmqtt server instance with the given options
+func New(opts ...Options) *server {
 	// statistics
 	srv := defaultServer()
 	for _, fn := range opts {
@@ -702,11 +724,6 @@ func (srv *server) newClient(c net.Conn) *client {
 		cleanWillFlag: false,
 		ready:         make(chan struct{}),
 		statsManager:  newSessionStatsManager(),
-		aliasMapper: &aliasMapper{
-			client:    nil,
-			server:    nil,
-			nextAlias: 1,
-		},
 	}
 	client.publishMessageHandler = client.publish
 	client.packetReader = packets.NewReader(client.bufr)
@@ -869,7 +886,7 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnSubscribe = onSubscribe
 	}
 	if onSubscribedWrappers != nil {
-		onSubscribed := func(ctx context.Context, client Client, subscription subscription.Subscription) {}
+		onSubscribed := func(ctx context.Context, client Client, subscription *gmqtt.Subscription) {}
 		for i := len(onSubscribedWrappers); i > 0; i-- {
 			onSubscribed = onSubscribedWrappers[i-1](onSubscribed)
 		}
@@ -883,8 +900,8 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(ctx context.Context, client Client, pub *packets.Publish) (packets.Message, error) {
-			return MessageFromPublish(pub), nil
+		onMsgArrived := func(ctx context.Context, client Client, pub *packets.Publish) (*gmqtt.Message, error) {
+			return gmqtt.MessageFromPublish(pub), nil
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
 			onMsgArrived = onMsgArrivedWrappers[i-1](onMsgArrived)
@@ -892,14 +909,14 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnMsgArrived = onMsgArrived
 	}
 	if onDeliverWrappers != nil {
-		onDeliver := func(ctx context.Context, client Client, msg packets.Message) {}
+		onDeliver := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
 		for i := len(onDeliverWrappers); i > 0; i-- {
 			onDeliver = onDeliverWrappers[i-1](onDeliver)
 		}
 		srv.hooks.OnDeliver = onDeliver
 	}
 	if onAckedWrappers != nil {
-		onAcked := func(ctx context.Context, client Client, msg packets.Message) {}
+		onAcked := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
 		for i := len(onAckedWrappers); i > 0; i-- {
 			onAcked = onAckedWrappers[i-1](onAcked)
 		}
@@ -920,7 +937,7 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnStop = onStop
 	}
 	if onMsgDroppedWrappers != nil {
-		onMsgDropped := func(ctx context.Context, client Client, msg packets.Message) {}
+		onMsgDropped := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}

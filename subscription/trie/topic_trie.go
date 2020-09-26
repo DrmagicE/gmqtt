@@ -3,6 +3,7 @@ package trie
 import (
 	"strings"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
@@ -12,69 +13,7 @@ type topicTrie = topicNode
 // children
 type children = map[string]*topicNode
 
-// sub implements subscription.Subscription interface
-type sub struct {
-	shareName      string
-	topicFilter    string
-	qos            byte
-	noLocal        bool
-	rap            bool
-	retainHandling byte
-	id             uint32
-}
-
-func (s sub) ShareName() string {
-	return s.shareName
-}
-
-func (s sub) TopicFilter() string {
-	return s.topicFilter
-}
-
-func (s sub) ID() uint32 {
-	return s.id
-}
-
-func (s sub) QoS() byte {
-	return s.qos
-}
-
-func (s sub) NoLocal() bool {
-	return s.noLocal
-}
-
-func (s sub) RetainAsPublished() bool {
-	return s.rap
-}
-
-func (s sub) RetainHandling() byte {
-	return s.retainHandling
-}
-
-func fromSubscription(s subscription.Subscription) sub {
-	return sub{
-		shareName:      s.ShareName(),
-		qos:            s.QoS(),
-		noLocal:        s.NoLocal(),
-		rap:            s.RetainAsPublished(),
-		retainHandling: s.RetainHandling(),
-		id:             s.ID(),
-	}
-}
-
-func (s *sub) subscription(topicFilter string) subscription.Subscription {
-	return &sub{
-		shareName:      s.shareName,
-		topicFilter:    topicFilter,
-		noLocal:        s.noLocal,
-		rap:            s.rap,
-		retainHandling: s.retainHandling,
-		id:             s.id,
-		qos:            s.qos,
-	}
-}
-
-type clientOpts map[string]sub
+type clientOpts map[string]*gmqtt.Subscription
 
 // topicNode
 type topicNode struct {
@@ -109,8 +48,8 @@ func (t *topicNode) newChild() *topicNode {
 }
 
 // subscribe add a subscription and return the added node
-func (t *topicTrie) subscribe(clientID string, topicName string, s sub) *topicNode {
-	topicSlice := strings.Split(topicName, "/")
+func (t *topicTrie) subscribe(clientID string, s *gmqtt.Subscription) *topicNode {
+	topicSlice := strings.Split(s.TopicFilter, "/")
 	var pNode = t
 	for _, lv := range topicSlice {
 		if _, ok := pNode.children[lv]; !ok {
@@ -119,16 +58,16 @@ func (t *topicTrie) subscribe(clientID string, topicName string, s sub) *topicNo
 		pNode = pNode.children[lv]
 	}
 	// shared subscription
-	if s.shareName != "" {
-		if pNode.shared[s.shareName] == nil {
-			pNode.shared[s.shareName] = make(clientOpts)
+	if s.ShareName != "" {
+		if pNode.shared[s.ShareName] == nil {
+			pNode.shared[s.ShareName] = make(clientOpts)
 		}
-		pNode.shared[s.shareName][clientID] = s
+		pNode.shared[s.ShareName][clientID] = s
 	} else {
 		// non-shared
 		pNode.clients[clientID] = s
 	}
-	pNode.topicName = topicName
+	pNode.topicName = s.TopicFilter
 	return pNode
 }
 
@@ -185,17 +124,17 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string, shareName str
 func setRs(node *topicNode, rs subscription.ClientSubscriptions) {
 	for cid, subOpts := range node.clients {
 		if _, ok := rs[cid]; !ok {
-			rs[cid] = make([]subscription.Subscription, 0)
+			rs[cid] = make([]*gmqtt.Subscription, 0)
 		}
-		rs[cid] = append(rs[cid], subOpts.subscription(node.topicName))
+		rs[cid] = append(rs[cid], subOpts)
 	}
 
 	for _, c := range node.shared {
 		for cid, subOpts := range c {
 			if _, ok := rs[cid]; !ok {
-				rs[cid] = make([]subscription.Subscription, 0)
+				rs[cid] = make([]*gmqtt.Subscription, 0)
 			}
-			rs[cid] = append(rs[cid], subOpts.subscription(node.topicName))
+			rs[cid] = append(rs[cid], subOpts)
 		}
 	}
 }
@@ -246,14 +185,14 @@ func (t *topicTrie) preOrderTraverse(fn subscription.IterateFn) bool {
 	}
 	if t.topicName != "" {
 		for clientID, subOpts := range t.clients {
-			if !fn(clientID, subOpts.subscription(t.topicName)) {
+			if !fn(clientID, subOpts) {
 				return false
 			}
 		}
 
 		for _, c := range t.shared {
 			for clientID, subOpts := range c {
-				if !fn(clientID, subOpts.subscription(t.topicName)) {
+				if !fn(clientID, subOpts) {
 					return false
 				}
 			}

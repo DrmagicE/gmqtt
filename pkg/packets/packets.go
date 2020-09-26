@@ -19,6 +19,8 @@ var (
 // MQTT Version
 type Version = byte
 
+type QoS = byte
+
 const (
 	Version311 Version = 0x04
 	Version5   Version = 0x05
@@ -75,24 +77,6 @@ const (
 	PayloadFormatBytes  PayloadFormat = 0
 	PayloadFormatString PayloadFormat = 1
 )
-
-type Message interface {
-	Dup() bool
-	Qos() uint8
-	Retained() bool
-	Topic() string
-	PacketID() PacketID
-	Payload() []byte
-	// v5
-	ContentType() string
-	CorrelationData() []byte
-	MessageExpiry() uint32
-	PayloadFormat() PayloadFormat
-	ResponseTopic() string
-	UserProperties() []UserProperty
-
-	TotalBytes() uint32
-}
 
 // FixHeader represents the FixHeader of the MQTT packet
 type FixHeader struct {

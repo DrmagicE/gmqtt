@@ -1,4 +1,4 @@
-package gmqtt
+package server
 
 import (
 	"container/list"
@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -132,7 +133,7 @@ func (client *client) msgEnQueue(publish *packets.Publish) {
 			}
 			if removeMsg != nil {
 				if srv.hooks.OnMsgDropped != nil {
-					srv.hooks.OnMsgDropped(cs, client, MessageFromPublish(removeMsg))
+					srv.hooks.OnMsgDropped(cs, client, gmqtt.MessageFromPublish(removeMsg))
 				}
 				client.server.statsManager.messageDropped(removeMsg.Qos)
 				client.statsManager.messageDropped(removeMsg.Qos)
@@ -292,7 +293,7 @@ func (client *client) unsetInflight(packet packets.Packet) {
 				}
 				// onAcked hook
 				if srv.hooks.OnAcked != nil {
-					srv.hooks.OnAcked(context.Background(), client, MessageFromPublish(e.Value.(*inflightElem).packet))
+					srv.hooks.OnAcked(context.Background(), client, gmqtt.MessageFromPublish(e.Value.(*inflightElem).packet))
 				}
 				publish := client.msgDequeue()
 				if publish != nil {

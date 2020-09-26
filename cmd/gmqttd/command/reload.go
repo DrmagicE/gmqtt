@@ -20,7 +20,7 @@ func NewReloadCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			var c config.Config
 			var err error
-			c, err = config.ParseConfig(configFile)
+			c, err = config.ParseConfig(ConfigFile)
 			if os.IsNotExist(err) {
 				c = config.DefaultConfig
 			} else {

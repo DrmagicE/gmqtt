@@ -1,4 +1,4 @@
-package gmqtt
+package server
 
 import (
 	"net"
@@ -46,5 +46,11 @@ func WithHook(hooks Hooks) Options {
 func WithLogger(logger *zap.Logger) Options {
 	return func(srv *server) {
 		zaplog = logger
+	}
+}
+
+func WithTopicAliasMgr(mgr TopicAliasManager) Options {
+	return func(srv *server) {
+		srv.topicAliasManager = mgr
 	}
 }

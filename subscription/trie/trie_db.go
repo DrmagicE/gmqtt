@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
@@ -47,7 +48,7 @@ func iterateShared(fn subscription.IterateFn, options subscription.IterationOpti
 		if options.ClientID != "" { // 指定topicName & 指定clientID
 			if c := node.shared[shareName]; c != nil {
 				if sub, ok := c[options.ClientID]; ok {
-					if !fn(options.ClientID, sub.subscription(node.topicName)) {
+					if !fn(options.ClientID, sub) {
 						return false
 					}
 				}
@@ -55,7 +56,7 @@ func iterateShared(fn subscription.IterateFn, options subscription.IterationOpti
 		} else {
 			if c := node.shared[shareName]; c != nil {
 				for clientID, sub := range c {
-					if !fn(clientID, sub.subscription(node.topicName)) {
+					if !fn(clientID, sub) {
 						return false
 					}
 				}
@@ -88,10 +89,10 @@ func iterateShared(fn subscription.IterateFn, options subscription.IterationOpti
 	}
 	// 查询指定clientID下的所有topic
 	if options.ClientID != "" {
-		for topicFilter, v := range index[options.ClientID] {
+		for _, v := range index[options.ClientID] {
 			for _, c := range v.shared {
 				if sub, ok := c[options.ClientID]; ok {
-					if !fn(options.ClientID, sub.subscription(topicFilter)) {
+					if !fn(options.ClientID, sub) {
 						return false
 					}
 				}
@@ -112,14 +113,14 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 		}
 		if options.ClientID != "" { // 指定topicName & 指定clientID
 			if sub, ok := node.clients[options.ClientID]; ok {
-				if !fn(options.ClientID, sub.subscription(node.topicName)) {
+				if !fn(options.ClientID, sub) {
 					return false
 				}
 			}
 
 			for _, v := range node.shared {
 				if sub, ok := v[options.ClientID]; ok {
-					if !fn(options.ClientID, sub.subscription(node.topicName)) {
+					if !fn(options.ClientID, sub) {
 						return false
 					}
 				}
@@ -128,13 +129,13 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 		} else {
 			// 指定topic name 不指定clientid
 			for clientID, sub := range node.clients {
-				if !fn(clientID, sub.subscription(node.topicName)) {
+				if !fn(clientID, sub) {
 					return false
 				}
 			}
 			for _, c := range node.shared {
 				for clientID, sub := range c {
-					if !fn(clientID, sub.subscription(node.topicName)) {
+					if !fn(clientID, sub) {
 						return false
 					}
 				}
@@ -168,9 +169,9 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 	}
 	// 查询指定clientID下的所有topic
 	if options.ClientID != "" {
-		for topicFilter, v := range index[options.ClientID] {
+		for _, v := range index[options.ClientID] {
 			sub := v.clients[options.ClientID]
-			if !fn(options.ClientID, sub.subscription(topicFilter)) {
+			if !fn(options.ClientID, sub) {
 				return false
 			}
 		}
@@ -241,23 +242,23 @@ func NewStore() *trieDB {
 }
 
 // Subscribe add subscriptions
-func (db *trieDB) Subscribe(clientID string, subscriptions ...subscription.Subscription) subscription.SubscribeResult {
+func (db *trieDB) Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) subscription.SubscribeResult {
 	db.Lock()
 	defer db.Unlock()
 	var node *topicNode
 	var index map[string]map[string]*topicNode
 	rs := make(subscription.SubscribeResult, len(subscriptions))
 	for k, sub := range subscriptions {
-		topicName := sub.TopicFilter()
+		topicName := sub.TopicFilter
 		rs[k].Subscription = sub
-		if sub.ShareName() != "" {
-			node = db.sharedTrie.subscribe(clientID, topicName, fromSubscription(sub))
+		if sub.ShareName != "" {
+			node = db.sharedTrie.subscribe(clientID, sub)
 			index = db.sharedIndex
 		} else if isSystemTopic(topicName) {
-			node = db.systemTrie.subscribe(clientID, topicName, fromSubscription(sub))
+			node = db.systemTrie.subscribe(clientID, sub)
 			index = db.systemIndex
 		} else {
-			node = db.userTrie.subscribe(clientID, topicName, fromSubscription(sub))
+			node = db.userTrie.subscribe(clientID, sub)
 			index = db.userIndex
 		}
 		if index[clientID] == nil {

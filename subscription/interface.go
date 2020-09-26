@@ -3,11 +3,9 @@ package subscription
 import (
 	"strings"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
-
-type TopicName struct {
-}
 
 // IterationType specifies the types of subscription that will be iterated.
 type IterationType byte
@@ -29,107 +27,7 @@ const (
 	MatchFilter
 )
 
-type Subscription interface {
-	// ShareName is the share name of a shared subscription.
-	// If it is a non-shared subscription, return ""
-	ShareName() string
-	// TopicFilter return the topic filter which does not include the share name
-	TopicFilter() string
-	ID() uint32 // subscription identifier
-	SubOpts
-}
-type SubOpts interface {
-	QoS() byte
-	NoLocal() bool
-	RetainAsPublished() bool
-	RetainHandling() byte
-}
-
-type Sub struct {
-	shareName   string
-	topicFilter string
-	id          uint32
-	qos         byte
-	noLocal     bool
-	rap         bool
-	rh          byte
-}
-
-func (s *Sub) ShareName() string {
-	return s.shareName
-}
-
-func (s *Sub) TopicFilter() string {
-	return s.topicFilter
-}
-
-func (s *Sub) ID() uint32 {
-	return s.id
-}
-
-func (s *Sub) QoS() byte {
-	return s.qos
-}
-
-func (s *Sub) NoLocal() bool {
-	return s.noLocal
-}
-
-func (s *Sub) RetainAsPublished() bool {
-	return s.rap
-}
-
-func (s *Sub) RetainHandling() byte {
-	return s.rh
-}
-
-type SubOptions func(sub *Sub)
-
-// ID sets subscriptionIdentifier flag to the subscription
-func ID(id uint32) SubOptions {
-	return func(sub *Sub) {
-		sub.id = id
-	}
-}
-
-// ShareName sets shareName of a shared subscription.
-func ShareName(shareName string) SubOptions {
-	return func(sub *Sub) {
-		sub.shareName = shareName
-	}
-}
-
-func NoLocal(noLocal bool) SubOptions {
-	return func(sub *Sub) {
-		sub.noLocal = noLocal
-	}
-}
-
-func RetainAsPublished(rap bool) SubOptions {
-	return func(sub *Sub) {
-		sub.rap = rap
-	}
-}
-
-func RetainHandling(rh byte) SubOptions {
-	return func(sub *Sub) {
-		sub.rh = rh
-	}
-}
-
-// New creates a subscription
-func New(topicFilter string, qos uint8, opts ...SubOptions) Subscription {
-	s := &Sub{
-		topicFilter: topicFilter,
-		qos:         qos,
-	}
-	for _, v := range opts {
-		v(s)
-	}
-	return s
-}
-
-func FromTopic(topic packets.Topic, id uint32) Subscription {
+func FromTopic(topic packets.Topic, id uint32) *gmqtt.Subscription {
 	var shareName string
 	var topicFilter string
 	if strings.HasPrefix(topic.Name, "$share/") {
@@ -140,26 +38,26 @@ func FromTopic(topic packets.Topic, id uint32) Subscription {
 		topicFilter = topic.Name
 	}
 
-	s := &Sub{
-		shareName:   shareName,
-		topicFilter: topicFilter,
-		id:          id,
-		qos:         topic.Qos,
-		noLocal:     topic.NoLocal,
-		rap:         topic.RetainAsPublished,
-		rh:          topic.RetainHandling,
+	s := &gmqtt.Subscription{
+		ShareName:         shareName,
+		TopicFilter:       topicFilter,
+		ID:                id,
+		QoS:               topic.Qos,
+		NoLocal:           topic.NoLocal,
+		RetainAsPublished: topic.RetainAsPublished,
+		RetainHandling:    topic.RetainHandling,
 	}
 	return s
 }
 
 // IterateFn is the callback function used by Iterate()
 // Return false means to stop the iteration.
-type IterateFn func(clientID string, sub Subscription) bool
+type IterateFn func(clientID string, sub *gmqtt.Subscription) bool
 
 // SubscribeResult is the result of Subscribe()
 type SubscribeResult = []struct {
 	// Topic is the Subscribed topic
-	Subscription Subscription
+	Subscription *gmqtt.Subscription
 	// AlreadyExisted shows whether the topic is already existed.
 	AlreadyExisted bool
 }
@@ -174,7 +72,7 @@ type Stats struct {
 }
 
 // ClientSubscriptions groups the subscriptions by client id.
-type ClientSubscriptions map[string][]Subscription
+type ClientSubscriptions map[string][]*gmqtt.Subscription
 
 // IterationOptions
 type IterationOptions struct {
@@ -201,7 +99,7 @@ type Store interface {
 	// Notice:
 	// This method will succeed even if the client is not exists, the subscriptions
 	// will affect the new client with the client id.
-	Subscribe(clientID string, subscriptions ...Subscription) (rs SubscribeResult)
+	Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) (rs SubscribeResult)
 	// Unsubscribe remove subscriptions of a specific client.
 	Unsubscribe(clientID string, topics ...string)
 	// UnsubscribeAll remove all subscriptions of a specific client.
@@ -220,7 +118,7 @@ type Store interface {
 // GetTopicMatched returns the subscriptions that match the passed topic.
 func GetTopicMatched(store Store, topicFilter string, t IterationType) ClientSubscriptions {
 	rs := make(ClientSubscriptions)
-	store.Iterate(func(clientID string, subscription Subscription) bool {
+	store.Iterate(func(clientID string, subscription *gmqtt.Subscription) bool {
 		rs[clientID] = append(rs[clientID], subscription)
 		return true
 	}, IterationOptions{
@@ -237,7 +135,7 @@ func GetTopicMatched(store Store, topicFilter string, t IterationType) ClientSub
 // Get returns the subscriptions that equals the passed topic filter.
 func Get(store Store, topicFilter string, t IterationType) ClientSubscriptions {
 	rs := make(ClientSubscriptions)
-	store.Iterate(func(clientID string, subscription Subscription) bool {
+	store.Iterate(func(clientID string, subscription *gmqtt.Subscription) bool {
 		rs[clientID] = append(rs[clientID], subscription)
 		return true
 	}, IterationOptions{
@@ -252,9 +150,9 @@ func Get(store Store, topicFilter string, t IterationType) ClientSubscriptions {
 }
 
 // GetClientSubscriptions returns the subscriptions of a specific client.
-func GetClientSubscriptions(store Store, clientID string, t IterationType) []Subscription {
-	var rs []Subscription
-	store.Iterate(func(clientID string, subscription Subscription) bool {
+func GetClientSubscriptions(store Store, clientID string, t IterationType) []*gmqtt.Subscription {
+	var rs []*gmqtt.Subscription
+	store.Iterate(func(clientID string, subscription *gmqtt.Subscription) bool {
 		rs = append(rs, subscription)
 		return true
 	}, IterationOptions{

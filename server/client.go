@@ -1,5 +1,5 @@
 // Package gmqtt provides an MQTT v3.1.1 server library.
-package gmqtt
+package server
 
 import (
 	"bufio"
@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/subscription"
@@ -89,6 +90,65 @@ func putBufioWriter(bw *bufio.Writer) {
 	bufioWriterPool.Put(bw)
 }
 
+func (client *client) ClientOptions() *ClientOptions {
+	return client.opts
+}
+
+// ClientOptions will be set after the client connected successfully
+type ClientOptions struct {
+	ClientID string
+	Username string
+
+	KeepAlive     uint16
+	CleanStart    bool
+	SessionExpiry uint32
+
+	ClientReceiveMax uint16
+	ServerReceiveMax uint16
+
+	ClientMaxPacketSize uint32
+	ServerMaxPacketSize uint32
+
+	ClientTopicAliasMax uint16
+	ServerTopicAliasMax uint16
+
+	RequestResponseInfo bool
+	RequestProblemInfo  bool
+	UserProperties      []*packets.UserProperty
+
+	RetainAvailable      bool
+	WildcardSubAvailable bool
+	SubIDAvailable       bool
+	SharedSubAvailable   bool
+
+	// AuthMethod v5 only
+	AuthMethod []byte
+
+	Will struct {
+		Flag       bool
+		Retain     bool
+		Qos        uint8
+		Topic      []byte
+		Payload    []byte
+		Properties *packets.Properties
+	}
+}
+
+// TopicAliasManager 决定topicAlias如何启用d
+// TopicAliasManager 管理所有的topicAlias，他知道每个client最多可以保留多少topicAlias
+type TopicAliasManager interface {
+	// Create为当前client创建一个topicAliasManager
+	Create(client Client)
+	// Check return the alias number and whether the alias exist.
+	// For examples:
+	// If the publish alias exist and the manager decides to use the alias, it return the alias number and true.
+	// If the publish alias exist, but the manager decides not to use alias, it return 0 and true.
+	// If the publish alias not exist and the manager decides to assign a new alias, it return the new alias and false.
+	// If the publish alias not exist, but the manager decides not to assign alias, it return the 0 and false.
+	Check(client Client, publish *packets.Publish) (alias uint16, exist bool)
+	Delete(client Client)
+}
+
 // Client
 type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
@@ -109,10 +169,6 @@ type Client interface {
 	Disconnect(disconnect *packets.Disconnect)
 
 	GetSessionStatsManager() SessionStatsManager
-}
-
-func (client *client) ClientOptions() *ClientOptions {
-	return client.opts
 }
 
 // Client represents a MQTT client and implements the Client interface
@@ -142,7 +198,7 @@ type client struct {
 
 	statsManager SessionStatsManager
 	version      packets.Version
-	aliasMapper  *aliasMapper
+	aliasMapper  [][]byte
 
 	// gard serverReceiveMaximumQuota
 	serverQuotaMu             sync.Mutex
@@ -153,7 +209,6 @@ type client struct {
 	clientReceiveMaximumQuota uint16
 
 	config Config
-
 	// for testing
 	publishMessageHandler func(publish *packets.Publish)
 }
@@ -168,9 +223,6 @@ func (client *client) Disconnect(disconnect *packets.Disconnect) {
 
 type aliasMapper struct {
 	server [][]byte
-	client map[string]uint16
-	// next alias will be send to client
-	nextAlias uint16
 }
 
 func (client *client) GetSessionStatsManager() SessionStatsManager {
@@ -228,46 +280,6 @@ func (client *client) IsDisConnected() bool {
 	return client.Status() == Disconnected
 }
 
-// ClientOptions will be set after the client connected successfully
-type ClientOptions struct {
-	ClientID string
-	Username string
-
-	KeepAlive     uint16
-	CleanStart    bool
-	SessionExpiry uint32
-
-	ClientReceiveMax uint16
-	ServerReceiveMax uint16
-
-	ClientMaxPacketSize uint32
-	ServerMaxPacketSize uint32
-
-	ClientTopicAliasMax uint16
-	ServerTopicAliasMax uint16
-
-	RequestResponseInfo bool
-	RequestProblemInfo  bool
-	UserProperties      []*packets.UserProperty
-
-	RetainAvailable      bool
-	WildcardSubAvailable bool
-	SubIDAvailable       bool
-	SharedSubAvailable   bool
-
-	// AuthMethod v5 only
-	AuthMethod []byte
-
-	Will struct {
-		Flag       bool
-		Retain     bool
-		Qos        uint8
-		Topic      []byte
-		Payload    []byte
-		Properties *packets.Properties
-	}
-}
-
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
 		if err != nil && err != io.EOF {
@@ -295,6 +307,7 @@ func (client *client) setError(err error) {
 
 func (client *client) writeLoop() {
 	var err error
+	srv := client.server
 	defer func() {
 		if re := recover(); re != nil {
 			err = errors.New(fmt.Sprint(re))
@@ -315,32 +328,27 @@ func (client *client) writeLoop() {
 
 				if client.version == packets.Version5 {
 					if client.opts.ClientTopicAliasMax > 0 {
-						// use topic alias if exist
-						if id, ok := client.aliasMapper.client[string(p.TopicName)]; ok {
+						// use alias if exist
+						if alias, ok := srv.topicAliasManager.Check(client, p); ok {
 							p.TopicName = []byte{}
-							p.Properties.TopicAlias = &id
-						} else if len(client.aliasMapper.client) < int(client.opts.ClientTopicAliasMax) {
-							// create new alias
-							// TODO
-							//  增加钩子函数决定是否对当前topic 使用topicAlias
-							//  可能的input: packets.Message， 以及当前的alias情况。
-							next := client.aliasMapper.nextAlias
-							p.Properties.TopicAlias = &next
-							client.aliasMapper.nextAlias++
-							client.aliasMapper.client[string(p.TopicName)] = next
+							p.Properties.TopicAlias = &alias
+						} else {
+							// alias not exist
+							if alias != 0 {
+								p.Properties.TopicAlias = &alias
+							}
 						}
 					}
 				}
 				// onDeliver hook
 				if client.server.hooks.OnDeliver != nil {
-					client.server.hooks.OnDeliver(context.Background(), client, MessageFromPublish(p))
+					client.server.hooks.OnDeliver(context.Background(), client, gmqtt.MessageFromPublish(p))
 				}
 
 			case *packets.Puback, *packets.Pubcomp:
 				if client.version == packets.Version5 {
 					client.addServerQuota()
 				}
-			// case *packets.Pubrel:
 			case *packets.Pubrec:
 				if client.version == packets.Version5 && p.Code >= codes.UnspecifiedError {
 					client.addServerQuota()
@@ -351,7 +359,6 @@ func (client *client) writeLoop() {
 				return
 			}
 			client.server.statsManager.packetSent(packet)
-			// 发了disconnect之后要关闭connection
 			if _, ok := packet.(*packets.Disconnect); ok {
 				client.rwc.Close()
 				return
@@ -464,9 +471,7 @@ func (client *client) readLoop() {
 	}
 }
 
-// Close 关闭客户端连接，连接关闭完毕会将返回的channel关闭。
-//
-// Close closes the client connection. The returned channel will be closed after unregister process has been done
+// Close closes the client connection. The returned channel will be closed after unregisterClient process has been done
 func (client *client) Close() <-chan struct{} {
 	client.rwc.Close()
 	return client.closeComplete
@@ -684,8 +689,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
 				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
 
-				client.aliasMapper.client = make(map[string]uint16)
-				client.aliasMapper.server = make([][]byte, client.opts.ServerReceiveMax+1)
+				client.aliasMapper = make([][]byte, client.opts.ServerReceiveMax+1)
 
 				if len(conn.ClientID) == 0 {
 					if len(ppt.AssignedClientID) != 0 {
@@ -800,13 +804,10 @@ func (client *client) internalClose() {
 	client.server.statsManager.decSessionActive()
 }
 
-// 这里的publish都是已经copy后的publish了
-// 从msgRouter过来的publish 的dup不可能是true
-// goroutine safe
 func (client *client) onlinePublish(publish *packets.Publish) {
 	if publish.Qos >= packets.Qos1 {
 		if publish.Dup {
-			//redelivery on reconnect,use the original in id
+			//redelivery on reconnect,use the original packet id
 			client.session.setPacketID(publish.PacketID)
 		} else {
 			publish.PacketID = client.session.getPacketID()
@@ -824,9 +825,9 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 }
 
 func (client *client) publish(publish *packets.Publish) {
-	if client.IsConnected() { //在线消息
+	if client.IsConnected() {
 		client.onlinePublish(publish)
-	} else { //离线消息
+	} else {
 		client.msgEnQueue(publish)
 	}
 }
@@ -883,11 +884,11 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 
 	for k, v := range topics {
 		var isShared bool
-		var sub subscription.Subscription
+		var sub *gmqtt.Subscription
 		code := v.Qos
 		sub = subscription.FromTopic(v, subID)
 		if client.version == packets.Version5 {
-			if sub.ShareName() != "" {
+			if sub.ShareName != "" {
 				isShared = true
 				if !client.opts.SharedSubAvailable {
 					code = codes.SharedSubNotSupported
@@ -897,7 +898,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 				code = codes.SubIDNotSupported
 			}
 			if !client.opts.WildcardSubAvailable {
-				for _, c := range sub.TopicFilter() {
+				for _, c := range sub.TopicFilter {
 					if c == '+' || c == '#' {
 						code = codes.WildcardSubNotSupported
 						break
@@ -921,14 +922,14 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			// Gmqtt follows the mosquitto implementation which will send retain messages to no-local subscriptions.
 			// For details: https://github.com/eclipse/mosquitto/issues/1796
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
-				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter())
+				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter)
 				for _, v := range msgs {
-					publish := messageToPublish(v, client.version)
-					if publish.Qos > subRs[0].Subscription.QoS() {
-						publish.Qos = subRs[0].Subscription.QoS()
+					publish := gmqtt.MessageToPublish(v, client.version)
+					if publish.Qos > subRs[0].Subscription.QoS {
+						publish.Qos = subRs[0].Subscription.QoS
 					}
 					publish.Dup = false
-					if !sub.RetainAsPublished() {
+					if !sub.RetainAsPublished {
 						publish.Retain = false
 					}
 					client.publishMessageHandler(publish)
@@ -965,7 +966,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 			}
 		} else {
 			topicAlias := *pub.Properties.TopicAlias
-			name := client.aliasMapper.server[int(topicAlias)]
+			name := client.aliasMapper[int(topicAlias)]
 			if len(pub.TopicName) == 0 {
 				if len(name) == 0 {
 					return &codes.Error{
@@ -974,7 +975,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 				}
 				pub.TopicName = name
 			} else {
-				client.aliasMapper.server[topicAlias] = pub.TopicName
+				client.aliasMapper[topicAlias] = pub.TopicName
 			}
 		}
 	}
@@ -987,8 +988,8 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 	}
 
-	var msg packets.Message
-	msg = MessageFromPublish(pub)
+	var msg *gmqtt.Message
+	msg = gmqtt.MessageFromPublish(pub)
 	if pub.Retain {
 		if len(pub.Payload) == 0 {
 			srv.retainedDB.Remove(string(pub.TopicName))

@@ -2,12 +2,13 @@
 // Source: hook.go
 
 // Package gmqtt is a generated GoMock package.
-package gmqtt
+package server
 
 import (
+	reflect "reflect"
+
 	packets "github.com/DrmagicE/gmqtt/pkg/packets"
 	gomock "github.com/golang/mock/gomock"
-	reflect "reflect"
 )
 
 // MockConnectRequest is a mock of ConnectRequest interface
