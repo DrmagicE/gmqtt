@@ -13,6 +13,8 @@ import (
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
+	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
 )
 
 var validUser = map[string]string{
@@ -40,29 +42,29 @@ func main() {
 		return
 	}
 	//authentication
-	var onBasicAuth gmqtt.OnBasicAuth = func(ctx context.Context, client gmqtt.Client, req *gmqtt.ConnectRequest) (resp *gmqtt.ConnectResponse) {
+	var onBasicAuth server.OnBasicAuth = func(ctx context.Context, client server.Client, req *server.ConnectRequest) (resp *server.ConnectResponse) {
 		username := string(req.Connect.Username)
 		password := string(req.Connect.Password)
 		if validateUser(username, password) {
-			return &gmqtt.ConnectResponse{
+			return &server.ConnectResponse{
 				Code: codes.Success,
 			}
 		}
 		switch client.Version() {
 		case packets.Version5:
-			return &gmqtt.ConnectResponse{
+			return &server.ConnectResponse{
 				Code: codes.BadUserNameOrPassword,
 			}
 		case packets.Version311:
-			return &gmqtt.ConnectResponse{
+			return &server.ConnectResponse{
 				Code: codes.V3BadUsernameorPassword,
 			}
 		}
 		return nil
 	}
 
-	var onSubscribe gmqtt.OnSubscribe = func(ctx context.Context, client gmqtt.Client, subscribe *packets.Subscribe) (resp *gmqtt.SubscribeResponse, errDetails *codes.ErrorDetails) {
-		resp = &gmqtt.SubscribeResponse{
+	var onSubscribe server.OnSubscribe = func(ctx context.Context, client server.Client, subscribe *packets.Subscribe) (resp *server.SubscribeResponse, errDetails *codes.ErrorDetails) {
+		resp = &server.SubscribeResponse{
 			Topics: subscribe.Topics,
 		}
 		username := client.ClientOptions().Username
@@ -95,7 +97,7 @@ func main() {
 		return resp, errDetails
 	}
 
-	var onMsgArrived gmqtt.OnMsgArrived = func(ctx context.Context, client gmqtt.Client, publish *packets.Publish) (message packets.Message, e error) {
+	var onMsgArrived server.OnMsgArrived = func(ctx context.Context, client server.Client, publish *packets.Publish) (message *gmqtt.Message, e error) {
 		version := client.Version()
 		if client.ClientOptions().Username == "subscribeonly" {
 			switch version {
@@ -134,16 +136,16 @@ func main() {
 		}
 		return gmqtt.MessageFromPublish(publish), nil
 	}
-	onClose := func(ctx context.Context, client gmqtt.Client, err error) {
+	onClose := func(ctx context.Context, client server.Client, err error) {
 		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
 	}
 	onStop := func(ctx context.Context) {
 		log.Println("stop")
 	}
-	onDeliver := func(ctx context.Context, client gmqtt.Client, msg packets.Message) {
-		log.Printf("delivering message %s to client %s", msg.Payload(), client.ClientOptions().ClientID)
+	onDeliver := func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
+		log.Printf("delivering message %s to client %s", msg.Payload, client.ClientOptions().ClientID)
 	}
-	hooks := gmqtt.Hooks{
+	hooks := server.Hooks{
 		OnBasicAuth:  onBasicAuth,
 		OnSubscribe:  onSubscribe,
 		OnMsgArrived: onMsgArrived,
@@ -153,10 +155,10 @@ func main() {
 	}
 
 	l, _ := zap.NewDevelopment()
-	s := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln),
-		gmqtt.WithHook(hooks),
-		gmqtt.WithLogger(l),
+	s := server.New(
+		server.WithTCPListener(ln),
+		server.WithHook(hooks),
+		server.WithLogger(l),
 	)
 	s.Run()
 	signalCh := make(chan os.Signal, 1)

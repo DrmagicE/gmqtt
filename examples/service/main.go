@@ -13,7 +13,9 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
 	"github.com/DrmagicE/gmqtt/subscription"
+	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
 )
 
 func main() {
@@ -23,24 +25,32 @@ func main() {
 		return
 	}
 	l, _ := zap.NewDevelopment()
-	srv := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln),
-		gmqtt.WithLogger(l),
+	srv := server.New(
+		server.WithTCPListener(ln),
+		server.WithLogger(l),
 	)
 
 	// subscription store
 	subStore := srv.SubscriptionStore()
-	srv.Init(gmqtt.WithHook(gmqtt.Hooks{
-		OnConnected: func(ctx context.Context, client gmqtt.Client) {
+	srv.Init(server.WithHook(server.Hooks{
+		OnConnected: func(ctx context.Context, client server.Client) {
 			// add subscription for a client when it is connected
-			subStore.Subscribe(client.ClientOptions().ClientID, subscription.New("topic", packets.Qos0))
+			subStore.Subscribe(client.ClientOptions().ClientID, &gmqtt.Subscription{
+				TopicFilter: "topic",
+				QoS:         packets.Qos0,
+			})
 		},
 	}))
 
 	// retained store
 	retainedStore := srv.RetainedStore()
 	// add a retained message
-	retainedStore.AddOrReplace(gmqtt.NewMessage("a/b/c", []byte("retained message"), packets.Qos1, gmqtt.Retained(true)))
+	retainedStore.AddOrReplace(&gmqtt.Message{
+		QoS:      packets.Qos1,
+		Retained: true,
+		Topic:    "a/b/c",
+		Payload:  []byte("retained message"),
+	})
 
 	// publish service
 	pub := srv.PublishService()
@@ -51,14 +61,18 @@ func main() {
 		for {
 			<-time.NewTimer(5 * time.Second).C
 			// iterate all topics
-			subStore.Iterate(func(clientID string, sub subscription.Subscription) bool {
+			subStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
 				fmt.Printf("client id: %s, subscription: %v \n", clientID, sub)
 				return true
 			}, subscription.IterationOptions{
 				Type: subscription.TypeAll,
 			})
 			// publish a message to the broker
-			pub.Publish(gmqtt.NewMessage("topic", []byte("abc"), packets.Qos1))
+			pub.Publish(&gmqtt.Message{
+				QoS:     packets.Qos1,
+				Topic:   "topic",
+				Payload: []byte("abc"),
+			})
 		}
 
 	}()

@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	//_ "net/http/pprof"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/mitchellh/go-homedir"
@@ -38,9 +39,9 @@ func init() {
 }
 
 func main() {
-	//go func() {
-	//	http.ListenAndServe(":6060", nil)
-	//}()
+	go func() {
+		http.ListenAndServe(":6060", nil)
+	}()
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

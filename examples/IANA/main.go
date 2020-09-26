@@ -12,7 +12,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/server"
+	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
 )
 
 func main() {
@@ -35,9 +36,9 @@ func main() {
 		return
 	}
 	l, _ := zap.NewDevelopment()
-	s := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln, tlsln),
-		gmqtt.WithLogger(l),
+	s := server.New(
+		server.WithTCPListener(ln, tlsln),
+		server.WithLogger(l),
 	)
 	s.Run()
 	signalCh := make(chan os.Signal, 1)

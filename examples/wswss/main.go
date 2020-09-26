@@ -11,7 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/server"
+	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
 )
 
 func main() {
@@ -20,21 +21,21 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-	ws := &gmqtt.WsServer{
+	ws := &server.WsServer{
 		Server: &http.Server{Addr: ":8080"},
 		Path:   "/",
 	}
-	wss := &gmqtt.WsServer{
+	wss := &server.WsServer{
 		Server:   &http.Server{Addr: ":8081"},
 		Path:     "/",
 		CertFile: "../testcerts/server.crt",
 		KeyFile:  "../testcerts/server.key",
 	}
 	l, _ := zap.NewDevelopment()
-	s := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln),
-		gmqtt.WithWebsocketServer(ws, wss),
-		gmqtt.WithLogger(l),
+	s := server.New(
+		server.WithTCPListener(ln),
+		server.WithWebsocketServer(ws, wss),
+		server.WithLogger(l),
 	)
 	s.Run()
 	signalCh := make(chan os.Signal, 1)
