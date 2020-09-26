@@ -29,12 +29,10 @@ func (q *Queue) Create(client server.Client) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	opts := client.ClientOptions()
-	if q.topicAlias[opts.ClientID] == nil {
-		q.topicAlias[opts.ClientID] = &topicAlias{
-			max:   int(opts.ClientTopicAliasMax),
-			alias: list.New(),
-			index: make(map[string]uint16),
-		}
+	q.topicAlias[opts.ClientID] = &topicAlias{
+		max:   int(opts.ClientTopicAliasMax),
+		alias: list.New(),
+		index: make(map[string]uint16),
 	}
 }
 
@@ -51,17 +49,22 @@ func (q *Queue) Check(client server.Client, publish *packets.Publish) (alias uin
 	al := q.topicAlias[opts.ClientID]
 	topicName := string(publish.TopicName)
 
-	if _, ok := al.index[topicName]; ok {
-		exist = true
+	// alias exist
+	if a, ok := al.index[topicName]; ok {
+		return a, true
 	}
+	l := al.alias.Len()
 	// alias has been exhausted
-	if al.alias.Len() == al.max {
+	if l == al.max {
 		first := al.alias.Front()
 		elem := first.Value.(*aliasElem)
 		al.alias.Remove(first)
 		delete(al.index, elem.topic)
+		alias = elem.alias
+	} else {
+		alias = uint16(l + 1)
 	}
-	alias = uint16(al.alias.Len()) + 1
+
 	al.alias.PushBack(&aliasElem{
 		topic: topicName,
 		alias: alias,

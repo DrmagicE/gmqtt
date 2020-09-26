@@ -134,10 +134,10 @@ type ClientOptions struct {
 	}
 }
 
-// TopicAliasManager 决定topicAlias如何启用d
-// TopicAliasManager 管理所有的topicAlias，他知道每个client最多可以保留多少topicAlias
+// TopicAliasManager manage the topic alias for V5 client.
+// see topicalias/fifo for more details.
 type TopicAliasManager interface {
-	// Create为当前client创建一个topicAliasManager
+	// Create will be called when the client connects
 	Create(client Client)
 	// Check return the alias number and whether the alias exist.
 	// For examples:
@@ -146,10 +146,11 @@ type TopicAliasManager interface {
 	// If the publish alias not exist and the manager decides to assign a new alias, it return the new alias and false.
 	// If the publish alias not exist, but the manager decides not to assign alias, it return the 0 and false.
 	Check(client Client, publish *packets.Publish) (alias uint16, exist bool)
+	// Delete will be called when the client disconnects.
 	Delete(client Client)
 }
 
-// Client
+// Client represent a MQTT client.
 type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
 	// This is mainly used in callback functions.
