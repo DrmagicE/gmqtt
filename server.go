@@ -689,6 +689,7 @@ func (srv *server) loadPlugins() error {
 		onSessionTerminatedWrapper []OnSessionTerminatedWrapper
 		onSubscribeWrappers        []OnSubscribeWrapper
 		onSubscribedWrappers       []OnSubscribedWrapper
+		onUnsubscribeWrappers      []OnUnsubscribeWrapper
 		onUnsubscribedWrappers     []OnUnsubscribedWrapper
 		onMsgArrivedWrappers       []OnMsgArrivedWrapper
 		onDeliverWrappers          []OnDeliverWrapper
@@ -729,6 +730,9 @@ func (srv *server) loadPlugins() error {
 		if hooks.OnSubscribedWrapper != nil {
 			onSubscribedWrappers = append(onSubscribedWrappers, hooks.OnSubscribedWrapper)
 		}
+		if hooks.OnUnsubscribeWrapper != nil {
+			onUnsubscribeWrappers = append(onUnsubscribeWrappers, hooks.OnUnsubscribeWrapper)
+		}
 		if hooks.OnUnsubscribedWrapper != nil {
 			onUnsubscribedWrappers = append(onUnsubscribedWrappers, hooks.OnUnsubscribedWrapper)
 		}
@@ -751,6 +755,7 @@ func (srv *server) loadPlugins() error {
 			onStopWrappers = append(onStopWrappers, hooks.OnStopWrapper)
 		}
 	}
+
 	// onAccept
 	if onAcceptWrappers != nil {
 		onAccept := func(ctx context.Context, conn net.Conn) bool {
@@ -761,6 +766,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnAccept = onAccept
 	}
+
 	// onConnect
 	if onConnectWrappers != nil {
 		onConnect := func(ctx context.Context, client Client) (code uint8) {
@@ -771,6 +777,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnConnect = onConnect
 	}
+
 	// onConnected
 	if onConnectedWrappers != nil {
 		onConnected := func(ctx context.Context, client Client) {}
@@ -779,6 +786,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnConnected = onConnected
 	}
+
 	// onSessionCreated
 	if onSessionCreatedWrapper != nil {
 		onSessionCreated := func(ctx context.Context, client Client) {}
@@ -816,6 +824,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnSubscribe = onSubscribe
 	}
+
 	// onSubscribed
 	if onSubscribedWrappers != nil {
 		onSubscribed := func(ctx context.Context, client Client, topic packets.Topic) {}
@@ -824,6 +833,16 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnSubscribed = onSubscribed
 	}
+
+	//onUnsubscribe
+	if onUnsubscribeWrappers != nil {
+		onUnsubscribe := func(ctx context.Context, client Client, topicName string) {}
+		for i := len(onUnsubscribeWrappers); i > 0; i-- {
+			onUnsubscribe = onUnsubscribeWrappers[i-1](onUnsubscribe)
+		}
+		srv.hooks.OnUnsubscribe = onUnsubscribe
+	}
+
 	//onUnsubscribed
 	if onUnsubscribedWrappers != nil {
 		onUnsubscribed := func(ctx context.Context, client Client, topicName string) {}
@@ -832,6 +851,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
+
 	// onMsgArrived
 	if onMsgArrivedWrappers != nil {
 		onMsgArrived := func(ctx context.Context, client Client, msg packets.Message) (valid bool) {
@@ -842,6 +862,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnMsgArrived = onMsgArrived
 	}
+
 	// onDeliver
 	if onDeliverWrappers != nil {
 		onDeliver := func(ctx context.Context, client Client, msg packets.Message) {}
@@ -850,6 +871,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnDeliver = onDeliver
 	}
+
 	// onAcked
 	if onAckedWrappers != nil {
 		onAcked := func(ctx context.Context, client Client, msg packets.Message) {}
@@ -858,6 +880,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnAcked = onAcked
 	}
+
 	// onClose hooks
 	if onCloseWrappers != nil {
 		onClose := func(ctx context.Context, client Client, err error) {}
@@ -866,6 +889,7 @@ func (srv *server) loadPlugins() error {
 		}
 		srv.hooks.OnClose = onClose
 	}
+
 	// onStop
 	if onStopWrappers != nil {
 		onStop := func(ctx context.Context) {}
