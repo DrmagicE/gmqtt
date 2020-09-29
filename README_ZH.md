@@ -94,6 +94,7 @@ Gmqtt实现了下列钩子方法
 * OnSessionTerminated
 * OnSubscribe
 * OnSubscribed
+* OnUnsubscribe
 * OnUnsubscribed
 * OnMsgArrived
 * OnAcked

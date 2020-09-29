@@ -95,6 +95,7 @@ Gmqtt implements the following hooks:
 * OnSessionTerminated
 * OnSubscribe
 * OnSubscribed
+* OnUnsubscribe
 * OnUnsubscribed
 * OnMsgArrived
 * OnAcked

@@ -9,6 +9,7 @@ type HookWrapper struct {
 	OnSessionTerminatedWrapper OnSessionTerminatedWrapper
 	OnSubscribeWrapper         OnSubscribeWrapper
 	OnSubscribedWrapper        OnSubscribedWrapper
+	OnUnsubscribeWrapper       OnUnsubscribeWrapper
 	OnUnsubscribedWrapper      OnUnsubscribedWrapper
 	OnMsgArrivedWrapper        OnMsgArrivedWrapper
 	OnAckedWrapper             OnAckedWrapper

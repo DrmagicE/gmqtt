@@ -12,6 +12,7 @@ type Hooks struct {
 	OnStop
 	OnSubscribe
 	OnSubscribed
+	OnUnsubscribe
 	OnUnsubscribed
 	OnMsgArrived
 	OnConnect
@@ -54,6 +55,11 @@ type OnSubscribeWrapper func(OnSubscribe) OnSubscribe
 type OnSubscribed func(ctx context.Context, client Client, topic packets.Topic)
 
 type OnSubscribedWrapper func(OnSubscribed) OnSubscribed
+
+// OnUnsubscribe will be called when the topic is being unsubscribed
+type OnUnsubscribe func(ctx context.Context, client Client, topicName string)
+
+type OnUnsubscribeWrapper func(OnUnsubscribe) OnUnsubscribe
 
 // OnUnsubscribed will be called after the topic has been unsubscribed
 type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
