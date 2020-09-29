@@ -8,6 +8,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
 	"github.com/DrmagicE/gmqtt/subscription"
 
 	"github.com/gin-gonic/gin"
@@ -64,53 +65,53 @@ func newResponse(result interface{}, pager *Pager, err error) *Response {
 
 type Management struct {
 	monitor *monitor
-	server  gmqtt.Server
+	server  server.Server
 	addr    string
 	user    gin.Accounts //BasicAuth user info,username => password
 }
 
 // OnSessionCreatedWrapper store the client when session created
-func (m *Management) OnSessionCreatedWrapper(created gmqtt.OnSessionCreated) gmqtt.OnSessionCreated {
-	return func(ctx context.Context, client gmqtt.Client) {
+func (m *Management) OnSessionCreatedWrapper(created server.OnSessionCreated) server.OnSessionCreated {
+	return func(ctx context.Context, client server.Client) {
 		m.monitor.addClient(client)
 		created(ctx, client)
 	}
 }
 
 // OnSessionResumedWrapper refresh the client when session resumed
-func (m *Management) OnSessionResumedWrapper(resumed gmqtt.OnSessionResumed) gmqtt.OnSessionResumed {
-	return func(ctx context.Context, client gmqtt.Client) {
+func (m *Management) OnSessionResumedWrapper(resumed server.OnSessionResumed) server.OnSessionResumed {
+	return func(ctx context.Context, client server.Client) {
 		m.monitor.addClient(client)
 		resumed(ctx, client)
 	}
 }
 
 // OnSessionTerminated remove the client when session terminated
-func (m *Management) OnSessionTerminatedWrapper(terminated gmqtt.OnSessionTerminated) gmqtt.OnSessionTerminated {
-	return func(ctx context.Context, client gmqtt.Client, reason gmqtt.SessionTerminatedReason) {
-		m.monitor.deleteClient(client.OptionsReader().ClientID())
-		m.monitor.deleteClientSubscriptions(client.OptionsReader().ClientID())
+func (m *Management) OnSessionTerminatedWrapper(terminated server.OnSessionTerminated) server.OnSessionTerminated {
+	return func(ctx context.Context, client server.Client, reason server.SessionTerminatedReason) {
+		m.monitor.deleteClient(client.ClientOptions().ClientID)
+		m.monitor.deleteClientSubscriptions(client.ClientOptions().ClientID)
 		terminated(ctx, client, reason)
 	}
 }
 
 // OnSubscribedWrapper store the subscription
-func (m *Management) OnSubscribedWrapper(subscribed gmqtt.OnSubscribed) gmqtt.OnSubscribed {
-	return func(ctx context.Context, client gmqtt.Client, topic packets.Topic) {
-		m.monitor.addSubscription(client.OptionsReader().ClientID(), topic)
-		subscribed(ctx, client, topic)
+func (m *Management) OnSubscribedWrapper(subscribed server.OnSubscribed) server.OnSubscribed {
+	return func(ctx context.Context, client server.Client, subscription *gmqtt.Subscription) {
+		m.monitor.addSubscription(client.ClientOptions().ClientID, subscription)
+		subscribed(ctx, client, subscription)
 	}
 }
 
 // OnUnsubscribedWrapper remove the subscription
-func (m *Management) OnUnsubscribedWrapper(unsubscribe gmqtt.OnUnsubscribed) gmqtt.OnUnsubscribed {
-	return func(ctx context.Context, client gmqtt.Client, topicName string) {
-		m.monitor.deleteSubscription(client.OptionsReader().ClientID(), topicName)
+func (m *Management) OnUnsubscribedWrapper(unsubscribe server.OnUnsubscribed) server.OnUnsubscribed {
+	return func(ctx context.Context, client server.Client, topicName string) {
+		m.monitor.deleteSubscription(client.ClientOptions().ClientID, topicName)
 		unsubscribe(ctx, client, topicName)
 	}
 }
 
-func (m *Management) Load(server gmqtt.Server) error {
+func (m *Management) Load(server server.Server) error {
 	m.monitor = newMonitor(server.SubscriptionStore())
 	m.server = server
 	m.monitor.config = server.GetConfig()
@@ -143,8 +144,8 @@ func (m *Management) Load(server gmqtt.Server) error {
 func (m *Management) Unload() error {
 	return nil
 }
-func (m *Management) HookWrapper() gmqtt.HookWrapper {
-	return gmqtt.HookWrapper{
+func (m *Management) HookWrapper() server.HookWrapper {
+	return server.HookWrapper{
 		OnSessionCreatedWrapper:    m.OnSessionCreatedWrapper,
 		OnSessionResumedWrapper:    m.OnSessionResumedWrapper,
 		OnSessionTerminatedWrapper: m.OnSessionTerminatedWrapper,
@@ -304,7 +305,12 @@ func (m *Management) Publish(c *gin.Context) {
 		c.JSON(http.StatusOK, newResponse(nil, nil, ErrInvalUtf8))
 		return
 	}
-	msg := gmqtt.NewMessage(topic, []byte(payload), uint8(qos), gmqtt.Retained(retain))
+	msg := &gmqtt.Message{
+		Topic:    topic,
+		Payload:  []byte(payload),
+		QoS:      uint8(qos),
+		Retained: retain,
+	}
 	m.server.PublishService().Publish(msg)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
 	"github.com/DrmagicE/gmqtt/subscription"
 )
 
@@ -21,7 +21,7 @@ type monitor struct {
 	clientList     *quickList
 	subMu          sync.Mutex
 	subscriptions  map[string]*quickList // key by clientID
-	config         gmqtt.Config
+	config         server.Config
 	subStatsReader subscription.StatsReader
 }
 
@@ -33,7 +33,7 @@ func newMonitor(subStatsReader subscription.StatsReader) *monitor {
 		subStatsReader: subStatsReader,
 	}
 }
-func statusText(client gmqtt.Client) string {
+func statusText(client server.Client) string {
 	if client.IsConnected() {
 		return Online
 	} else {
@@ -42,13 +42,13 @@ func statusText(client gmqtt.Client) string {
 }
 
 // addSubscription
-func (m *monitor) addSubscription(clientID string, topic packets.Topic) {
+func (m *monitor) addSubscription(clientID string, sub *gmqtt.Subscription) {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
 	subInfo := &SubscriptionInfo{
 		ClientID: clientID,
-		Qos:      topic.Qos,
-		Name:     topic.Name,
+		Qos:      sub.QoS,
+		Name:     sub.TopicFilter,
 		At:       time.Now(),
 	}
 	if _, ok := m.subscriptions[clientID]; !ok {
@@ -192,9 +192,9 @@ func (q *quickList) iterate(fn func(elem *list.Element), offset, n int) error {
 }
 
 // addClient
-func (m *monitor) addClient(client gmqtt.Client) {
+func (m *monitor) addClient(client server.Client) {
 	m.clientMu.Lock()
-	m.clientList.set(client.OptionsReader().ClientID(), client)
+	m.clientList.set(client.ClientOptions().ClientID, client)
 	m.clientMu.Unlock()
 }
 
@@ -215,38 +215,37 @@ func (m *monitor) GetClientByID(clientID string) (*ClientInfo, error) {
 	}
 	return newClientInfo(client), err
 }
-func newClientInfo(client gmqtt.Client) *ClientInfo {
-	optsReader := client.OptionsReader()
+func newClientInfo(client server.Client) *ClientInfo {
+	clientOptions := client.ClientOptions()
 	rs := &ClientInfo{
-		ClientID:       optsReader.ClientID(),
-		Username:       optsReader.Username(),
-		Password:       optsReader.Password(),
-		KeepAlive:      optsReader.KeepAlive(),
-		CleanSession:   optsReader.CleanStart(),
-		WillFlag:       optsReader.WillFlag(),
-		WillRetain:     optsReader.WillRetain(),
-		WillQos:        optsReader.WillQos(),
-		WillTopic:      optsReader.WillTopic(),
-		WillPayload:    string(optsReader.WillPayload()),
-		RemoteAddr:     optsReader.RemoteAddr().String(),
-		LocalAddr:      optsReader.LocalAddr().String(),
+		ClientID:       clientOptions.ClientID,
+		Username:       clientOptions.Username,
+		KeepAlive:      clientOptions.KeepAlive,
+		CleanSession:   clientOptions.CleanStart,
+		WillFlag:       clientOptions.Will.Flag,
+		WillRetain:     clientOptions.Will.Retain,
+		WillQos:        clientOptions.Will.Qos,
+		WillTopic:      string(clientOptions.Will.Topic),
+		WillPayload:    string(clientOptions.Will.Payload),
+		RemoteAddr:     client.Connection().RemoteAddr().String(),
+		LocalAddr:      client.Connection().LocalAddr().String(),
 		ConnectedAt:    client.ConnectedAt(),
 		DisconnectedAt: client.DisconnectedAt(),
 	}
 	return rs
 }
-func (m *monitor) newSessionInfo(client gmqtt.Client, c gmqtt.Config) *SessionInfo {
-	optsReader := client.OptionsReader()
+func (m *monitor) newSessionInfo(client server.Client, c server.Config) *SessionInfo {
+	clientOptions := client.ClientOptions()
 	stats := client.GetSessionStatsManager().GetStats()
-	subStats, _ := m.subStatsReader.GetClientStats(optsReader.ClientID())
+	subStats, _ := m.subStatsReader.GetClientStats(clientOptions.ClientID)
 	rs := &SessionInfo{
-		ClientID:              optsReader.ClientID(),
+		ClientID:              clientOptions.ClientID,
 		Status:                statusText(client),
-		CleanSession:          optsReader.CleanStart(),
+		CleanSession:          clientOptions.CleanStart,
 		Subscriptions:         subStats.SubscriptionsCurrent,
 		MaxInflight:           c.MaxInflight,
 		InflightLen:           stats.InflightCurrent,
-		MaxMsgQueue:           c.MaxMsgQueue,
+		MaxMsgQueue:           c.MaxQueuedMsg,
 		MsgQueueLen:           stats.MessageStats.QueuedCurrent,
 		MaxAwaitRel:           c.MaxAwaitRel,
 		AwaitRelLen:           stats.AwaitRelCurrent,
@@ -262,9 +261,9 @@ func (m *monitor) newSessionInfo(client gmqtt.Client, c gmqtt.Config) *SessionIn
 	return rs
 }
 
-func (m *monitor) getClientByID(clientID string) (gmqtt.Client, error) {
+func (m *monitor) getClientByID(clientID string) (server.Client, error) {
 	if i, err := m.clientList.getByID(clientID); i != nil {
-		return i.Value.(gmqtt.Client), nil
+		return i.Value.(server.Client), nil
 	} else {
 		return nil, err
 	}
@@ -274,7 +273,7 @@ func (m *monitor) getClientByID(clientID string) (gmqtt.Client, error) {
 func (m *monitor) GetClients(offset, n int) ([]*ClientInfo, error) {
 	rs := make([]*ClientInfo, 0)
 	fn := func(elem *list.Element) {
-		rs = append(rs, newClientInfo(elem.Value.(gmqtt.Client)))
+		rs = append(rs, newClientInfo(elem.Value.(server.Client)))
 	}
 	m.clientMu.Lock()
 	m.clientList.iterate(fn, offset, n)
@@ -297,7 +296,7 @@ func (m *monitor) GetSessionByID(clientID string) (*SessionInfo, error) {
 func (m *monitor) GetSessions(offset, n int) ([]*SessionInfo, error) {
 	rs := make([]*SessionInfo, 0)
 	fn := func(elem *list.Element) {
-		rs = append(rs, m.newSessionInfo(elem.Value.(gmqtt.Client), m.config))
+		rs = append(rs, m.newSessionInfo(elem.Value.(server.Client), m.config))
 	}
 	m.clientMu.Lock()
 	m.clientList.iterate(fn, offset, n)

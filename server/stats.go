@@ -178,22 +178,7 @@ func (p *PacketBytes) copy() *PacketBytes {
 }
 
 // PacketCount represents total number of each in type have been received or sent.
-type PacketCount struct {
-	Connect     uint64
-	Connack     uint64
-	Disconnect  uint64
-	Pingreq     uint64
-	Pingresp    uint64
-	Puback      uint64
-	Pubcomp     uint64
-	Publish     uint64
-	Pubrec      uint64
-	Pubrel      uint64
-	Suback      uint64
-	Subscribe   uint64
-	Unsuback    uint64
-	Unsubscribe uint64
-}
+type PacketCount PacketBytes
 
 func (p *PacketCount) copy() *PacketCount {
 	return &PacketCount{

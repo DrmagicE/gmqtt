@@ -303,7 +303,10 @@ func (srv *server) registerClient(connect *packets.Connect, ppt *packets.Propert
 		}
 	}
 	delete(srv.offlineClients, client.opts.ClientID)
-	srv.topicAliasManager.Create(client)
+	if srv.topicAliasManager != nil {
+		srv.topicAliasManager.Create(client)
+	}
+
 	return
 }
 
@@ -403,7 +406,7 @@ func (srv *server) unregisterClient(client *client) {
 		}
 		srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 	}
-	srv.topicAliasManager.Delete(client)
+
 }
 
 // deliverMessage send msg to matched client.
@@ -583,16 +586,18 @@ func defaultServer() *server {
 	subStore := subscription_trie.NewStore()
 	statsMgr := newStatsManager(subStore)
 	srv := &server{
-		status:            serverStatusInit,
-		exitChan:          make(chan struct{}),
-		clients:           make(map[string]*client),
-		offlineClients:    make(map[string]time.Time),
-		willMessage:       make(map[string]*willMsg),
-		retainedDB:        retained_trie.NewStore(),
-		subscriptionsDB:   subStore,
-		config:            DefaultConfig,
-		statsManager:      statsMgr,
-		topicAliasManager: DefaultTopicAliasMgrFactory.New(),
+		status:          serverStatusInit,
+		exitChan:        make(chan struct{}),
+		clients:         make(map[string]*client),
+		offlineClients:  make(map[string]time.Time),
+		willMessage:     make(map[string]*willMsg),
+		retainedDB:      retained_trie.NewStore(),
+		subscriptionsDB: subStore,
+		config:          DefaultConfig,
+		statsManager:    statsMgr,
+	}
+	if DefaultTopicAliasMgrFactory != nil {
+		srv.topicAliasManager = DefaultTopicAliasMgrFactory.New()
 	}
 
 	srv.deliverMessageHandler = srv.deliverMessage

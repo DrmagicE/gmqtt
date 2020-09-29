@@ -150,7 +150,7 @@ type TopicAliasManager interface {
 	Delete(client Client)
 }
 
-// Client represent a MQTT client.
+// Client represent a mqtt client.
 type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
 	// This is mainly used in callback functions.
@@ -328,7 +328,7 @@ func (client *client) writeLoop() {
 				client.statsManager.messageSent(p.Qos)
 
 				if client.version == packets.Version5 {
-					if client.opts.ClientTopicAliasMax > 0 {
+					if client.opts.ClientTopicAliasMax > 0 && srv.topicAliasManager != nil {
 						// use alias if exist
 						if alias, ok := srv.topicAliasManager.Check(client, p); ok {
 							p.TopicName = []byte{}
@@ -803,6 +803,9 @@ func (client *client) internalClose() {
 	client.setDisconnectedAt(time.Now())
 	client.server.statsManager.addClientDisconnected()
 	client.server.statsManager.decSessionActive()
+	if client.server.topicAliasManager != nil {
+		client.server.topicAliasManager.Delete(client)
+	}
 }
 
 func (client *client) onlinePublish(publish *packets.Publish) {
@@ -819,9 +822,7 @@ func (client *client) onlinePublish(publish *packets.Publish) {
 	}
 	select {
 	case client.out <- publish:
-	default:
-		// in case client.out has been closed
-		return
+	case <-client.close:
 	}
 }
 
@@ -1182,18 +1183,7 @@ func (client *client) readHandle() {
 			client.unsubscribeHandler(packet.(*packets.Unsubscribe))
 		case *packets.Disconnect:
 			dis := packet.(*packets.Disconnect)
-			if client.version == packets.Version5 {
-				disExpiry := convertUint32(dis.Properties.SessionExpiryInterval, 0)
-				if client.opts.SessionExpiry == 0 && disExpiry != 0 {
-					err = codes.NewError(codes.ProtocolError)
-					return
-				}
-				if disExpiry != 0 {
-					client.opts.SessionExpiry = disExpiry
-				}
-			}
-			//正常关闭
-			client.cleanWillFlag = true
+			err = client.setCleanWillFlag(dis)
 			return
 		case *packets.Auth:
 			auth := packet.(*packets.Auth)
@@ -1232,17 +1222,19 @@ func (client *client) serve() {
 	client.rwc.Close()
 }
 
-func (client *client) setCleanWillFlag(disconnect *packets.Disconnect) error {
+func (client *client) setCleanWillFlag(disconnect *packets.Disconnect) *codes.Error {
 	if client.version == packets.Version5 {
 		disExpiry := convertUint32(disconnect.Properties.SessionExpiryInterval, 0)
 		if client.opts.SessionExpiry == 0 && disExpiry != 0 {
-			return codes.NewError(codes.ProtocolError)
+			return &codes.Error{
+				Code: codes.ProtocolError,
+			}
 		}
 		if disExpiry != 0 {
 			client.opts.SessionExpiry = disExpiry
 		}
 	}
-	// 不发送will message关闭
+	// 不发送will message
 	client.cleanWillFlag = true
 	return nil
 }
