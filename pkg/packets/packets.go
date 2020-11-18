@@ -22,8 +22,9 @@ type Version = byte
 type QoS = byte
 
 const (
-	Version311 Version = 0x04
-	Version5   Version = 0x05
+	VersionAuto Version = 0x00
+	Version311  Version = 0x04
+	Version5    Version = 0x05
 )
 
 //Packet type

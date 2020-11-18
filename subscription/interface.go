@@ -50,7 +50,7 @@ func FromTopic(topic packets.Topic, id uint32) *gmqtt.Subscription {
 	return s
 }
 
-// IterateFn is the callback function used by Iterate()
+// IterateFn is the callback function used by iterate()
 // Return false means to stop the iteration.
 type IterateFn func(clientID string, sub *gmqtt.Subscription) bool
 
@@ -104,7 +104,7 @@ type Store interface {
 	Unsubscribe(clientID string, topics ...string)
 	// UnsubscribeAll remove all subscriptions of a specific client.
 	UnsubscribeAll(clientID string)
-	// Iterate iterate all subscriptions. The callback is called once for each subscription.
+	// iterate iterate all subscriptions. The callback is called once for each subscription.
 	// If callback return false, the iteration will be stopped.
 	// Notice:
 	// The results are not sorted in any way, no ordering of any kind is guaranteed.

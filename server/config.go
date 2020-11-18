@@ -20,7 +20,6 @@ type Config struct {
 	WildcardAvailable          bool          `yaml:"wildcard_subscription_available"`
 	RetainAvailable            bool          `yaml:"retain_available"`
 	MaxInflight                int           `yaml:"max_inflight"`
-	MaxAwaitRel                int           `yaml:"max_awaiting_rel"`
 	MaxQueuedMsg               int           `yaml:"max_queued_messages"`
 	MaximumQoS                 uint8         `yaml:"maximum_qos"`
 	QueueQos0Msg               bool          `yaml:"queue_qos0_messages"`
@@ -34,9 +33,6 @@ func (c Config) Validate() error {
 	}
 	if c.MaxInflight <= 0 {
 		return fmt.Errorf("invalid max_inflight: %d", c.MaxInflight)
-	}
-	if c.MaxAwaitRel <= 0 {
-		return fmt.Errorf("invalid max_awaiting : %d", c.MaxAwaitRel)
 	}
 	if c.MaxQueuedMsg <= 0 {
 		return fmt.Errorf("invalid max_queued_messages : %d", c.MaxQueuedMsg)
@@ -62,7 +58,6 @@ var (
 		WildcardAvailable:          true,
 		RetainAvailable:            true,
 		MaxInflight:                100,
-		MaxAwaitRel:                100,
 		MaxQueuedMsg:               1000,
 		MaximumQoS:                 2,
 		QueueQos0Msg:               true,

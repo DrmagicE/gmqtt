@@ -49,12 +49,6 @@ type Store interface {
 	Remove(pid packets.PacketID) error
 }
 
-//type StoreFactory interface {
-//	NewStore(config server.Config, client server.Client) (Store, error)
-//	Clean()
-//	Close() error
-//}
-
 // ElemExpiry return whether the elem is expired
 func ElemExpiry(now time.Time, elem *Elem) bool {
 	t := time.Time{}

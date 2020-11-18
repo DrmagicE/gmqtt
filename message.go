@@ -10,13 +10,30 @@ type Message struct {
 	Retained bool
 	Topic    string
 	Payload  []byte
+	PacketID packets.PacketID
 	// v5
-	ContentType     string
-	CorrelationData []byte
-	MessageExpiry   uint32
-	PayloadFormat   packets.PayloadFormat
-	ResponseTopic   string
-	UserProperties  []packets.UserProperty
+	// The following fields are introduced in v5 specification.
+	// These fields will not take effect when it represents a v3 publish packet.
+	ContentType            string
+	CorrelationData        []byte
+	MessageExpiry          uint32
+	PayloadFormat          packets.PayloadFormat
+	ResponseTopic          string
+	SubscriptionIdentifier []uint32
+	UserProperties         []packets.UserProperty
+}
+
+func getVariablelenght(l int) int {
+	if l <= 127 {
+		return 1
+	} else if l <= 16383 {
+		return 2
+	} else if l <= 2097151 {
+		return 3
+	} else if l <= 268435455 {
+		return 4
+	}
+	return 0
 }
 
 // TotalBytes return the publish packets total bytes.
@@ -36,6 +53,12 @@ func (m *Message) TotalBytes(version packets.Version) uint32 {
 		if l := len(m.CorrelationData); l != 0 {
 			propertyLenght += 3 + l
 		}
+
+		for _, v := range m.SubscriptionIdentifier {
+			propertyLenght++
+			propertyLenght += getVariablelenght(int(v))
+		}
+
 		if m.MessageExpiry != 0 {
 			propertyLenght += 5
 		}
@@ -45,17 +68,7 @@ func (m *Message) TotalBytes(version packets.Version) uint32 {
 		for _, v := range m.UserProperties {
 			propertyLenght += 5 + len(v.K) + len(v.V)
 		}
-
-		if propertyLenght <= 127 {
-			propertyLenght++
-		} else if propertyLenght <= 16383 {
-			propertyLenght += 2
-		} else if propertyLenght <= 2097151 {
-			propertyLenght += 3
-		} else if propertyLenght <= 268435455 {
-			propertyLenght += 4
-		}
-		remainLenght += propertyLenght
+		remainLenght += propertyLenght + getVariablelenght(propertyLenght)
 	}
 	if remainLenght <= 127 {
 		return 2 + uint32(remainLenght)
@@ -104,6 +117,7 @@ func MessageToPublish(msg *Message, version packets.Version) *packets.Publish {
 	pub := &packets.Publish{
 		Dup:       msg.Dup,
 		Qos:       msg.QoS,
+		PacketID:  msg.PacketID,
 		Retain:    msg.Retained,
 		TopicName: []byte(msg.Topic),
 		Payload:   msg.Payload,

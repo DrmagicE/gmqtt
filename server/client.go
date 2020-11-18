@@ -4,7 +4,6 @@ package server
 import (
 	"bufio"
 	"bytes"
-	"container/list"
 	"context"
 	"crypto/md5"
 	"crypto/rand"
@@ -23,6 +22,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/subscription"
@@ -141,10 +141,10 @@ type TopicAliasManager interface {
 	Create(client Client)
 	// Check return the alias number and whether the alias exist.
 	// For examples:
-	// If the publish alias exist and the manager decides to use the alias, it return the alias number and true.
-	// If the publish alias exist, but the manager decides not to use alias, it return 0 and true.
-	// If the publish alias not exist and the manager decides to assign a new alias, it return the new alias and false.
-	// If the publish alias not exist, but the manager decides not to assign alias, it return the 0 and false.
+	// If the Publish alias exist and the manager decides to use the alias, it return the alias number and true.
+	// If the Publish alias exist, but the manager decides not to use alias, it return 0 and true.
+	// If the Publish alias not exist and the manager decides to assign a new alias, it return the new alias and false.
+	// If the Publish alias not exist, but the manager decides not to assign alias, it return the 0 and false.
 	Check(client Client, publish *packets.Publish) (alias uint16, exist bool)
 	// Delete will be called when the client disconnects.
 	Delete(client Client)
@@ -155,7 +155,7 @@ type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
 	// This is mainly used in callback functions.
 	ClientOptions() *ClientOptions
-	// Version return the protocol version of the current client.
+	// Version return the protocol version of the used client.
 	Version() packets.Version
 	// IsConnected returns whether the client is connected.
 	IsConnected() bool
@@ -183,6 +183,7 @@ type client struct {
 	packetWriter  *packets.Writer
 	in            chan packets.Packet
 	out           chan packets.Packet
+	pullMsgSignal chan struct{}
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
@@ -211,7 +212,10 @@ type client struct {
 
 	config Config
 	// for testing
-	publishMessageHandler func(publish *packets.Publish)
+	publishMessageHandler func(msg *gmqtt.Message)
+
+	queueStore queue.Store
+	pl         *packetIDLimiter
 }
 
 func (client *client) Version() packets.Version {
@@ -283,6 +287,11 @@ func (client *client) IsDisConnected() bool {
 
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
+		if client.queueStore != nil {
+			client.queueStore.Close() // TODO error handling
+		}
+		client.pl.close()
+
 		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
 			client.err = err
@@ -401,18 +410,6 @@ func (client *client) tryDecServerQuota() error {
 	return nil
 }
 
-func (client *client) addClientQuota() {
-	client.clientQuotaMu.Lock()
-	if client.clientReceiveMaximumQuota < client.opts.ClientReceiveMax {
-		client.clientReceiveMaximumQuota++
-	}
-	zaplog.Debug("add client quota",
-		zap.String("client_id", client.opts.ClientID),
-		zap.Uint16("quota", client.clientReceiveMaximumQuota),
-		zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-	)
-	client.clientQuotaMu.Unlock()
-}
 func (client *client) tryDecClientQuota() bool {
 	client.clientQuotaMu.Lock()
 	defer client.clientQuotaMu.Unlock()
@@ -550,6 +547,7 @@ func convertUint32(u *uint32, defaultValue uint32) uint32 {
 }
 
 func (client *client) connectWithTimeOut() (ok bool) {
+	// if any error occur, this function should set the error to the client and return false
 	var err error
 	srv := client.server
 	defer func() {
@@ -688,6 +686,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.AuthMethod = conn.Properties.AuthMethod
 
 				client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
+
 				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
 
 				client.aliasMapper = make([][]byte, client.opts.ServerReceiveMax+1)
@@ -707,9 +706,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				recvMax := int(convertUint16(ppt.ReceiveMaximum, math.MaxUint16))
 				if recvMax >= client.config.MaxInflight {
 					client.config.MaxInflight = recvMax
-				}
-				if recvMax >= client.config.MaxAwaitRel {
-					client.config.MaxAwaitRel = recvMax
 				}
 
 			} else {
@@ -733,7 +729,8 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			client.opts.Will.Retain = conn.WillRetain
 			client.opts.Will.Topic = conn.WillTopic
 			client.opts.Will.Properties = conn.WillProperties
-			client.server.registerClient(conn, ppt, client)
+			client.newPacketIDLimiter(uint16(client.config.MaxInflight))
+			err = client.server.registerClient(conn, ppt, client)
 			return
 		case <-timeout.C:
 			err = ErrConnectTimeOut
@@ -779,9 +776,6 @@ func (client *client) defaultConnackProperties(connect *packets.Connect) *packet
 func (client *client) newSession() {
 	s := &session{
 		unackpublish: make(map[packets.PacketID]bool),
-		inflight:     list.New(),
-		awaitRel:     list.New(),
-		msgQueue:     list.New(),
 		lockedPid:    make(map[packets.PacketID]bool),
 		freePid:      1,
 	}
@@ -808,29 +802,26 @@ func (client *client) internalClose() {
 	}
 }
 
-func (client *client) onlinePublish(publish *packets.Publish) {
-	if publish.Qos >= packets.Qos1 {
-		if publish.Dup {
-			//redelivery on reconnect,use the original packet id
-			client.session.setPacketID(publish.PacketID)
-		} else {
-			publish.PacketID = client.session.getPacketID()
-		}
-		if !client.setInflight(publish) {
-			return
-		}
+func (client *client) checkMaxPacketSize(msg *gmqtt.Message) (valid bool) {
+	totalBytes := msg.TotalBytes(packets.Version5)
+	if client.opts.ClientMaxPacketSize != 0 && totalBytes > client.opts.ClientMaxPacketSize {
+		return false
 	}
-	select {
-	case client.out <- publish:
-	case <-client.close:
-	}
+	return true
 }
 
-func (client *client) publish(publish *packets.Publish) {
-	if client.IsConnected() {
-		client.onlinePublish(publish)
-	} else {
-		client.msgEnQueue(publish)
+// retransmit re-transmit message in inflight queue
+func (client *client) retransmit(msg *gmqtt.Message) {
+	if !client.checkMaxPacketSize(msg) {
+		return
+	}
+	if msg.QoS >= packets.Qos1 {
+		//retransmit on reconnect,use the original packet id
+		client.session.setPacketID(msg.PacketID)
+	}
+	select {
+	case client.out <- gmqtt.MessageToPublish(msg, client.version):
+	case <-client.close:
 	}
 }
 
@@ -855,6 +846,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	}
 	var topics []packets.Topic
 	var subID uint32
+	now := time.Now()
 	if client.version == packets.Version5 {
 		if client.opts.SubIDAvailable && len(sub.Properties.SubscriptionIdentifier) != 0 {
 			subID = sub.Properties.SubscriptionIdentifier[0]
@@ -926,15 +918,33 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
 				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter)
 				for _, v := range msgs {
-					publish := gmqtt.MessageToPublish(v, client.version)
-					if publish.Qos > subRs[0].Subscription.QoS {
-						publish.Qos = subRs[0].Subscription.QoS
+					// TODO make a copy before edit.
+					if v.QoS > subRs[0].Subscription.QoS {
+						v.QoS = subRs[0].Subscription.QoS
 					}
-					publish.Dup = false
+					v.Dup = false
 					if !sub.RetainAsPublished {
-						publish.Retain = false
+						v.Retained = false
 					}
-					client.publishMessageHandler(publish)
+					var expiry time.Time
+					if v.MessageExpiry != 0 {
+						expiry = now.Add(time.Second * time.Duration(v.MessageExpiry))
+					}
+					err := client.queueStore.Add(&queue.Elem{
+						At:     now,
+						Expiry: expiry,
+						MessageWithID: &queue.Publish{
+							Message: v,
+						},
+					})
+					if err != nil {
+						if codesErr, ok := err.(*codes.Error); ok {
+							return codesErr
+						}
+						return &codes.Error{
+							Code: codes.UnspecifiedError,
+						}
+					}
 				}
 			}
 		} else {
@@ -951,6 +961,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 }
 
 func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
+
 	s := client.session
 	srv := client.server
 	var dup bool
@@ -1006,6 +1017,8 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		if srv.hooks.OnMsgArrived != nil {
 			msg, err = srv.hooks.OnMsgArrived(context.Background(), client, pub)
 		}
+		// 查询订阅，得到结果
+		// 根据结果，发送到不同队列
 		if msg != nil {
 			srv.mu.Lock()
 			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, "", msg)
@@ -1049,10 +1062,20 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 
 }
 func (client *client) pubackHandler(puback *packets.Puback) {
-	if client.version == packets.Version5 {
-		client.addClientQuota()
+
+	// TODO return 是否成功remove
+	err := client.queueStore.Remove(puback.PacketID)
+	client.pl.release(puback.PacketID)
+	if err != nil {
+		client.setError(err)
 	}
-	client.unsetInflight(puback)
+	client.statsManager.decInflightCurrent(1)
+	if ce := zaplog.Check(zapcore.DebugLevel, "unset inflight"); ce != nil {
+		zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID),
+			zap.Uint16("pid", puback.PacketID),
+		)
+	}
+	// TODO onAck
 }
 func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
 	delete(client.session.unackpublish, pubrel.PacketID)
@@ -1060,20 +1083,34 @@ func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
 	client.write(pubcomp)
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
-	client.unsetInflight(pubrec)
+	// 从queue中replace
 	if client.version == packets.Version5 && pubrec.Code >= codes.UnspecifiedError {
-		client.addClientQuota()
+		err := client.queueStore.Remove(pubrec.PacketID)
+		client.pl.release(pubrec.PacketID)
+		if err != nil {
+			client.setError(err)
+		}
 		return
 	}
-	client.setAwaitRel(pubrec.PacketID)
 	pubrel := pubrec.NewPubrel()
+	_, err := client.queueStore.Replace(&queue.Elem{
+		At: time.Now(),
+		MessageWithID: &queue.Pubrel{
+			PacketID: pubrel.PacketID,
+		}})
+	if err != nil {
+		client.setError(err)
+	}
 	client.write(pubrel)
 }
 func (client *client) pubcompHandler(pubcomp *packets.Pubcomp) {
-	if client.version == packets.Version5 {
-		client.addClientQuota()
+	// 从queue中delete
+	err := client.queueStore.Remove(pubcomp.PacketID)
+	client.pl.release(pubcomp.PacketID)
+	if err != nil {
+		client.setError(err)
 	}
-	client.unsetAwaitRel(pubcomp.PacketID)
+
 }
 func (client *client) pingreqHandler(pingreq *packets.Pingreq) {
 	resp := pingreq.NewPingresp()
@@ -1208,6 +1245,85 @@ func (client *client) readHandle() {
 
 }
 
+func (client *client) pollInflights() (cont bool, err error) {
+	var elems []*queue.Elem
+	elems, err = client.queueStore.ReadInflight(uint(client.config.MaxInflight))
+	if err != nil || len(elems) == 0 {
+		return false, err
+	}
+	client.pl.lock()
+	defer client.pl.unlock()
+	for _, v := range elems {
+		id := v.MessageWithID.ID()
+		switch m := v.MessageWithID.(type) {
+		case *queue.Publish:
+			m.Dup = true
+			// https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Subscription_Options
+			// The Server need not use the same set of Subscription Identifiers in the retransmitted PUBLISH packet.
+			m.SubscriptionIdentifier = nil
+			client.pl.markUsedLocked(id)
+			client.write(gmqtt.MessageToPublish(m.Message, client.version))
+		case *queue.Pubrel:
+			client.write(&packets.Pubrel{PacketID: id})
+		}
+	}
+
+	return true, nil
+}
+
+func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.PacketID, err error) {
+	now := time.Now()
+	var elems []*queue.Elem
+	elems, err = client.queueStore.Read(ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range elems {
+		switch m := v.MessageWithID.(type) {
+		case *queue.Publish:
+			if m.QoS != packets.Qos0 {
+				ids = ids[1:]
+			}
+			if client.version == packets.Version5 && m.Message.MessageExpiry != 0 {
+				d := uint32(now.Sub(v.At).Seconds())
+				m.Message.MessageExpiry = d
+			}
+
+			client.write(gmqtt.MessageToPublish(m.Message, client.version))
+		case *queue.Pubrel:
+		}
+	}
+	return ids, err
+}
+func (client *client) pollMessageHandler() {
+	var err error
+	defer func() {
+		if re := recover(); re != nil {
+			err = errors.New(fmt.Sprint(re))
+		}
+		client.setError(err)
+		client.wg.Done()
+	}()
+	// drain all inflight messages
+	cont := true
+	for cont {
+		cont, err = client.pollInflights()
+		if err != nil {
+			return
+		}
+	}
+	var ids []packets.PacketID
+	for {
+		if len(ids) == 0 {
+			ids = client.pl.pollPacketIDs(uint16(client.config.MaxInflight))
+		}
+		ids, err = client.pollNewMessages(ids)
+		if err != nil {
+			return
+		}
+	}
+}
+
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
 func (client *client) serve() {
 	defer client.internalClose()
@@ -1215,7 +1331,8 @@ func (client *client) serve() {
 	go client.readLoop()                       //read
 	go client.writeLoop()                      //write
 	if ok := client.connectWithTimeOut(); ok { //链接成功,建立session
-		client.wg.Add(1)
+		client.wg.Add(2)
+		go client.pollMessageHandler()
 		go client.readHandle()
 	}
 	client.wg.Wait()

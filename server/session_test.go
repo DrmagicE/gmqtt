@@ -44,12 +44,12 @@ func TestQos1Inflight(t *testing.T) {
 	}
 	a.EqualValues(0, c.clientReceiveMaximumQuota)
 	// inflight is not full, msgQueue len should be 0
-	a.Equal(0, c.session.msgQueue.Len())
+	a.Equal(0, c.session.msgQueue.len())
 	for i := 1; i <= testMaxInflightLen/2; i++ {
 		puback := &packets.Puback{PacketID: packets.PacketID(i)}
 		c.unsetInflight(puback)
 		a.Equal(testMaxInflightLen-i, c.session.inflight.Len())
-		a.Equal(0, c.session.msgQueue.Len())
+		a.Equal(0, c.session.msgQueue.len())
 	}
 	//test incompatible pid
 	for i := testMaxInflightLen * 2; i <= testMaxInflightLen*3; i++ {
@@ -57,12 +57,12 @@ func TestQos1Inflight(t *testing.T) {
 		c.unsetInflight(puback)
 
 		a.Equal(testMaxInflightLen/2, c.session.inflight.Len())
-		a.Equal(0, c.session.msgQueue.Len())
+		a.Equal(0, c.session.msgQueue.len())
 	}
 	for i := testMaxInflightLen/2 + 1; i <= testMaxInflightLen; i++ {
 		puback := &packets.Puback{PacketID: packets.PacketID(i)}
 		c.unsetInflight(puback)
-		a.Equal(0, c.session.msgQueue.Len())
+		a.Equal(0, c.session.msgQueue.len())
 	}
 	a.Equal(0, c.session.inflight.Len())
 }
@@ -74,13 +74,13 @@ func TestQos2Inflight(t *testing.T) {
 		quota := c.clientReceiveMaximumQuota
 		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos2}
 		a.True(c.setInflight(pub))
-		a.Equal(0, c.session.msgQueue.Len())
+		a.Equal(0, c.session.msgQueue.len())
 		a.EqualValues(quota-1, c.clientReceiveMaximumQuota)
 	}
 	for i := 1; i <= testMaxInflightLen; i++ {
 		pubrec := &packets.Pubrec{PacketID: packets.PacketID(i)}
 		c.unsetInflight(pubrec)
-		a.Equal(0, c.session.msgQueue.Len())
+		a.Equal(0, c.session.msgQueue.len())
 	}
 	a.Equal(0, c.session.inflight.Len())
 
@@ -89,7 +89,7 @@ func TestQos2Inflight(t *testing.T) {
 		c.unsetInflight(pubcomp)
 	}
 	a.Equal(0, c.session.inflight.Len())
-	a.Equal(0, c.session.msgQueue.Len())
+	a.Equal(0, c.session.msgQueue.len())
 }
 
 func TestQos2AwaitRel(t *testing.T) {
@@ -115,13 +115,13 @@ func TestMsgQueue(t *testing.T) {
 		j++
 		pub := &packets.Publish{PacketID: packets.PacketID(i), Qos: packets.Qos1}
 		a.False(c.setInflight(pub))
-		a.EqualValues(j, c.session.msgQueue.Len())
+		a.EqualValues(j, c.session.msgQueue.len())
 	}
 	for i := 1; i <= testMaxInflightLen; i++ {
 		puback := &packets.Puback{PacketID: packets.PacketID(i)}
 		c.unsetInflight(puback)
 	}
-	a.Equal(0, c.session.msgQueue.Len())
+	a.Equal(0, c.session.msgQueue.len())
 
 	for e := c.session.inflight.Front(); e != nil; e = e.Next() {
 		elem := e.Value.(*inflightElem)
@@ -145,23 +145,23 @@ func TestMonitor_MsgQueueDroppedPriority_DropQoS0InQueue(t *testing.T) {
 	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos1, Properties: &packets.Properties{}}
 	c.msgEnQueue(pub4)
 	i := 1
-	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
-		if elem, ok := e.Value.(*queueElem); ok {
+	for e := c.session.msgQueue.front(); e != nil; e = e.Next() { //drop qos0
+		if elem, ok := e.Value.(*QueueElem); ok {
 			if i == 1 {
-				a.EqualValues(1, elem.publish.PacketID)
+				a.EqualValues(1, elem.Publish.PacketID)
 			}
 			if i == 2 {
-				a.EqualValues(2, elem.publish.PacketID)
+				a.EqualValues(2, elem.Publish.PacketID)
 			}
 			if i == 3 {
-				a.EqualValues(4, elem.publish.PacketID)
+				a.EqualValues(4, elem.Publish.PacketID)
 			}
 			i++
 		} else {
 			t.Fatalf("unexpected error")
 		}
 	}
-	a.Equal(3, c.session.msgQueue.Len())
+	a.Equal(3, c.session.msgQueue.len())
 }
 
 func TestMonitor_MsgQueueDroppedPriority_DropExpired(t *testing.T) {
@@ -180,23 +180,23 @@ func TestMonitor_MsgQueueDroppedPriority_DropExpired(t *testing.T) {
 	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos1, Properties: &packets.Properties{}}
 	c.msgEnQueue(pub4)
 	i := 1
-	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
-		if elem, ok := e.Value.(*queueElem); ok {
+	for e := c.session.msgQueue.front(); e != nil; e = e.Next() { //drop qos0
+		if elem, ok := e.Value.(*QueueElem); ok {
 			if i == 1 {
-				a.EqualValues(2, elem.publish.PacketID)
+				a.EqualValues(2, elem.Publish.PacketID)
 			}
 			if i == 2 {
-				a.EqualValues(3, elem.publish.PacketID)
+				a.EqualValues(3, elem.Publish.PacketID)
 			}
 			if i == 3 {
-				a.EqualValues(4, elem.publish.PacketID)
+				a.EqualValues(4, elem.Publish.PacketID)
 			}
 			i++
 		} else {
 			t.Fatalf("unexpected error")
 		}
 	}
-	a.Equal(3, c.session.msgQueue.Len())
+	a.Equal(3, c.session.msgQueue.len())
 
 }
 
@@ -214,23 +214,23 @@ func TestMonitor_MsgQueueDroppedPriority_DropEnqueueingQoS0(t *testing.T) {
 	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos0, Properties: &packets.Properties{}}
 	c.msgEnQueue(pub4)
 	i := 1
-	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
-		if elem, ok := e.Value.(*queueElem); ok {
+	for e := c.session.msgQueue.front(); e != nil; e = e.Next() { //drop qos0
+		if elem, ok := e.Value.(*QueueElem); ok {
 			if i == 1 {
-				a.EqualValues(1, elem.publish.PacketID)
+				a.EqualValues(1, elem.Publish.PacketID)
 			}
 			if i == 2 {
-				a.EqualValues(2, elem.publish.PacketID)
+				a.EqualValues(2, elem.Publish.PacketID)
 			}
 			if i == 3 {
-				a.EqualValues(3, elem.publish.PacketID)
+				a.EqualValues(3, elem.Publish.PacketID)
 			}
 			i++
 		} else {
 			t.Fatalf("unexpected error")
 		}
 	}
-	a.Equal(3, c.session.msgQueue.Len())
+	a.Equal(3, c.session.msgQueue.len())
 }
 func TestMonitor_MsgQueueDroppedPriority_DropFront(t *testing.T) {
 	a := assert.New(t)
@@ -247,21 +247,21 @@ func TestMonitor_MsgQueueDroppedPriority_DropFront(t *testing.T) {
 	pub4 := &packets.Publish{PacketID: packets.PacketID(4), Qos: packets.Qos1, Properties: &packets.Properties{}}
 	c.msgEnQueue(pub4)
 	i := 1
-	for e := c.session.msgQueue.Front(); e != nil; e = e.Next() { //drop qos0
-		if elem, ok := e.Value.(*queueElem); ok {
+	for e := c.session.msgQueue.front(); e != nil; e = e.Next() { //drop qos0
+		if elem, ok := e.Value.(*QueueElem); ok {
 			if i == 1 {
-				a.EqualValues(2, elem.publish.PacketID)
+				a.EqualValues(2, elem.Publish.PacketID)
 			}
 			if i == 2 {
-				a.EqualValues(3, elem.publish.PacketID)
+				a.EqualValues(3, elem.Publish.PacketID)
 			}
 			if i == 3 {
-				a.EqualValues(4, elem.publish.PacketID)
+				a.EqualValues(4, elem.Publish.PacketID)
 			}
 			i++
 		} else {
 			t.Fatalf("unexpected error")
 		}
 	}
-	a.Equal(3, c.session.msgQueue.Len())
+	a.Equal(3, c.session.msgQueue.len())
 }

@@ -4,7 +4,7 @@ import (
 	"github.com/DrmagicE/gmqtt"
 )
 
-// IterateFn is the callback function used by Iterate()
+// IterateFn is the callback function used by iterate()
 // Return false means to stop the iteration.
 type IterateFn func(message *gmqtt.Message) bool
 
@@ -20,11 +20,11 @@ type Store interface {
 	ClearAll()
 	// AddOrReplace adds or replaces a retained message.
 	AddOrReplace(message *gmqtt.Message)
-	// Remove removes a retained message.
+	// remove removes a retained message.
 	Remove(topicName string)
 	// GetMatchedMessages returns the retained messages that match the passed topic filter.
 	GetMatchedMessages(topicFilter string) []*gmqtt.Message
-	// Iterate iterate all retained messages. The callback is called once for each message.
+	// iterate iterate all retained messages. The callback is called once for each message.
 	// If callback return false, the iteration will be stopped.
 	// Notice:
 	// The results are not sorted in any way, no ordering of any kind is guaranteed.

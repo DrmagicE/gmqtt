@@ -29,9 +29,9 @@ type SessionStatsManager interface {
 
 // SessionStats the collection of statistics of each session.
 type SessionStats struct {
-	// InflightCurrent, the current length of the inflight queue.
+	// InflightCurrent, the used length of the inflight queue.
 	InflightCurrent uint64
-	// AwaitRelCurrent, the current length of the awaitRel queue.
+	// AwaitRelCurrent, the used length of the awaitRel queue.
 	AwaitRelCurrent uint64
 
 	MessageStats
@@ -203,9 +203,9 @@ func (p *PacketCount) copy() *PacketCount {
 type ClientStats struct {
 	ConnectedTotal    uint64
 	DisconnectedTotal uint64
-	// ActiveCurrent is the number of current active session.
+	// ActiveCurrent is the number of used active session.
 	ActiveCurrent uint64
-	// InactiveCurrent is the number of current inactive session.
+	// InactiveCurrent is the number of used inactive session.
 	InactiveCurrent uint64
 	// ExpiredTotal is the number of expired session.
 	ExpiredTotal uint64

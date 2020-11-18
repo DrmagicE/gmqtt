@@ -353,9 +353,11 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 		if err == io.EOF {
 			break
 		}
+
 		if !ValidateID(packetType, propType) {
 			return codes.ErrProtocol
 		}
+
 		switch propType {
 		case PropPayloadFormat:
 			p.PayloadFormat, err = propertyReadBool(p.PayloadFormat, newBufr, propType)

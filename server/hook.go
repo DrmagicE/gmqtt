@@ -78,10 +78,10 @@ type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
 type OnUnSubscribe func(ctx context.Context, client Client, unsubscribe *packets.Unsubscribe) (topicNames []string, err *codes.ErrorDetails)
 
-// OnMsgArrived will be called when receive a publish packets.
+// OnMsgArrived will be called when receive a Publish packets.
 // The returned message will be passed to topic match process and delivered to those matched clients.
 // If return nil message or error, no message will be deliver.
-// The error is for V5 client to provide additional information for diagnostics and will be ignored if the version of current client is V3.
+// The error is for V5 client to provide additional information for diagnostics and will be ignored if the version of used client is V3.
 // If the returned error type is *codes.Error, the code, reason string and user property will be set into the ack packet(puback for qos1, and pubrel for qos2);
 // otherwise, the code,reason string  will be set to 0x80 and error.Error().
 type OnMsgArrived func(ctx context.Context, client Client, publish *packets.Publish) (*gmqtt.Message, error)

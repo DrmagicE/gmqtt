@@ -57,7 +57,7 @@ func (t *trieDB) AddOrReplace(message *gmqtt.Message) {
 	t.getTrie(message.Topic).addRetainMsg(message.Topic, message)
 }
 
-// Remove remove the retain message of the topic name.
+// remove remove the retain message of the topic name.
 func (t *trieDB) Remove(topicName string) {
 	t.Lock()
 	defer t.Unlock()

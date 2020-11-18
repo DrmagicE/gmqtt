@@ -13,11 +13,18 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
-func init() {
-	server.RegisterNewQueueStore("mem", New)
+func New(config server.Config, client server.Client, dropped server.OnMsgDropped) (*Queue, error) {
+	return &Queue{
+		client:       client,
+		cond:         sync.NewCond(&sync.Mutex{}),
+		l:            list.New(),
+		max:          config.MaxQueuedMsg,
+		onMsgDropped: dropped,
+		log:          server.LoggerWithField(zap.String("queue", "memory")),
+	}, nil
 }
 
-type mem struct {
+type Queue struct {
 	cond            *sync.Cond
 	l               *list.List
 	current         *list.Element
@@ -29,17 +36,7 @@ type mem struct {
 	client          server.Client
 }
 
-func New(config server.Config, client server.Client) (queue.Store, error) {
-	return &mem{
-		client: client,
-		cond:   sync.NewCond(&sync.Mutex{}),
-		l:      list.New(),
-		max:    config.MaxQueuedMsg,
-		log:    server.LoggerWithField(zap.String("queue", "memory")),
-	}, nil
-}
-
-func (m *mem) Close() error {
+func (m *Queue) Close() error {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	m.closed = true
@@ -47,7 +44,7 @@ func (m *mem) Close() error {
 	return nil
 }
 
-func (m *mem) Init(cleanStart bool) error {
+func (m *Queue) Init(cleanStart bool) error {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	m.closed = false
@@ -60,11 +57,11 @@ func (m *mem) Init(cleanStart bool) error {
 	return nil
 }
 
-func (*mem) Clean() error {
+func (*Queue) Clean() error {
 	return nil
 }
 
-func (m *mem) Add(elem *queue.Elem) (err error) {
+func (m *Queue) Add(elem *queue.Elem) (err error) {
 	now := time.Now()
 	m.cond.L.Lock()
 	var dropElem *list.Element
@@ -78,6 +75,8 @@ func (m *mem) Add(elem *queue.Elem) (err error) {
 				if m.onMsgDropped != nil {
 					m.onMsgDropped(context.Background(), m.client, elem.MessageWithID.(*queue.Publish).Message)
 				}
+				m.cond.L.Unlock()
+				m.cond.Signal()
 				return
 			} else {
 				if dropElem == m.current {
@@ -85,17 +84,23 @@ func (m *mem) Add(elem *queue.Elem) (err error) {
 				}
 				m.l.Remove(dropElem)
 			}
+			if m.onMsgDropped != nil {
+				m.onMsgDropped(context.Background(), m.client, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
+			}
 		}
+
 		e := m.l.PushBack(elem)
 		if m.current == nil {
 			m.current = e
 		}
+
 		m.cond.L.Unlock()
 		m.cond.Signal()
 	}()
 	if m.l.Len() >= m.max {
 		// drop the current elem if there is no more non-inflight messages.
 		if m.current == nil {
+			drop = true
 			return
 		}
 		// drop expired message
@@ -106,7 +111,6 @@ func (m *mem) Add(elem *queue.Elem) (err error) {
 				drop = true
 				return
 			}
-
 		}
 		// drop qos0 message in the queue
 		for e := m.current; e != nil; e = e.Next() {
@@ -118,6 +122,10 @@ func (m *mem) Add(elem *queue.Elem) (err error) {
 				}
 			}
 		}
+		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
+			drop = true
+			return
+		}
 		// drop the front message
 		dropElem = m.current
 		drop = true
@@ -126,7 +134,7 @@ func (m *mem) Add(elem *queue.Elem) (err error) {
 	return nil
 }
 
-func (m *mem) Replace(elem *queue.Elem) (replaced bool, err error) {
+func (m *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	unread := m.current
@@ -139,7 +147,7 @@ func (m *mem) Replace(elem *queue.Elem) (replaced bool, err error) {
 	return false, nil
 }
 
-func (m *mem) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
+func (m *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	if !m.inflightDrained {
@@ -172,7 +180,7 @@ func (m *mem) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 	return rs, nil
 }
 
-func (m *mem) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
+func (m *Queue) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	length := m.l.Len()
@@ -189,14 +197,13 @@ func (m *mem) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
 			m.current = m.current.Next()
 		} else {
 			m.inflightDrained = true
-			return nil, nil
+			break
 		}
 	}
-
 	return rs, nil
 }
 
-func (m *mem) Remove(pid packets.PacketID) error {
+func (m *Queue) Remove(pid packets.PacketID) error {
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	// 不允许删除还没读过的元素

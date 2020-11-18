@@ -25,7 +25,7 @@ func newPool(addr string) *redigo.Pool {
 func TestA(t *testing.T) {
 	a := assert.New(t)
 	p := newPool(":6379")
-	r := &redis{
+	r := &Queue{
 		cond:            sync.NewCond(&sync.Mutex{}),
 		client:          nil,
 		clientID:        "cid",

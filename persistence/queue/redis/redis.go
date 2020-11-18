@@ -2,7 +2,6 @@ package redis
 
 import (
 	"sync"
-	"time"
 
 	redigo "github.com/gomodule/redigo/redis"
 
@@ -13,47 +12,36 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 )
 
-func init() {
-	server.RegisterNewQueueStore("redis", New)
-}
+var _ queue.Store = (*Queue)(nil)
 
-func newPool(addr string) *redigo.Pool {
-	return &redigo.Pool{
-		MaxIdle:     3,
-		IdleTimeout: 240 * time.Second,
-		// Dial or DialContext must be set. When both are set, DialContext takes precedence over Dial.
-		Dial: func() (redigo.Conn, error) { return redigo.Dial("tcp", addr) },
-	}
-}
-
-func New(config server.Config, client server.Client) (queue.Store, error) {
-	return &redis{
+func New(config server.Config, client server.Client, pool *redigo.Pool, dropped server.OnMsgDropped) (*Queue, error) {
+	return &Queue{
 		cond:            sync.NewCond(&sync.Mutex{}),
 		client:          client,
 		clientID:        client.ClientOptions().ClientID,
 		max:             0,
 		len:             0,
-		pool:            newPool(":6379"),
-		conn:            nil,
+		pool:            pool,
 		closed:          false,
 		inflightDrained: false,
 		current:         0,
+		onMsgDropped:    dropped,
 	}, nil
 }
 
-type redis struct {
+type Queue struct {
 	cond            *sync.Cond
 	client          server.Client
 	clientID        string
 	max             int
 	len             int // the length of the list
 	pool            *redigo.Pool
-	conn            redigo.Conn // will set after Init
 	closed          bool
 	inflightDrained bool
-	current         int // the current read index of redis list.
+	current         int // the current read index of Queue list.
 	readCache       map[packets.PacketID][]byte
 	err             error
+	onMsgDropped    server.OnMsgDropped
 }
 
 func wrapError(err error) *codes.Error {
@@ -66,7 +54,7 @@ func wrapError(err error) *codes.Error {
 	}
 }
 
-func (r *redis) Close() error {
+func (r *Queue) Close() error {
 	r.cond.L.Lock()
 	defer func() {
 		r.cond.L.Unlock()
@@ -76,17 +64,19 @@ func (r *redis) Close() error {
 	return nil
 }
 
-func (r *redis) Init(cleanStart bool) error {
+func (r *Queue) Init(cleanStart bool) error {
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
-	r.conn = r.pool.Get()
+	conn := r.pool.Get()
+	defer conn.Close()
+
 	if cleanStart {
-		_, err := r.conn.Do("del", r.clientID)
+		_, err := conn.Do("del", r.clientID)
 		if err != nil {
 			return wrapError(err)
 		}
 	}
-	b, err := r.conn.Do("llen", r.clientID)
+	b, err := conn.Do("llen", r.clientID)
 	if err != nil {
 		return err
 	}
@@ -99,36 +89,43 @@ func (r *redis) Init(cleanStart bool) error {
 	return nil
 }
 
-func (r *redis) Clean() error {
-	_, err := r.conn.Do("del", r.clientID)
+func (r *Queue) Clean() error {
+	conn := r.pool.Get()
+	defer conn.Close()
+	_, err := conn.Do("del", r.clientID)
 	return err
 }
 
-func (r *redis) Add(elem *queue.Elem) error {
+func (r *Queue) Add(elem *queue.Elem) error {
+	conn := r.pool.Get()
 	r.cond.L.Lock()
 	defer func() {
+		conn.Close()
 		r.len++
 		r.cond.L.Unlock()
 		r.cond.Signal()
 	}()
-	_, err := r.conn.Do("rpush", r.clientID, elem.Encode())
-	//fmt.Println(rs, err)
+	_, err := conn.Do("rpush", r.clientID, elem.Encode())
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *redis) Replace(elem *queue.Elem) (replaced bool, err error) {
+func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
+	conn := r.pool.Get()
 	r.cond.L.Lock()
-	defer r.cond.L.Unlock()
+	defer func() {
+		conn.Close()
+		r.cond.L.Unlock()
+	}()
 	id := elem.ID()
 	eb := elem.Encode()
 	stop := r.current - 1
 	if stop < 0 {
 		stop = 0
 	}
-	rs, err := redigo.Values(r.conn.Do("lrange", r.clientID, 0, stop))
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, 0, stop))
 	if err != nil {
 		return false, err
 	}
@@ -140,7 +137,7 @@ func (r *redis) Replace(elem *queue.Elem) (replaced bool, err error) {
 			return false, err
 		}
 		if e.ID() == elem.ID() {
-			_, err = r.conn.Do("lset", r.clientID, k, eb)
+			_, err = conn.Do("lset", r.clientID, k, eb)
 			if err != nil {
 				return false, err
 			}
@@ -151,9 +148,11 @@ func (r *redis) Replace(elem *queue.Elem) (replaced bool, err error) {
 	return false, nil
 }
 
-func (r *redis) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
+func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
+	conn := r.pool.Get()
+	defer conn.Close()
 	if !r.inflightDrained {
 		panic("must call ReadInflight to drain all inflight messages before Read")
 	}
@@ -163,7 +162,7 @@ func (r *redis) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	if r.closed {
 		return nil, queue.ErrClosed
 	}
-	rs, err := redigo.Values(r.conn.Do("lrange", r.clientID, r.current, r.current+len(pids)-1))
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+len(pids)-1))
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -176,7 +175,7 @@ func (r *redis) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			return nil, err
 		}
 		if e.MessageWithID.(*queue.Publish).QoS == 0 {
-			err = r.conn.Send("lrem", r.clientID, 1, b)
+			err = conn.Send("lrem", r.clientID, 1, b)
 			r.len--
 			if err != nil {
 				return nil, err
@@ -185,20 +184,22 @@ func (r *redis) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			e.MessageWithID.SetID(pids[pflag])
 			pflag++
 			nb := e.Encode()
-			err = r.conn.Send("lset", r.clientID, r.current, nb)
+			err = conn.Send("lset", r.clientID, r.current, nb)
 			r.current++
 			r.readCache[e.MessageWithID.ID()] = nb
 		}
 		elems = append(elems, e)
 	}
-	err = r.conn.Flush()
+	err = conn.Flush()
 	return
 }
 
-func (r *redis) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
+func (r *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
-	rs, err := redigo.Values(r.conn.Do("lrange", r.clientID, r.current, r.current+int(maxSize)-1))
+	conn := r.pool.Get()
+	defer conn.Close()
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+int(maxSize)-1))
 	if len(rs) == 0 {
 		r.inflightDrained = true
 		return
@@ -226,11 +227,13 @@ func (r *redis) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
 	return
 }
 
-func (r *redis) Remove(pid packets.PacketID) error {
+func (r *Queue) Remove(pid packets.PacketID) error {
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
+	conn := r.pool.Get()
+	defer conn.Close()
 	if b, ok := r.readCache[pid]; ok {
-		_, err := r.conn.Do("lrem", r.clientID, 1, b)
+		_, err := conn.Do("lrem", r.clientID, 1, b)
 		if err != nil {
 			return err
 		}
