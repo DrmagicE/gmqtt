@@ -500,11 +500,13 @@ type packetIDLimiter struct {
 
 func (client *client) newPacketIDLimiter(limit uint16) {
 	client.pl = &packetIDLimiter{
-		cond:   sync.NewCond(&sync.Mutex{}),
-		used:   0,
-		limit:  limit,
-		exit:   false,
-		client: client,
+		cond:      sync.NewCond(&sync.Mutex{}),
+		used:      0,
+		limit:     limit,
+		exit:      false,
+		client:    client,
+		freePid:   1,
+		lockedPid: make(map[packets.PacketID]bool),
 	}
 }
 func (p *packetIDLimiter) close() {
@@ -539,6 +541,8 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 			}
 		}
 		id = append(id, p.freePid)
+		p.used++
+		p.lockedPid[p.freePid] = true
 		p.freePid++
 		if p.freePid > packets.MaxPacketID {
 			p.freePid = packets.MinPacketID
@@ -550,6 +554,11 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 // release marks the given id list as unused
 func (p *packetIDLimiter) release(id packets.PacketID) {
 	p.cond.L.Lock()
+	p.releaseLocked(id)
+	p.cond.L.Unlock()
+	p.cond.Signal()
+}
+func (p *packetIDLimiter) releaseLocked(id packets.PacketID) {
 	if p.lockedPid[id] {
 		p.lockedPid[id] = false
 		p.used--
@@ -559,6 +568,13 @@ func (p *packetIDLimiter) release(id packets.PacketID) {
 		zap.Uint16("quota", p.used),
 		zap.String("remote_addr", p.client.rwc.RemoteAddr().String()),
 	)
+}
+
+func (p *packetIDLimiter) batchRelease(id []packets.PacketID) {
+	p.cond.L.Lock()
+	for _, v := range id {
+		p.releaseLocked(v)
+	}
 	p.cond.L.Unlock()
 	p.cond.Signal()
 

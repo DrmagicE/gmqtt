@@ -1,10 +1,10 @@
-package trie
+package mem
 
 import (
 	"strings"
 
 	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 )
 
 // topicTrie

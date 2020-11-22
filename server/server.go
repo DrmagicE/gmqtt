@@ -15,13 +15,13 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
+	subscription_trie "github.com/DrmagicE/gmqtt/persistence/subscription/mem"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
-	subscription_trie "github.com/DrmagicE/gmqtt/subscription/trie"
 
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/retained"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 var (
@@ -393,6 +393,7 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *g
 		clientID string
 		sub      *gmqtt.Subscription
 	})
+	// key by clientid
 	maxQos := make(map[string]*struct {
 		sub    *gmqtt.Subscription
 		subIDs []uint32
@@ -436,7 +437,7 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *g
 						At:     now,
 						Expiry: expiry,
 						MessageWithID: &queue.Publish{
-							Message: msg,
+							Message: msg.Copy(),
 						},
 					})
 					if err != nil {
@@ -450,11 +451,13 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *g
 						sub    *gmqtt.Subscription
 						subIDs []uint32
 					}{sub: sub, subIDs: []uint32{sub.ID}}
+				} else {
+					if maxQos[clientID].sub.QoS < sub.QoS {
+						maxQos[clientID].sub = sub
+					}
+					maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID)
 				}
-				if maxQos[clientID].sub.QoS < sub.QoS {
-					maxQos[clientID].sub = sub
-				}
-				maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID)
+
 			}
 		}
 		return true
@@ -467,29 +470,30 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *g
 	if srv.config.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if c := srv.clients[clientID]; c != nil {
-				if msg.QoS > v.sub.QoS {
-					msg.QoS = v.sub.QoS
+				newMsg := msg.Copy()
+				if newMsg.QoS > v.sub.QoS {
+					newMsg.QoS = v.sub.QoS
 				}
 				if c.version == packets.Version5 {
 					for _, id := range v.subIDs {
 						if id != 0 {
-							msg.SubscriptionIdentifier = append(msg.SubscriptionIdentifier, id)
+							newMsg.SubscriptionIdentifier = append(newMsg.SubscriptionIdentifier, id)
 						}
 					}
 				}
-				msg.Dup = false
+				newMsg.Dup = false
 				if !v.sub.RetainAsPublished {
-					msg.Retained = false
+					newMsg.Retained = false
 				}
 				var expiry time.Time
-				if msg.MessageExpiry != 0 {
-					expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
+				if newMsg.MessageExpiry != 0 {
+					expiry = now.Add(time.Duration(newMsg.MessageExpiry) * time.Second)
 				}
 				err := c.queueStore.Add(&queue.Elem{
 					At:     now,
 					Expiry: expiry,
 					MessageWithID: &queue.Publish{
-						Message: msg,
+						Message: newMsg,
 					},
 				})
 				if err != nil {
@@ -517,23 +521,24 @@ func (srv *server) deliverMessage(srcClientID string, dstClientID string, msg *g
 			rs = v[rand.Intn(len(v))]
 		}
 		if c, ok := srv.clients[rs.clientID]; ok {
-			if msg.QoS > rs.sub.QoS {
-				msg.QoS = rs.sub.QoS
+			newMsg := msg.Copy()
+			if newMsg.QoS > rs.sub.QoS {
+				newMsg.QoS = rs.sub.QoS
 			}
-			msg.SubscriptionIdentifier = []uint32{v[0].sub.ID}
-			msg.Dup = false
+			newMsg.SubscriptionIdentifier = []uint32{v[0].sub.ID}
+			newMsg.Dup = false
 			if !rs.sub.RetainAsPublished {
-				msg.Retained = false
+				newMsg.Retained = false
 			}
 			var expiry time.Time
 			if msg.MessageExpiry != 0 {
-				expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
+				expiry = now.Add(time.Duration(newMsg.MessageExpiry) * time.Second)
 			}
 			err := c.queueStore.Add(&queue.Elem{
 				At:     now,
 				Expiry: expiry,
 				MessageWithID: &queue.Publish{
-					Message: msg,
+					Message: newMsg,
 				},
 			})
 			if err != nil {
@@ -991,7 +996,7 @@ func (srv *server) wsHandler() http.HandlerFunc {
 func (srv *server) Run() error {
 
 	// TODO read from configration
-	persistence, err := persistenceFactories["memory"].New(srv.config, srv.hooks)
+	persistence, err := persistenceFactories["redis"].New(srv.config, srv.hooks)
 	if err != nil {
 		return err
 	}
@@ -999,7 +1004,20 @@ func (srv *server) Run() error {
 	if err != nil {
 		return err
 	}
+	zaplog.Info("open redis persistence")
 	srv.persistence = persistence
+
+	srv.subscriptionsDB, err = srv.persistence.NewSubscriptionStore(srv.config)
+	if err != nil {
+		return err
+	}
+	// TODO get client id
+	zaplog.Info("init subscription store")
+	err = srv.subscriptionsDB.Init([]string{"a", "b"})
+	if err != nil {
+		return err
+	}
+
 	var tcps []string
 	var ws []string
 	for _, v := range srv.tcpListener {

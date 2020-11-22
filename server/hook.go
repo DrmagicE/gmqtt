@@ -76,7 +76,11 @@ type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
 
 type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
-type OnUnSubscribe func(ctx context.Context, client Client, unsubscribe *packets.Unsubscribe) (topicNames []string, err *codes.ErrorDetails)
+type OnUnSubscribe func(ctx context.Context, client Client, unsubscribe *packets.Unsubscribe) (resp *UnSubscribeResponse, err *codes.ErrorDetails)
+
+type UnSubscribeResponse struct {
+	Code []codes.Code
+}
 
 // OnMsgArrived will be called when receive a Publish packets.
 // The returned message will be passed to topic match process and delivered to those matched clients.

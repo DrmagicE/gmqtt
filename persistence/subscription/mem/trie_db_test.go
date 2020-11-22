@@ -1,12 +1,13 @@
-package trie
+package mem
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/subscription/test"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 // TODO move to TestSuite
@@ -97,5 +98,5 @@ func TestTrieDB_GetClientStats(t *testing.T) {
 
 func TestSuite(t *testing.T) {
 	store := NewStore()
-	subscription.TestSuite(t, store)
+	test.TestSuite(t, store)
 }

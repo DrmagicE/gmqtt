@@ -23,9 +23,9 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 // Error
@@ -183,7 +183,6 @@ type client struct {
 	packetWriter  *packets.Writer
 	in            chan packets.Packet
 	out           chan packets.Packet
-	pullMsgSignal chan struct{}
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
@@ -290,7 +289,9 @@ func (client *client) setError(err error) {
 		if client.queueStore != nil {
 			client.queueStore.Close() // TODO error handling
 		}
-		client.pl.close()
+		if client.pl != nil {
+			client.pl.close()
+		}
 
 		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
@@ -354,7 +355,6 @@ func (client *client) writeLoop() {
 				if client.server.hooks.OnDeliver != nil {
 					client.server.hooks.OnDeliver(context.Background(), client, gmqtt.MessageFromPublish(p))
 				}
-
 			case *packets.Puback, *packets.Pubcomp:
 				if client.version == packets.Version5 {
 					client.addServerQuota()
@@ -729,7 +729,11 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			client.opts.Will.Retain = conn.WillRetain
 			client.opts.Will.Topic = conn.WillTopic
 			client.opts.Will.Properties = conn.WillProperties
-			client.newPacketIDLimiter(uint16(client.config.MaxInflight))
+			if client.opts.ClientReceiveMax != 0 {
+				client.newPacketIDLimiter(client.opts.ClientReceiveMax)
+			} else {
+				client.newPacketIDLimiter(uint16(client.config.MaxInflight))
+			}
 			err = client.server.registerClient(conn, ppt, client)
 			return
 		case <-timeout.C:
@@ -739,12 +743,23 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	}
 }
 
-func errDetailsToProperties(errDetails *codes.ErrorDetails) *packets.Properties {
-	return &packets.Properties{
-		ReasonString: errDetails.ReasonString,
-		User:         kvsToProperties(errDetails.UserProperties),
+func getErrorProperties(client *client, errDetails *codes.ErrorDetails) *packets.Properties {
+	if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
+		return &packets.Properties{
+			ReasonString: errDetails.ReasonString,
+			User:         kvsToProperties(errDetails.UserProperties),
+		}
+	}
+	return nil
+}
+
+func setErrorProperties(client *client, errDetails *codes.ErrorDetails, ppt *packets.Properties) {
+	if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
+		ppt.ReasonString = errDetails.ReasonString
+		ppt.User = kvsToProperties(errDetails.UserProperties)
 	}
 }
+
 func (client *client) defaultConnackProperties(connect *packets.Connect) *packets.Properties {
 	if connect.Version != packets.Version5 {
 		return nil
@@ -836,6 +851,7 @@ func (client *client) write(packets packets.Packet) {
 //Subscribe handler
 // test case:
 // 1. 有request problem info的话，可以返回string和User，否则不返回
+// TODO: 记录packetiD的使用情况?
 func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	srv := client.server
 	suback := &packets.Suback{
@@ -900,15 +916,34 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 				}
 			}
 		}
+
+		var subRs subscription.SubscribeResult
+		var subErr error
+		if code < packets.SubscribeFailure {
+			subRs, subErr = srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
+			if subErr != nil {
+				zaplog.Error("failed to subscribe topic",
+					zap.String("topic", v.Name),
+					zap.Uint8("qos", v.Qos),
+					zap.String("client_id", client.opts.ClientID),
+					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+					zap.Error(subErr))
+				code = packets.SubscribeFailure
+			}
+		}
 		suback.Payload[k] = code
 		if code < packets.SubscribeFailure {
-			subRs := srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, sub)
 			}
+
 			zaplog.Info("subscribe succeeded",
-				zap.String("topic", v.Name),
-				zap.Uint8("qos", v.Qos),
+				zap.String("topic", sub.TopicFilter),
+				zap.Uint8("qos", sub.QoS),
+				zap.Uint8("retain_handling", sub.RetainHandling),
+				zap.Bool("retain_as_published", sub.RetainAsPublished),
+				zap.Bool("no_local", sub.NoLocal),
+				zap.Uint32("id", sub.ID),
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 			)
@@ -918,6 +953,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
 				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter)
 				for _, v := range msgs {
+
 					// TODO make a copy before edit.
 					if v.QoS > subRs[0].Subscription.QoS {
 						v.QoS = subRs[0].Subscription.QoS
@@ -949,7 +985,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			}
 		} else {
 			zaplog.Info("subscribe failed",
-				zap.String("topic", v.Name),
+				zap.String("topic", sub.TopicFilter),
 				zap.Uint8("qos", suback.Payload[k]),
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
@@ -961,7 +997,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 }
 
 func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
-
 	s := client.session
 	srv := client.server
 	var dup bool
@@ -1036,7 +1071,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		}
 		if err != nil {
 			if codeErr, ok := err.(*codes.Error); ok {
-				ppt = errDetailsToProperties(&codeErr.ErrorDetails)
+				ppt = getErrorProperties(client, &codeErr.ErrorDetails)
 				code = codeErr.Code
 			} else {
 				ppt = &packets.Properties{
@@ -1122,29 +1157,40 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 		Version:    unSub.Version,
 		PacketID:   unSub.PacketID,
 		Properties: nil,
-		Payload:    make([]codes.Code, len(unSub.Topics)),
 	}
+	cs := make([]codes.Code, len(unSub.Topics))
 	topics := unSub.Topics
 	if srv.hooks.OnUnSubscribe != nil {
-		var errDetails *codes.ErrorDetails
-		topics, errDetails = srv.hooks.OnUnSubscribe(context.Background(), client, unSub)
+		resp, errDetails := srv.hooks.OnUnSubscribe(context.Background(), client, unSub)
 		if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
-			unSuback.Properties = errDetailsToProperties(errDetails)
+			unSuback.Properties = getErrorProperties(client, errDetails)
 		}
+		cs = resp.Code
 	}
 	for k, topicName := range topics {
-		srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
-		if srv.hooks.OnUnsubscribed != nil {
-			srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
+		if cs[k] == codes.Success {
+			err := srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
+			if err != nil {
+
+			}
+			if srv.hooks.OnUnsubscribed != nil {
+				srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
+			}
+			zaplog.Info("unsubscribed succeed",
+				zap.String("topic", topicName),
+				zap.String("client_id", client.opts.ClientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+			)
+		} else {
+			zaplog.Info("unsubscribed failed",
+				zap.String("topic", topicName),
+				zap.String("client_id", client.opts.ClientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+				zap.Uint8("code", unSuback.Payload[k]))
 		}
-		zaplog.Info("unsubscribed",
-			zap.String("topic", topicName),
-			zap.String("client_id", client.opts.ClientID),
-			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-		)
-		if client.version == packets.Version5 {
-			unSuback.Payload[k] = codes.Success
-		}
+	}
+	if client.version == packets.Version5 {
+		unSuback.Payload = cs
 	}
 	client.write(unSuback)
 
@@ -1288,7 +1334,6 @@ func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.
 				d := uint32(now.Sub(v.At).Seconds())
 				m.Message.MessageExpiry = d
 			}
-
 			client.write(gmqtt.MessageToPublish(m.Message, client.version))
 		case *queue.Pubrel:
 		}
@@ -1314,13 +1359,15 @@ func (client *client) pollMessageHandler() {
 	}
 	var ids []packets.PacketID
 	for {
-		if len(ids) == 0 {
-			ids = client.pl.pollPacketIDs(uint16(client.config.MaxInflight))
+		ids = client.pl.pollPacketIDs(uint16(client.config.MaxInflight))
+		if ids == nil {
+			return
 		}
 		ids, err = client.pollNewMessages(ids)
 		if err != nil {
 			return
 		}
+		client.pl.batchRelease(ids)
 	}
 }
 

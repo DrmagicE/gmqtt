@@ -50,7 +50,7 @@ var (
 		SessionExpiryCheckInterval: 20 * time.Second,
 		MessageExpiry:              2 * time.Hour,
 		MaxPacketSize:              0,
-		ReceiveMax:                 100,
+		ReceiveMax:                 10,
 		MaxKeepAlive:               60,
 		TopicAliasMax:              10,
 		SubscriptionIDAvailable:    true,

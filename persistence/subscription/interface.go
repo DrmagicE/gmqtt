@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/DrmagicE/gmqtt"
@@ -18,6 +19,10 @@ const (
 	// TypeNonShared represents non-shared topic.
 	TypeNonShared
 	TypeAll = TypeSYS | TypeShared | TypeNonShared
+)
+
+var (
+	ErrClientNotExists = errors.New("client not exists")
 )
 
 type MatchType byte
@@ -95,16 +100,18 @@ type IterationOptions struct {
 // Notice:
 // This methods will not trigger any gmqtt hooks.
 type Store interface {
-	// Subscribe add subscriptions to a specific client.
+	// Init will be called only once after the server start, the implementation should load the subscriptions of the given clients into memory.
+	Init(clientIDs []string) error
+	// Subscribe adds subscriptions to a specific client.
 	// Notice:
 	// This method will succeed even if the client is not exists, the subscriptions
 	// will affect the new client with the client id.
-	Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) (rs SubscribeResult)
-	// Unsubscribe remove subscriptions of a specific client.
-	Unsubscribe(clientID string, topics ...string)
-	// UnsubscribeAll remove all subscriptions of a specific client.
-	UnsubscribeAll(clientID string)
-	// iterate iterate all subscriptions. The callback is called once for each subscription.
+	Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) (rs SubscribeResult, err error)
+	// Unsubscribe removes subscriptions of a specific client.
+	Unsubscribe(clientID string, topics ...string) error
+	// UnsubscribeAll removes all subscriptions of a specific client.
+	UnsubscribeAll(clientID string) error
+	// Iterate iterates all subscriptions. The callback is called once for each subscription.
 	// If callback return false, the iteration will be stopped.
 	// Notice:
 	// The results are not sorted in any way, no ordering of any kind is guaranteed.
@@ -112,6 +119,7 @@ type Store interface {
 	// so it is a very expensive operation. Do not call it frequently.
 	Iterate(fn IterateFn, options IterationOptions)
 
+	Close() error
 	StatsReader
 }
 
@@ -169,4 +177,21 @@ type StatsReader interface {
 	// GetClientStats return the stats of a specific client.
 	// If stats not exists, return an error.
 	GetClientStats(clientID string) (Stats, error)
+}
+
+// SplitTopic returns the shareName and topicFilter of the given topic
+func SplitTopic(topic string) (shareName, topicFilter string) {
+	if strings.HasPrefix(topic, "$share/") {
+		shared := strings.SplitN(topic, "/", 3)
+		return shared[1], shared[2]
+	}
+	return "", topic
+}
+
+// GetFullTopicName returns the full topic name of given shareName and topicFilter
+func GetFullTopicName(shareName, topicFilter string) string {
+	if shareName != "" {
+		return "$share/" + shareName + "/" + topicFilter
+	}
+	return topicFilter
 }

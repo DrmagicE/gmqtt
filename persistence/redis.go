@@ -7,8 +7,9 @@ import (
 
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	redis_queue "github.com/DrmagicE/gmqtt/persistence/queue/redis"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	redis_sub "github.com/DrmagicE/gmqtt/persistence/subscription/redis"
 	"github.com/DrmagicE/gmqtt/server"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 func init() {
@@ -47,14 +48,16 @@ func (r *redis) Open() error {
 	defer conn.Close()
 	// Test the connection
 	_, err := conn.Do("PING")
+
 	return err
 }
 func (r *redis) NewQueueStore(config server.Config, client server.Client) (queue.Store, error) {
 	return redis_queue.New(config, client, r.pool, r.onMsgDropped)
 }
 
-func (r *redis) NewSubscriptionStore(config server.Config) subscription.Store {
-	panic("implement me")
+func (r *redis) NewSubscriptionStore(config server.Config) (subscription.Store, error) {
+
+	return redis_sub.New(r.pool), nil
 }
 
 func (r *redis) Close() error {

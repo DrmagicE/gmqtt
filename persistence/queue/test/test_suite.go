@@ -1,4 +1,4 @@
-package test_suite
+package test
 
 import (
 	"context"
@@ -17,25 +17,32 @@ import (
 
 var (
 	TestServerConfig = server.Config{MaxQueuedMsg: 5}
-	TestClient       server.Client
-	TestHooks        server.Hooks
-	dropMsg          = make(map[string][]*gmqtt.Message)
-	cid              = "cid"
+	TestClient       = &mockClient{}
+	TestHooks        = server.Hooks{OnMsgDropped: func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
+		dropMsg[cid] = append(dropMsg[cid], msg)
+	}}
+	dropMsg = make(map[string][]*gmqtt.Message)
+	cid     = "cid"
 )
+
+type mockClient struct {
+	server.Client
+}
+
+func (m *mockClient) ClientOptions() *server.ClientOptions {
+	return &server.ClientOptions{ClientID: cid}
+}
 
 func initDrop() {
 	dropMsg = make(map[string][]*gmqtt.Message)
 }
 
-func init() {
-	TestServerConfig = server.Config{
-		MaxQueuedMsg: 5,
-	}
-	TestHooks = server.Hooks{
-		OnMsgDropped: func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
-
-		},
-	}
+func assertElemEqual(a *assert.Assertions, expected, actual *queue.Elem) {
+	expected.At = time.Unix(expected.At.Unix(), 0)
+	expected.Expiry = time.Unix(expected.Expiry.Unix(), 0)
+	actual.At = time.Unix(actual.At.Unix(), 0)
+	actual.Expiry = time.Unix(actual.Expiry.Unix(), 0)
+	a.Equal(expected, actual)
 }
 
 // 2 inflight message + 3 new message
@@ -131,21 +138,11 @@ func reconnect(a *assert.Assertions, cleanStart bool, store queue.Store) {
 
 type New func(config server.Config, hooks server.Hooks) (server.Persistence, error)
 
-func TestQueue(t *testing.T, factory server.PersistenceFactory) {
+func TestQueue(t *testing.T, store queue.Store) {
+	initDrop()
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	c := server.NewMockClient(ctrl)
-	p, err := factory.New(TestServerConfig, server.Hooks{OnMsgDropped: func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
-		dropMsg[cid] = append(dropMsg[cid], msg)
-	}})
-	a.Nil(err)
-	a.Nil(p.Open())
-	defer p.Close()
-	store, err := p.NewQueueStore(TestServerConfig, c)
-	a.Nil(err)
-	c.EXPECT().ClientOptions().Return(&server.ClientOptions{ClientID: cid}).AnyTimes()
-	a.Nil(err)
 	a.Nil(initStore(store))
 	a.Nil(add(store))
 	testRead(a, store)
@@ -215,6 +212,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      0,
 				Retained: false,
 				Topic:    "/t_qos0",
+				Payload:  []byte("test"),
 			},
 		},
 	}
@@ -230,6 +228,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      0,
 				Retained: false,
 				Topic:    "/drop",
+				Payload:  []byte("test"),
 			},
 		},
 	}
@@ -246,6 +245,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      0,
 				Retained: false,
 				Topic:    "/drop_front",
+				Payload:  []byte("test"),
 			},
 		},
 	}
@@ -263,6 +263,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      packets.Qos1,
 				Retained: false,
 				Topic:    "/t_qos1",
+				Payload:  []byte("test"),
 			},
 		},
 	}))
@@ -279,6 +280,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      1,
 				Retained: false,
 				Topic:    "/t",
+				Payload:  []byte("test"),
 			},
 		},
 	}))
@@ -291,10 +293,11 @@ func testRead(a *assert.Assertions, store queue.Store) {
 	e, err := store.ReadInflight(1)
 	a.Nil(err)
 	a.Len(e, 1)
-	a.Equal(initElems[0], e[0])
+	assertElemEqual(a, initElems[0], e[0])
+
 	e, err = store.ReadInflight(2)
 	a.Len(e, 1)
-	a.Equal(initElems[1], e[0])
+	assertElemEqual(a, initElems[1], e[0])
 	pids := []packets.PacketID{3, 4, 5}
 	e, err = store.Read(pids)
 	a.Len(e, 3)
@@ -303,20 +306,6 @@ func testRead(a *assert.Assertions, store queue.Store) {
 	a.EqualValues(3, e[0].MessageWithID.ID())
 	a.EqualValues(0, e[1].MessageWithID.ID())
 	a.EqualValues(4, e[2].MessageWithID.ID())
-
-	// Read should block
-	//timer := time.After(1 * time.Second)
-	//c := make(chan struct{})
-	//go func() {
-	//	store.Read([]packets.PacketID{6})
-	//	<-c
-	//}()
-	//
-	//select {
-	//case <-timer:
-	//case <-c:
-	//	a.Fail("Read is not block")
-	//}
 
 	err = store.Remove(3)
 	a.Nil(err)

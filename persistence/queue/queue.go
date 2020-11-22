@@ -32,10 +32,10 @@ type Store interface {
 	// Replace replaces the PUBLISH with the PUBREL with the same packet id.
 	Replace(elem *Elem) (replaced bool, err error)
 
-	// Read reads a batch of new message (non-inflight) from the store.
+	// Read reads a batch of new message (non-inflight) from the store. The qos0 messages will be removed after read.
+	// The implementation must validate the expiry and remove the expired messages while reading.
 	// The caller must call ReadInflight first to read all inflight message before calling this method.
-	// The size of the batch will be less than or equal to the size of the given packet id list。
-	// The message read by the method should always has a 0 value packet id.
+	// The size of the batch will be less than or equal to the size of the given packet id list.
 	// Calling this method will be block until there are any new message can be read or the store has been closed.
 	// If the store has been closed, returns nil, ErrClosed.
 	Read(pids []packets.PacketID) ([]*Elem, error)
@@ -51,8 +51,8 @@ type Store interface {
 
 // ElemExpiry return whether the elem is expired
 func ElemExpiry(now time.Time, elem *Elem) bool {
-	t := time.Time{}
-	if elem.Expiry != t {
+
+	if !elem.Expiry.IsZero() {
 		return now.After(elem.Expiry)
 	}
 	return false

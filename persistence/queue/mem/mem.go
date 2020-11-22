@@ -67,6 +67,10 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 	var dropElem *list.Element
 	var drop bool
 	defer func() {
+		m.cond.L.Unlock()
+		m.cond.Signal()
+	}()
+	defer func() {
 		if drop {
 			m.log.Warn("message queue is full, drop message",
 				zap.String("clientID", m.client.ClientOptions().ClientID),
@@ -75,8 +79,6 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 				if m.onMsgDropped != nil {
 					m.onMsgDropped(context.Background(), m.client, elem.MessageWithID.(*queue.Publish).Message)
 				}
-				m.cond.L.Unlock()
-				m.cond.Signal()
 				return
 			} else {
 				if dropElem == m.current {
@@ -88,47 +90,45 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 				m.onMsgDropped(context.Background(), m.client, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
 			}
 		}
-
 		e := m.l.PushBack(elem)
 		if m.current == nil {
 			m.current = e
 		}
-
-		m.cond.L.Unlock()
-		m.cond.Signal()
 	}()
 	if m.l.Len() >= m.max {
+		drop = true
 		// drop the current elem if there is no more non-inflight messages.
-		if m.current == nil {
-			drop = true
+		if m.inflightDrained && m.current == nil {
 			return
 		}
 		// drop expired message
 		for e := m.current; e != nil; e = e.Next() {
-			if e.Value.(*queue.Elem).MessageWithID.ID() == 0 &&
+			pub := e.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
+			if pub.ID() == 0 &&
 				queue.ElemExpiry(now, e.Value.(*queue.Elem)) {
 				dropElem = e
-				drop = true
 				return
 			}
-		}
-		// drop qos0 message in the queue
-		for e := m.current; e != nil; e = e.Next() {
-			if e.Value.(*queue.Elem).MessageWithID.ID() == 0 {
-				if e.Value.(*queue.Elem).MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
-					dropElem = e
-					drop = true
-					return
-				}
+			if pub.ID() == 0 && pub.QoS == packets.Qos0 && dropElem == nil {
+				dropElem = e
 			}
 		}
-		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
-			drop = true
+
+		// drop qos0 message in the queue
+		if dropElem != nil {
 			return
 		}
-		// drop the front message
-		dropElem = m.current
-		drop = true
+		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
+			return
+		}
+		if m.inflightDrained {
+			// drop the front message
+			dropElem = m.current
+			return
+		}
+
+		// the the messages in the queue are all inflight messages, drop the current elem
+
 		return
 	}
 	return nil
@@ -148,6 +148,7 @@ func (m *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 }
 
 func (m *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
+	now := time.Now()
 	m.cond.L.Lock()
 	defer m.cond.L.Unlock()
 	if !m.inflightDrained {
@@ -164,10 +165,17 @@ func (m *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 		length = len(pids)
 	}
 	var pflag int
+	// TODO add expiry test case
 	for i := 0; i < length && m.current != nil; i++ {
 		v := m.current
+		// remove expired message
+		if queue.ElemExpiry(now, v.Value.(*queue.Elem)) {
+			m.current = m.current.Next()
+			m.l.Remove(v)
+			continue
+		}
 		// remove qos 0 message after read
-		if m.current.Value.(*queue.Elem).MessageWithID.(*queue.Publish).QoS == 0 {
+		if v.Value.(*queue.Elem).MessageWithID.(*queue.Publish).QoS == 0 {
 			m.current = m.current.Next()
 			m.l.Remove(v)
 		} else {

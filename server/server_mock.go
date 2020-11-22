@@ -6,11 +6,12 @@ package server
 
 import (
 	context "context"
-	gmqtt "github.com/DrmagicE/gmqtt"
-	retained "github.com/DrmagicE/gmqtt/retained"
-	subscription "github.com/DrmagicE/gmqtt/subscription"
-	gomock "github.com/golang/mock/gomock"
 	reflect "reflect"
+
+	gmqtt "github.com/DrmagicE/gmqtt"
+	subscription "github.com/DrmagicE/gmqtt/persistence/subscription"
+	retained "github.com/DrmagicE/gmqtt/retained"
+	gomock "github.com/golang/mock/gomock"
 )
 
 // MocktopicAliasMgrFactory is a mock of topicAliasMgrFactory interface

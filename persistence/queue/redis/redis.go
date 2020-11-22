@@ -1,9 +1,12 @@
 package redis
 
 import (
+	"context"
 	"sync"
+	"time"
 
 	redigo "github.com/gomodule/redigo/redis"
+	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -19,12 +22,13 @@ func New(config server.Config, client server.Client, pool *redigo.Pool, dropped 
 		cond:            sync.NewCond(&sync.Mutex{}),
 		client:          client,
 		clientID:        client.ClientOptions().ClientID,
-		max:             0,
+		max:             config.MaxQueuedMsg,
 		len:             0,
 		pool:            pool,
 		closed:          false,
 		inflightDrained: false,
 		current:         0,
+		log:             server.LoggerWithField(zap.String("queue", "redis")),
 		onMsgDropped:    dropped,
 	}, nil
 }
@@ -42,6 +46,7 @@ type Queue struct {
 	readCache       map[packets.PacketID][]byte
 	err             error
 	onMsgDropped    server.OnMsgDropped
+	log             *zap.Logger
 }
 
 func wrapError(err error) *codes.Error {
@@ -96,18 +101,94 @@ func (r *Queue) Clean() error {
 	return err
 }
 
-func (r *Queue) Add(elem *queue.Elem) error {
+func (r *Queue) Add(elem *queue.Elem) (err error) {
+	now := time.Now()
 	conn := r.pool.Get()
 	r.cond.L.Lock()
+	var dropBytes []byte
+	var dropElem *queue.Elem
+	var drop bool
 	defer func() {
 		conn.Close()
-		r.len++
 		r.cond.L.Unlock()
 		r.cond.Signal()
 	}()
-	_, err := conn.Do("rpush", r.clientID, elem.Encode())
-	if err != nil {
-		return err
+	defer func() {
+		if drop {
+			r.log.Warn("message queue is full, drop message",
+				zap.String("clientID", r.client.ClientOptions().ClientID),
+			)
+			if dropBytes == nil {
+				if r.onMsgDropped != nil {
+					r.onMsgDropped(context.Background(), r.client, elem.MessageWithID.(*queue.Publish).Message)
+				}
+				return
+			} else {
+				err = conn.Send("lrem", r.clientID, 1, dropBytes)
+			}
+			if r.onMsgDropped != nil {
+				r.onMsgDropped(context.Background(), r.client, dropElem.MessageWithID.(*queue.Publish).Message)
+			}
+		}
+		_ = conn.Send("rpush", r.clientID, elem.Encode())
+		err = conn.Flush()
+		r.len++
+	}()
+	if r.len >= r.max {
+		drop = true
+		// drop the current elem if there is no more non-inflight messages.
+		if r.inflightDrained && r.current >= r.len {
+			return
+		}
+		var rs []interface{}
+		rs, err = redigo.Values(conn.Do("lrange", r.clientID, r.current, r.len))
+		if err != nil {
+			return err
+		}
+		var frontBytes []byte
+		var frontElem *queue.Elem
+		for i := 0; i < len(rs); i++ {
+			b := rs[i].([]byte)
+			e := &queue.Elem{}
+			err = e.Decode(b)
+			if err != nil {
+				return
+			}
+			pub := e.MessageWithID.(*queue.Publish)
+			if pub.ID() == 0 {
+				// drop the front message
+				if i == 0 {
+					frontBytes = b
+					frontElem = e
+				}
+				// drop expired message
+				if queue.ElemExpiry(now, e) {
+					dropBytes = b
+					dropElem = e
+					return
+				}
+
+				if pub.QoS == packets.Qos0 && dropElem == nil {
+					dropBytes = b
+					dropElem = e
+				}
+			}
+		}
+		// drop qos0 message in the queue
+		if dropElem != nil {
+			return
+		}
+		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
+			return
+		}
+		if frontElem != nil {
+			// drop the front message
+			dropBytes = frontBytes
+			dropElem = frontElem
+		}
+
+		// the the messages in the queue are all inflight messages, drop the current elem
+		return
 	}
 	return nil
 }
@@ -142,6 +223,7 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 				return false, err
 			}
 			r.readCache[id] = eb
+			return true, nil
 		}
 	}
 
@@ -149,6 +231,7 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 }
 
 func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
+	now := time.Now()
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
 	conn := r.pool.Get()
@@ -174,6 +257,16 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		if err != nil {
 			return nil, err
 		}
+		// remove expired message
+		if queue.ElemExpiry(now, e) {
+			err = conn.Send("lrem", r.clientID, 1, b)
+			r.len--
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		if e.MessageWithID.(*queue.Publish).QoS == 0 {
 			err = conn.Send("lrem", r.clientID, 1, b)
 			r.len--

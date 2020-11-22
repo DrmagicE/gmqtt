@@ -1,16 +1,15 @@
-package trie
+package mem
 
 import (
-	"errors"
 	"strings"
 	"sync"
 
 	"github.com/DrmagicE/gmqtt"
-	"github.com/DrmagicE/gmqtt/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 )
 
-// trieDB implement the subscription.Interface, it use trie tree  to store topics.
-type trieDB struct {
+// TrieDB implement the subscription.Interface, it use trie tree  to store topics.
+type TrieDB struct {
 	sync.RWMutex
 	userIndex map[string]map[string]*topicNode // [clientID][topicFilter]
 	userTrie  *topicTrie
@@ -27,6 +26,14 @@ type trieDB struct {
 	stats       subscription.Stats
 	clientStats map[string]*subscription.Stats // [clientID]
 
+}
+
+func (db *TrieDB) Init(clientIDs []string) error {
+	return nil
+}
+
+func (db *TrieDB) Close() error {
+	return nil
 }
 
 func iterateShared(fn subscription.IterateFn, options subscription.IterationOptions, index map[string]map[string]*topicNode, trie *topicTrie) bool {
@@ -182,9 +189,8 @@ func iterateNonShared(fn subscription.IterateFn, options subscription.IterationO
 
 }
 
-func (db *trieDB) Iterate(fn subscription.IterateFn, options subscription.IterationOptions) {
-	db.RLock()
-	defer db.RUnlock()
+// IterateLocked is the non thread-safe version of Iterate
+func (db *TrieDB) IterateLocked(fn subscription.IterateFn, options subscription.IterationOptions) {
 	if options.Type&subscription.TypeShared == subscription.TypeShared {
 		if !iterateShared(fn, options, db.sharedIndex, db.sharedTrie) {
 			return
@@ -206,28 +212,43 @@ func (db *trieDB) Iterate(fn subscription.IterateFn, options subscription.Iterat
 			return
 		}
 	}
-
 }
-
-func (db *trieDB) GetStats() subscription.Stats {
+func (db *TrieDB) Iterate(fn subscription.IterateFn, options subscription.IterationOptions) {
 	db.RLock()
 	defer db.RUnlock()
+	db.IterateLocked(fn, options)
+}
+
+// GetStats is the non thread-safe version of GetStats
+func (db *TrieDB) GetStatusLocked() subscription.Stats {
 	return db.stats
 }
 
-func (db *trieDB) GetClientStats(clientID string) (subscription.Stats, error) {
+// GetStats returns the statistic information of the store
+func (db *TrieDB) GetStats() subscription.Stats {
 	db.RLock()
 	defer db.RUnlock()
+	return db.GetStatusLocked()
+}
+
+// GetClientStatsLocked the non thread-safe version of GetClientStats
+func (db *TrieDB) GetClientStatsLocked(clientID string) (subscription.Stats, error) {
 	if stats, ok := db.clientStats[clientID]; !ok {
-		return subscription.Stats{}, errors.New("client not exists")
+		return subscription.Stats{}, subscription.ErrClientNotExists
 	} else {
 		return *stats, nil
 	}
 }
 
-// NewStore create a new trieDB instance
-func NewStore() *trieDB {
-	return &trieDB{
+func (db *TrieDB) GetClientStats(clientID string) (subscription.Stats, error) {
+	db.RLock()
+	defer db.RUnlock()
+	return db.GetClientStatsLocked(clientID)
+}
+
+// NewStore create a new TrieDB instance
+func NewStore() *TrieDB {
+	return &TrieDB{
 		userIndex: make(map[string]map[string]*topicNode),
 		userTrie:  newTopicTrie(),
 
@@ -241,10 +262,8 @@ func NewStore() *trieDB {
 	}
 }
 
-// Subscribe add subscriptions
-func (db *trieDB) Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) subscription.SubscribeResult {
-	db.Lock()
-	defer db.Unlock()
+// SubscribeLocked is the non thread-safe version of Subscribe
+func (db *TrieDB) SubscribeLocked(clientID string, subscriptions ...*gmqtt.Subscription) subscription.SubscribeResult {
 	var node *topicNode
 	var index map[string]map[string]*topicNode
 	rs := make(subscription.SubscribeResult, len(subscriptions))
@@ -278,18 +297,21 @@ func (db *trieDB) Subscribe(clientID string, subscriptions ...*gmqtt.Subscriptio
 	return rs
 }
 
-// Unsubscribe remove  subscriptions
-func (db *trieDB) Unsubscribe(clientID string, topics ...string) {
+// SubscribeLocked add subscriptions for the client
+func (db *TrieDB) Subscribe(clientID string, subscriptions ...*gmqtt.Subscription) (subscription.SubscribeResult, error) {
 	db.Lock()
 	defer db.Unlock()
+	return db.SubscribeLocked(clientID, subscriptions...), nil
+}
+
+// UnsubscribeLocked is the non thread-safe version of Unsubscribe
+func (db *TrieDB) UnsubscribeLocked(clientID string, topics ...string) {
 	var index map[string]map[string]*topicNode
 	var topicTrie *topicTrie
 	for _, topic := range topics {
 		var shareName string
-		if strings.HasPrefix(topic, "$share/") {
-			shared := strings.SplitN(topic, "/", 3)
-			topic = shared[2]
-			shareName = shared[1]
+		shareName, topic := subscription.SplitTopic(topic)
+		if shareName != "" {
 			topicTrie = db.sharedTrie
 		} else if isSystemTopic(topic) {
 			index = db.systemIndex
@@ -307,10 +329,17 @@ func (db *trieDB) Unsubscribe(clientID string, topics ...string) {
 		}
 		topicTrie.unsubscribe(clientID, topic, shareName)
 	}
-
 }
 
-func (db *trieDB) unsubscribeAll(index map[string]map[string]*topicNode, clientID string) {
+// Unsubscribe remove subscriptions for the client
+func (db *TrieDB) Unsubscribe(clientID string, topics ...string) error {
+	db.Lock()
+	defer db.Unlock()
+	db.UnsubscribeLocked(clientID, topics...)
+	return nil
+}
+
+func (db *TrieDB) unsubscribeAll(index map[string]map[string]*topicNode, clientID string) {
 	db.stats.SubscriptionsCurrent -= uint64(len(index[clientID]))
 	if db.clientStats[clientID] != nil {
 		db.clientStats[clientID].SubscriptionsCurrent -= uint64(len(index[clientID]))
@@ -325,18 +354,24 @@ func (db *trieDB) unsubscribeAll(index map[string]map[string]*topicNode, clientI
 	delete(index, clientID)
 }
 
-// UnsubscribeAll delete all subscriptions of the client
-func (db *trieDB) UnsubscribeAll(clientID string) {
-	db.Lock()
-	defer db.Unlock()
-	// user topics
+// UnsubscribeAllLocked is the non thread-safe version of UnsubscribeAll
+func (db *TrieDB) UnsubscribeAllLocked(clientID string) {
 	db.unsubscribeAll(db.userIndex, clientID)
 	db.unsubscribeAll(db.systemIndex, clientID)
 	db.unsubscribeAll(db.sharedIndex, clientID)
 }
 
+// UnsubscribeAll delete all subscriptions of the client
+func (db *TrieDB) UnsubscribeAll(clientID string) error {
+	db.Lock()
+	defer db.Unlock()
+	// user topics
+	db.UnsubscribeAllLocked(clientID)
+	return nil
+}
+
 // getMatchedTopicFilter return a map key by clientID that contain all matched topic for the given topicName.
-func (db *trieDB) getMatchedTopicFilter(topicName string) subscription.ClientSubscriptions {
+func (db *TrieDB) getMatchedTopicFilter(topicName string) subscription.ClientSubscriptions {
 	// system topic
 	if isSystemTopic(topicName) {
 		return db.systemTrie.getMatchedTopicFilter(topicName)

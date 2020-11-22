@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/retained"
-	"github.com/DrmagicE/gmqtt/subscription"
 )
 
 func uint32P(v uint32) *uint32 {

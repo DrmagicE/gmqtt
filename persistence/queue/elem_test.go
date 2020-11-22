@@ -10,10 +10,18 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
+func assertElemEqual(a *assert.Assertions, expected, actual *Elem) {
+	expected.At = time.Unix(expected.At.Unix(), 0)
+	expected.Expiry = time.Unix(expected.Expiry.Unix(), 0)
+	actual.At = time.Unix(actual.At.Unix(), 0)
+	actual.Expiry = time.Unix(actual.Expiry.Unix(), 0)
+	a.Equal(expected, actual)
+}
+
 func TestElem_Encode_Publish(t *testing.T) {
 	a := assert.New(t)
 	e := &Elem{
-		At: time.Unix(time.Now().Unix(), 0),
+		At: time.Now(),
 		MessageWithID: &Publish{
 			Message: &gmqtt.Message{
 				Dup:                    false,
@@ -44,7 +52,7 @@ func TestElem_Encode_Publish(t *testing.T) {
 	de := &Elem{}
 	err := de.Decode(rs)
 	a.Nil(err)
-	a.Equal(e, de)
+	assertElemEqual(a, e, de)
 }
 func TestElem_Encode_Pubrel(t *testing.T) {
 	a := assert.New(t)
@@ -58,7 +66,7 @@ func TestElem_Encode_Pubrel(t *testing.T) {
 	de := &Elem{}
 	err := de.Decode(rs)
 	a.Nil(err)
-	a.Equal(e, de)
+	assertElemEqual(a, e, de)
 }
 
 func Benchmark_Encode_Publish(b *testing.B) {
