@@ -4,22 +4,49 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
+	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
+	"github.com/DrmagicE/gmqtt/server"
 )
 
-func TestMemoryQueue(t *testing.T) {
-	a := assert.New(t)
-	m := &memoryFactory{}
-	p, err := m.New(queue_test.TestServerConfig, queue_test.TestHooks)
+type MemorySuite struct {
+	suite.Suite
+	factory *memoryFactory
+	p       server.Persistence
+}
 
+func (s *MemorySuite) TestQueue() {
+	a := assert.New(s.T())
+	qs, err := s.p.NewQueueStore(queue_test.TestServerConfig, queue_test.TestClientID)
 	a.Nil(err)
-	qs, err := p.NewQueueStore(queue_test.TestServerConfig, queue_test.TestClient)
+	queue_test.TestQueue(s.T(), qs)
+}
+func (s *MemorySuite) TestSubscription() {
+	a := assert.New(s.T())
+	st, err := s.p.NewSubscriptionStore(queue_test.TestServerConfig)
 	a.Nil(err)
-	queue_test.TestQueue(t, qs)
+	sub_test.TestSuite(s.T(), st)
+}
 
-	s, err := p.NewSubscriptionStore(queue_test.TestServerConfig)
+func (s *MemorySuite) TestSession() {
+	a := assert.New(s.T())
+	st, err := s.p.NewSessionStore(queue_test.TestServerConfig)
 	a.Nil(err)
-	sub_test.TestSuite(t, s)
+	sess_test.TestSuite(s.T(), st)
+}
+
+func TestMemory(t *testing.T) {
+
+	factory := &memoryFactory{}
+	p, err := factory.New(server.Config{}, queue_test.TestHooks)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	suite.Run(t, &MemorySuite{
+		factory: &memoryFactory{},
+		p:       p,
+	})
 }

@@ -37,7 +37,7 @@ func (t *trieDB) GetRetainedMessage(topicName string) *gmqtt.Message {
 	defer t.RUnlock()
 	node := t.getTrie(topicName).find(topicName)
 	if node != nil {
-		return node.msg
+		return node.msg.Copy()
 	}
 	return nil
 }

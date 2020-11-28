@@ -35,9 +35,9 @@ type Connect struct {
 }
 
 func (c *Connect) String() string {
-	return fmt.Sprintf("Connect, Version: %v, ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanStart: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
-		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s, Properties: %s",
-		c.Version, c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg, c.Properties)
+	return fmt.Sprintf("Connect, Version: %v,"+"ProtocolLevel: %v, UsernameFlag: %v, PasswordFlag: %v, ProtocolName: %s, CleanStart: %v, KeepAlive: %v, ClientID: %s, Username: %s, Password: %s"+
+		", WillFlag: %v, WillRetain: %v, WillQos: %v, WillMsg: %s, Properties: %s, WillProperties: %s",
+		c.Version, c.ProtocolLevel, c.UsernameFlag, c.PasswordFlag, c.ProtocolName, c.CleanStart, c.KeepAlive, c.ClientID, c.Username, c.Password, c.WillFlag, c.WillRetain, c.WillQos, c.WillMsg, c.Properties, c.WillProperties)
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.

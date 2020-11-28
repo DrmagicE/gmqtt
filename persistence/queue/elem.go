@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"io"
 	"time"
 
 	"github.com/DrmagicE/gmqtt"
@@ -51,126 +50,16 @@ type Elem struct {
 
 // Encode encodes the publish structure into bytes and write it to the buffer
 func (p *Publish) Encode(b *bytes.Buffer) {
-	encoding.WriteBool(b, p.Dup)
-	b.WriteByte(p.QoS)
-	encoding.WriteBool(b, p.Retained)
-	encoding.WriteString(b, []byte(p.Topic))
-	encoding.WriteString(b, []byte(p.Payload))
-	encoding.WriteUint16(b, p.PacketID)
-
-	if len(p.ContentType) != 0 {
-		b.WriteByte(packets.PropContentType)
-		encoding.WriteString(b, []byte(p.ContentType))
-	}
-	if len(p.CorrelationData) != 0 {
-		b.WriteByte(packets.PropCorrelationData)
-		encoding.WriteString(b, []byte(p.CorrelationData))
-	}
-	if p.MessageExpiry != 0 {
-		b.WriteByte(packets.PropMessageExpiry)
-		encoding.WriteUint32(b, p.MessageExpiry)
-	}
-	b.WriteByte(packets.PropPayloadFormat)
-	b.WriteByte(p.PayloadFormat)
-
-	if len(p.ResponseTopic) != 0 {
-		b.WriteByte(packets.PropResponseTopic)
-		encoding.WriteString(b, []byte(p.ResponseTopic))
-	}
-	for _, v := range p.SubscriptionIdentifier {
-		b.WriteByte(packets.PropSubscriptionIdentifier)
-		l, _ := packets.DecodeRemainLength(int(v))
-		b.Write(l)
-	}
-	for _, v := range p.UserProperties {
-		b.WriteByte(packets.PropUser)
-		encoding.WriteString(b, v.K)
-		encoding.WriteString(b, v.V)
-	}
-	return
+	encoding.EncodeMessage(p.Message, b)
 }
 
 func (p *Publish) Decode(b *bytes.Buffer) (err error) {
-	p.Message = &gmqtt.Message{}
-	p.Dup, err = encoding.ReadBool(b)
+	msg, err := encoding.DecodeMessage(b)
 	if err != nil {
 		return err
 	}
-	p.QoS, err = b.ReadByte()
-	if err != nil {
-		return err
-	}
-	p.Retained, err = encoding.ReadBool(b)
-	if err != nil {
-		return err
-	}
-	topic, err := encoding.ReadString(b)
-	if err != nil {
-		return err
-	}
-	p.Topic = string(topic)
-	p.Payload, err = encoding.ReadString(b)
-	if err != nil {
-		return err
-	}
-	p.PacketID, err = encoding.ReadUint16(b)
-	if err != nil {
-		return err
-	}
-	for {
-		pt, err := b.ReadByte()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		switch pt {
-		case packets.PropContentType:
-			v, err := encoding.ReadString(b)
-			if err != nil {
-				return err
-			}
-			p.ContentType = string(v)
-		case packets.PropCorrelationData:
-			p.CorrelationData, err = encoding.ReadString(b)
-			if err != nil {
-				return err
-			}
-		case packets.PropMessageExpiry:
-			p.MessageExpiry, err = encoding.ReadUint32(b)
-			if err != nil {
-				return err
-			}
-		case packets.PropPayloadFormat:
-			p.PayloadFormat, err = b.ReadByte()
-			if err != nil {
-				return err
-			}
-		case packets.PropResponseTopic:
-			v, err := encoding.ReadString(b)
-			if err != nil {
-				return err
-			}
-			p.ResponseTopic = string(v)
-		case packets.PropSubscriptionIdentifier:
-			si, err := packets.EncodeRemainLength(b)
-			if err != nil {
-				return err
-			}
-			p.SubscriptionIdentifier = append(p.SubscriptionIdentifier, uint32(si))
-		case packets.PropUser:
-			k, err := encoding.ReadString(b)
-			if err != nil {
-				return err
-			}
-			v, err := encoding.ReadString(b)
-			if err != nil {
-				return err
-			}
-			p.UserProperties = append(p.UserProperties, packets.UserProperty{K: k, V: v})
-		}
-	}
+	p.Message = msg
+	return nil
 }
 
 // Encode encode the pubrel structure into bytes.

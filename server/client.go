@@ -186,13 +186,13 @@ type client struct {
 	close         chan struct{} //关闭chan
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
-	session       *session
+
 	error         chan error //错误
 	errOnce       sync.Once
 	err           error
 	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
 	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
-	ready         chan struct{}  //close after session prepared
+	disconnect    *packets.Disconnect
 
 	connectedAt    int64
 	disconnectedAt int64
@@ -213,8 +213,9 @@ type client struct {
 	// for testing
 	publishMessageHandler func(msg *gmqtt.Message)
 
-	queueStore queue.Store
-	pl         *packetIDLimiter
+	queueStore   queue.Store
+	pl           *packetIDLimiter
+	unackpublish map[packets.PacketID]bool
 }
 
 func (client *client) Version() packets.Version {
@@ -287,7 +288,10 @@ func (client *client) IsDisConnected() bool {
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
 		if client.queueStore != nil {
-			client.queueStore.Close() // TODO error handling
+			qerr := client.queueStore.Close()
+			if qerr != nil {
+				zaplog.Error("fail to close message queue", zap.String("client_id", client.opts.ClientID), zap.Error(qerr))
+			}
 		}
 		if client.pl != nil {
 			client.pl.close()
@@ -378,7 +382,6 @@ func (client *client) writeLoop() {
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-
 	if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
 		ce.Write(
 			zap.String("packet", packet.String()),
@@ -543,7 +546,6 @@ func convertUint32(u *uint32, defaultValue uint32) uint32 {
 		return defaultValue
 	}
 	return *u
-
 }
 
 func (client *client) connectWithTimeOut() (ok bool) {
@@ -575,6 +577,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			var authData []byte
 			switch p.(type) {
 			case *packets.Connect:
+
 				if conn != nil {
 					err = codes.ErrProtocol
 					return
@@ -788,15 +791,6 @@ func (client *client) defaultConnackProperties(connect *packets.Connect) *packet
 	return ppt
 }
 
-func (client *client) newSession() {
-	s := &session{
-		unackpublish: make(map[packets.PacketID]bool),
-		lockedPid:    make(map[packets.PacketID]bool),
-		freePid:      1,
-	}
-	client.session = s
-}
-
 func (client *client) internalClose() {
 	defer close(client.closeComplete)
 	if client.Status() != Switiching {
@@ -825,21 +819,6 @@ func (client *client) checkMaxPacketSize(msg *gmqtt.Message) (valid bool) {
 	return true
 }
 
-// retransmit re-transmit message in inflight queue
-func (client *client) retransmit(msg *gmqtt.Message) {
-	if !client.checkMaxPacketSize(msg) {
-		return
-	}
-	if msg.QoS >= packets.Qos1 {
-		//retransmit on reconnect,use the original packet id
-		client.session.setPacketID(msg.PacketID)
-	}
-	select {
-	case client.out <- gmqtt.MessageToPublish(msg, client.version):
-	case <-client.close:
-	}
-}
-
 func (client *client) write(packets packets.Packet) {
 	select {
 	case <-client.close:
@@ -851,7 +830,6 @@ func (client *client) write(packets packets.Packet) {
 //Subscribe handler
 // test case:
 // 1. 有request problem info的话，可以返回string和User，否则不返回
-// TODO: 记录packetiD的使用情况?
 func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	srv := client.server
 	suback := &packets.Suback{
@@ -953,8 +931,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			if !isShared && ((!subRs[0].AlreadyExisted && v.RetainHandling != 2) || v.RetainHandling == 0) {
 				msgs := srv.retainedDB.GetMatchedMessages(sub.TopicFilter)
 				for _, v := range msgs {
-
-					// TODO make a copy before edit.
 					if v.QoS > subRs[0].Subscription.QoS {
 						v.QoS = subRs[0].Subscription.QoS
 					}
@@ -997,7 +973,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 }
 
 func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
-	s := client.session
 	srv := client.server
 	var dup bool
 
@@ -1029,10 +1004,10 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	}
 
 	if pub.Qos == packets.Qos2 {
-		if _, ok := s.unackpublish[pub.PacketID]; ok {
+		if _, ok := client.unackpublish[pub.PacketID]; ok {
 			dup = true
 		} else {
-			s.unackpublish[pub.PacketID] = true
+			client.unackpublish[pub.PacketID] = true
 		}
 	}
 
@@ -1056,7 +1031,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		// 根据结果，发送到不同队列
 		if msg != nil {
 			srv.mu.Lock()
-			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, "", msg)
+			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, msg)
 			srv.mu.Unlock()
 		}
 	}
@@ -1087,7 +1062,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	if pub.Qos == packets.Qos2 {
 		ack = pub.NewPubrec(code, ppt)
 		if code >= codes.UnspecifiedError {
-			delete(s.unackpublish, pub.PacketID)
+			delete(client.unackpublish, pub.PacketID)
 		}
 	}
 	if ack != nil {
@@ -1096,24 +1071,35 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	return nil
 
 }
-func (client *client) pubackHandler(puback *packets.Puback) {
 
-	// TODO return 是否成功remove
-	err := client.queueStore.Remove(puback.PacketID)
-	client.pl.release(puback.PacketID)
-	if err != nil {
-		client.setError(err)
+func converError(err error) *codes.Error {
+	if e, ok := err.(*codes.Error); ok {
+		return e
 	}
+	return &codes.Error{
+		Code: codes.UnspecifiedError,
+		ErrorDetails: codes.ErrorDetails{
+			ReasonString: []byte(err.Error()),
+		},
+	}
+}
+
+func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
+	err := client.queueStore.Remove(puback.PacketID)
+	if err != nil {
+		return converError(err)
+	}
+	client.pl.release(puback.PacketID)
 	client.statsManager.decInflightCurrent(1)
 	if ce := zaplog.Check(zapcore.DebugLevel, "unset inflight"); ce != nil {
-		zaplog.Debug("unset inflight", zap.String("clientID", client.opts.ClientID),
+		ce.Write(zap.String("clientID", client.opts.ClientID),
 			zap.Uint16("pid", puback.PacketID),
 		)
 	}
-	// TODO onAck
+	return nil
 }
 func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
-	delete(client.session.unackpublish, pubrel.PacketID)
+	delete(client.unackpublish, pubrel.PacketID)
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
 }
@@ -1228,6 +1214,38 @@ func (client *client) reAuthHandler(auth *packets.Auth) *codes.Error {
 
 }
 
+func (client *client) disconnectHandler(dis *packets.Disconnect) *codes.Error {
+	if client.version == packets.Version5 {
+		disExpiry := convertUint32(dis.Properties.SessionExpiryInterval, 0)
+		sess, err := client.server.sessionStore.Get(client.opts.ClientID)
+		if err != nil {
+			return &codes.Error{
+				Code: codes.UnspecifiedError,
+				ErrorDetails: codes.ErrorDetails{
+					ReasonString: []byte(err.Error()),
+				},
+			}
+		}
+		if sess.ExpiryInterval == 0 && disExpiry != 0 {
+			return &codes.Error{
+				Code: codes.ProtocolError,
+			}
+		}
+		if disExpiry != 0 {
+			err := client.server.sessionStore.SetSessionExpiry(sess.ClientID, disExpiry)
+			if err != nil {
+				zaplog.Error("fail to set session expiry",
+					zap.String("client_id", client.opts.ClientID),
+					zap.Error(err))
+			}
+		}
+	}
+	client.disconnect = dis
+	// 不发送will message
+	client.cleanWillFlag = true
+	return nil
+}
+
 //读处理
 func (client *client) readHandle() {
 	var err error
@@ -1246,14 +1264,14 @@ func (client *client) readHandle() {
 				return
 			}
 		}
-		var err *codes.Error
+		var codeErr *codes.Error
 		switch packet.(type) {
 		case *packets.Subscribe:
-			err = client.subscribeHandler(packet.(*packets.Subscribe))
+			codeErr = client.subscribeHandler(packet.(*packets.Subscribe))
 		case *packets.Publish:
-			err = client.publishHandler(packet.(*packets.Publish))
+			codeErr = client.publishHandler(packet.(*packets.Publish))
 		case *packets.Puback:
-			client.pubackHandler(packet.(*packets.Puback))
+			codeErr = client.pubackHandler(packet.(*packets.Puback))
 		case *packets.Pubrel:
 			client.pubrelHandler(packet.(*packets.Pubrel))
 		case *packets.Pubrec:
@@ -1265,8 +1283,7 @@ func (client *client) readHandle() {
 		case *packets.Unsubscribe:
 			client.unsubscribeHandler(packet.(*packets.Unsubscribe))
 		case *packets.Disconnect:
-			dis := packet.(*packets.Disconnect)
-			err = client.setCleanWillFlag(dis)
+			codeErr = client.disconnectHandler(packet.(*packets.Disconnect))
 			return
 		case *packets.Auth:
 			auth := packet.(*packets.Auth)
@@ -1275,16 +1292,16 @@ func (client *client) readHandle() {
 				return
 			}
 			if !bytes.Equal(client.opts.AuthMethod, auth.Properties.AuthData) {
-				err = codes.ErrProtocol
+				codeErr = codes.ErrProtocol
 				return
 			}
-			err = client.reAuthHandler(auth)
+			codeErr = client.reAuthHandler(auth)
 
 		default:
 			err = codes.ErrProtocol
 		}
-		if err != nil {
-			client.setError(err)
+		if codeErr != nil {
+			err = codeErr
 			return
 		}
 	}
@@ -1330,6 +1347,10 @@ func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.
 			if m.QoS != packets.Qos0 {
 				ids = ids[1:]
 			}
+			if client.opts.ClientMaxPacketSize != 0 && m.Message.TotalBytes(client.version) >= client.opts.ClientMaxPacketSize {
+				continue
+			}
+			// TODO onMsgDroped
 			if client.version == packets.Version5 && m.Message.MessageExpiry != 0 {
 				d := uint32(now.Sub(v.At).Seconds())
 				m.Message.MessageExpiry = d
@@ -1384,21 +1405,4 @@ func (client *client) serve() {
 	}
 	client.wg.Wait()
 	client.rwc.Close()
-}
-
-func (client *client) setCleanWillFlag(disconnect *packets.Disconnect) *codes.Error {
-	if client.version == packets.Version5 {
-		disExpiry := convertUint32(disconnect.Properties.SessionExpiryInterval, 0)
-		if client.opts.SessionExpiry == 0 && disExpiry != 0 {
-			return &codes.Error{
-				Code: codes.ProtocolError,
-			}
-		}
-		if disExpiry != 0 {
-			client.opts.SessionExpiry = disExpiry
-		}
-	}
-	// 不发送will message
-	client.cleanWillFlag = true
-	return nil
 }

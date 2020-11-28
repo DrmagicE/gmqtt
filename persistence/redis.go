@@ -7,6 +7,8 @@ import (
 
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	redis_queue "github.com/DrmagicE/gmqtt/persistence/queue/redis"
+	"github.com/DrmagicE/gmqtt/persistence/session"
+	redis_sess "github.com/DrmagicE/gmqtt/persistence/session/redis"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	redis_sub "github.com/DrmagicE/gmqtt/persistence/subscription/redis"
 	"github.com/DrmagicE/gmqtt/server"
@@ -33,6 +35,10 @@ type redis struct {
 	onMsgDropped server.OnMsgDropped
 }
 
+func (r *redis) NewSessionStore(config server.Config) (session.Store, error) {
+	return redis_sess.New(r.pool), nil
+}
+
 func newPool(addr string) *redigo.Pool {
 	return &redigo.Pool{
 		MaxIdle:     3,
@@ -51,12 +57,12 @@ func (r *redis) Open() error {
 
 	return err
 }
-func (r *redis) NewQueueStore(config server.Config, client server.Client) (queue.Store, error) {
-	return redis_queue.New(config, client, r.pool, r.onMsgDropped)
+
+func (r *redis) NewQueueStore(config server.Config, queueID string) (queue.Store, error) {
+	return redis_queue.New(config, queueID, r.pool, r.onMsgDropped)
 }
 
 func (r *redis) NewSubscriptionStore(config server.Config) (subscription.Store, error) {
-
 	return redis_sub.New(r.pool), nil
 }
 

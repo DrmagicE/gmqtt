@@ -11,6 +11,10 @@ var (
 	ErrClosed = errors.New("queue has been closed")
 )
 
+type Config struct {
+	MaxQueuedMsg int
+}
+
 // Store represents a queue store for one client.
 type Store interface {
 	// Close will be called when the client disconnect.
@@ -36,7 +40,7 @@ type Store interface {
 	// The implementation must validate the expiry and remove the expired messages while reading.
 	// The caller must call ReadInflight first to read all inflight message before calling this method.
 	// The size of the batch will be less than or equal to the size of the given packet id list.
-	// Calling this method will be block until there are any new message can be read or the store has been closed.
+	// Calling this method will be blocked until there are any new messages can be read or the store has been closed.
 	// If the store has been closed, returns nil, ErrClosed.
 	Read(pids []packets.PacketID) ([]*Elem, error)
 

@@ -23,6 +23,40 @@ type Message struct {
 	UserProperties         []packets.UserProperty
 }
 
+// Copy deep copies the Message and return the new one
+func (m *Message) Copy() *Message {
+	newMsg := &Message{
+		Dup:           m.Dup,
+		QoS:           m.QoS,
+		Retained:      m.Retained,
+		Topic:         m.Topic,
+		PacketID:      m.PacketID,
+		ContentType:   m.ContentType,
+		MessageExpiry: m.MessageExpiry,
+		PayloadFormat: m.PayloadFormat,
+		ResponseTopic: m.ResponseTopic,
+	}
+	newMsg.Payload = make([]byte, len(m.Payload))
+	copy(newMsg.Payload, m.Payload)
+
+	newMsg.CorrelationData = make([]byte, len(m.CorrelationData))
+	copy(newMsg.CorrelationData, m.CorrelationData)
+
+	newMsg.SubscriptionIdentifier = make([]uint32, len(m.SubscriptionIdentifier))
+	copy(newMsg.SubscriptionIdentifier, m.SubscriptionIdentifier)
+
+	newMsg.UserProperties = make([]packets.UserProperty, len(m.UserProperties))
+	for k := range newMsg.UserProperties {
+		newMsg.UserProperties[k].K = make([]byte, len(m.UserProperties[k].K))
+		copy(newMsg.UserProperties[k].K, m.UserProperties[k].K)
+
+		newMsg.UserProperties[k].V = make([]byte, len(m.UserProperties[k].V))
+		copy(newMsg.UserProperties[k].V, m.UserProperties[k].V)
+	}
+	return newMsg
+
+}
+
 func getVariablelenght(l int) int {
 	if l <= 127 {
 		return 1
@@ -141,12 +175,13 @@ func MessageToPublish(msg *Message, version packets.Version) *packets.Publish {
 			payloadFormat = &e
 		}
 		pub.Properties = &packets.Properties{
-			CorrelationData: msg.CorrelationData,
-			ContentType:     contentType,
-			MessageExpiry:   msgExpiry,
-			ResponseTopic:   responseTopic,
-			PayloadFormat:   payloadFormat,
-			User:            msg.UserProperties,
+			CorrelationData:        msg.CorrelationData,
+			ContentType:            contentType,
+			MessageExpiry:          msgExpiry,
+			ResponseTopic:          responseTopic,
+			PayloadFormat:          payloadFormat,
+			User:                   msg.UserProperties,
+			SubscriptionIdentifier: msg.SubscriptionIdentifier,
 		}
 	}
 	return pub

@@ -13,9 +13,9 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
-func New(config server.Config, client server.Client, dropped server.OnMsgDropped) (*Queue, error) {
+func New(config server.Config, queueID string, dropped server.OnMsgDropped) (*Queue, error) {
 	return &Queue{
-		client:       client,
+		queueID:      queueID,
 		cond:         sync.NewCond(&sync.Mutex{}),
 		l:            list.New(),
 		max:          config.MaxQueuedMsg,
@@ -26,6 +26,7 @@ func New(config server.Config, client server.Client, dropped server.OnMsgDropped
 
 type Queue struct {
 	cond            *sync.Cond
+	queueID         string
 	l               *list.List
 	current         *list.Element
 	inflightDrained bool
@@ -33,7 +34,6 @@ type Queue struct {
 	max             int
 	log             *zap.Logger
 	onMsgDropped    server.OnMsgDropped
-	client          server.Client
 }
 
 func (m *Queue) Close() error {
@@ -73,11 +73,11 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 	defer func() {
 		if drop {
 			m.log.Warn("message queue is full, drop message",
-				zap.String("clientID", m.client.ClientOptions().ClientID),
+				zap.String("queueID", m.queueID),
 			)
 			if dropElem == nil {
 				if m.onMsgDropped != nil {
-					m.onMsgDropped(context.Background(), m.client, elem.MessageWithID.(*queue.Publish).Message)
+					m.onMsgDropped(context.Background(), m.queueID, elem.MessageWithID.(*queue.Publish).Message)
 				}
 				return
 			} else {
@@ -87,7 +87,7 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 				m.l.Remove(dropElem)
 			}
 			if m.onMsgDropped != nil {
-				m.onMsgDropped(context.Background(), m.client, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
+				m.onMsgDropped(context.Background(), m.queueID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
 			}
 		}
 		e := m.l.PushBack(elem)

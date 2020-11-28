@@ -81,7 +81,7 @@ type sub struct {
 
 // 加载所有clientID到内存
 func (s *sub) Init(clientIDs []string) error {
-	if len(clientIDs) == 0 { // fast path
+	if len(clientIDs) == 0 {
 		return nil
 	}
 	s.mu.Lock()

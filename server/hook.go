@@ -181,7 +181,7 @@ const (
 // OnSessionTerminated session 下线时触发
 //
 // OnSessionTerminated will be called when session terminated.
-type OnSessionTerminated func(ctx context.Context, client Client, reason SessionTerminatedReason)
+type OnSessionTerminated func(ctx context.Context, clientID string, reason SessionTerminatedReason)
 
 type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 
@@ -202,6 +202,6 @@ type OnAckedWrapper func(OnAcked) OnAcked
 // OnMessageDropped 丢弃报文后触发
 //
 // OnMsgDropped will be called after the Msg dropped
-type OnMsgDropped func(ctx context.Context, client Client, msg *gmqtt.Message)
+type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped

@@ -99,7 +99,7 @@ func (t *topicTrie) getMatchedMessages(topicFilter string) []*gmqtt.Message {
 	topicLv := strings.Split(topicFilter, "/")
 	var rs []*gmqtt.Message
 	t.matchTopic(topicLv, func(message *gmqtt.Message) bool {
-		rs = append(rs, message)
+		rs = append(rs, message.Copy())
 		return true
 	})
 	return rs

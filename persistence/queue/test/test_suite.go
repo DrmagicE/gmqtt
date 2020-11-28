@@ -17,21 +17,13 @@ import (
 
 var (
 	TestServerConfig = server.Config{MaxQueuedMsg: 5}
-	TestClient       = &mockClient{}
-	TestHooks        = server.Hooks{OnMsgDropped: func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
+	TestHooks        = server.Hooks{OnMsgDropped: func(ctx context.Context, clientID string, msg *gmqtt.Message) {
 		dropMsg[cid] = append(dropMsg[cid], msg)
 	}}
-	dropMsg = make(map[string][]*gmqtt.Message)
-	cid     = "cid"
+	dropMsg      = make(map[string][]*gmqtt.Message)
+	cid          = "cid"
+	TestClientID = cid
 )
-
-type mockClient struct {
-	server.Client
-}
-
-func (m *mockClient) ClientOptions() *server.ClientOptions {
-	return &server.ClientOptions{ClientID: cid}
-}
 
 func initDrop() {
 	dropMsg = make(map[string][]*gmqtt.Message)
