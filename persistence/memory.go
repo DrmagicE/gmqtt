@@ -7,6 +7,8 @@ import (
 	mem_session "github.com/DrmagicE/gmqtt/persistence/session/mem"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	mem_sub "github.com/DrmagicE/gmqtt/persistence/subscription/mem"
+	"github.com/DrmagicE/gmqtt/persistence/unack"
+	mem_unack "github.com/DrmagicE/gmqtt/persistence/unack/mem"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
@@ -26,6 +28,10 @@ func (m *memoryFactory) New(config server.Config, hooks server.Hooks) (server.Pe
 
 type memory struct {
 	onMsgDropped server.OnMsgDropped
+}
+
+func (m *memory) NewUnackStore(config server.Config, clientID string) (unack.Store, error) {
+	return mem_unack.New(config, clientID), nil
 }
 
 func (m *memory) NewSessionStore(config server.Config) (session.Store, error) {

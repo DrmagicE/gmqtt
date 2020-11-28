@@ -90,7 +90,7 @@ type ErrorDetails struct {
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("operation error: Code = %x", e.Code)
+	return fmt.Sprintf("operation error: Code = %x, reasonString: %s", e.Code, e.ReasonString)
 }
 func NewError(code Code) *Error {
 	return &Error{Code: code}

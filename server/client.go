@@ -24,6 +24,7 @@ import (
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -213,9 +214,9 @@ type client struct {
 	// for testing
 	publishMessageHandler func(msg *gmqtt.Message)
 
-	queueStore   queue.Store
-	pl           *packetIDLimiter
-	unackpublish map[packets.PacketID]bool
+	queueStore queue.Store
+	unackStore unack.Store
+	pl         *packetIDLimiter
 }
 
 func (client *client) Version() packets.Version {
@@ -298,7 +299,7 @@ func (client *client) setError(err error) {
 		}
 
 		if err != nil && err != io.EOF {
-			zaplog.Error("connection lost", zap.String("error_msg", err.Error()))
+			zaplog.Error("connection lost", zap.Error(err))
 			client.err = err
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
@@ -449,7 +450,6 @@ func (client *client) readLoop() {
 		if err != nil {
 			return
 		}
-
 		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
 			ce.Write(
 				zap.String("packet", packet.String()),
@@ -457,7 +457,6 @@ func (client *client) readLoop() {
 				zap.String("client_id", client.opts.ClientID),
 			)
 		}
-
 		client.server.statsManager.packetReceived(packet)
 		if pub, ok := packet.(*packets.Publish); ok {
 			client.server.statsManager.messageReceived(pub.Qos)
@@ -982,6 +981,9 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 			Code: codes.RetainNotSupported,
 		}
 	}
+	var msg *gmqtt.Message
+	msg = gmqtt.MessageFromPublish(pub)
+
 	if client.version == packets.Version5 && pub.Properties.TopicAlias != nil {
 		if *pub.Properties.TopicAlias >= client.opts.ServerTopicAliasMax {
 			return &codes.Error{
@@ -996,7 +998,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 						Code: codes.TopicAliasInvalid,
 					}
 				}
-				pub.TopicName = name
+				msg.Topic = string(name)
 			} else {
 				client.aliasMapper[topicAlias] = pub.TopicName
 			}
@@ -1004,15 +1006,15 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	}
 
 	if pub.Qos == packets.Qos2 {
-		if _, ok := client.unackpublish[pub.PacketID]; ok {
+		exist, err := client.unackStore.Set(pub.PacketID)
+		if err != nil {
+			return converError(err)
+		}
+		if exist {
 			dup = true
-		} else {
-			client.unackpublish[pub.PacketID] = true
 		}
 	}
 
-	var msg *gmqtt.Message
-	msg = gmqtt.MessageFromPublish(pub)
 	if pub.Retain {
 		if len(pub.Payload) == 0 {
 			srv.retainedDB.Remove(string(pub.TopicName))
@@ -1062,7 +1064,10 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	if pub.Qos == packets.Qos2 {
 		ack = pub.NewPubrec(code, ppt)
 		if code >= codes.UnspecifiedError {
-			delete(client.unackpublish, pub.PacketID)
+			err = client.unackStore.Remove(pub.PacketID)
+			if err != nil {
+				return converError(err)
+			}
 		}
 	}
 	if ack != nil {
@@ -1098,10 +1103,14 @@ func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
 	}
 	return nil
 }
-func (client *client) pubrelHandler(pubrel *packets.Pubrel) {
-	delete(client.unackpublish, pubrel.PacketID)
+func (client *client) pubrelHandler(pubrel *packets.Pubrel) *codes.Error {
+	err := client.unackStore.Remove(pubrel.PacketID)
+	if err != nil {
+		return converError(err)
+	}
 	pubcomp := pubrel.NewPubcomp()
 	client.write(pubcomp)
+	return nil
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	// 从queue中replace
@@ -1273,7 +1282,7 @@ func (client *client) readHandle() {
 		case *packets.Puback:
 			codeErr = client.pubackHandler(packet.(*packets.Puback))
 		case *packets.Pubrel:
-			client.pubrelHandler(packet.(*packets.Pubrel))
+			codeErr = client.pubrelHandler(packet.(*packets.Pubrel))
 		case *packets.Pubrec:
 			client.pubrecHandler(packet.(*packets.Pubrec))
 		case *packets.Pubcomp:

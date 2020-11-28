@@ -11,6 +11,7 @@ import (
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
 	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
+	unack_test "github.com/DrmagicE/gmqtt/persistence/unack/test"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
@@ -51,20 +52,26 @@ func (s *RedisSuite) TestQueue() {
 }
 func (s *RedisSuite) TestSubscription() {
 	a := assert.New(s.T())
-	st, err := s.p.NewSubscriptionStore(queue_test.TestServerConfig)
+	st, err := s.p.NewSubscriptionStore(server.Config{})
 	a.Nil(err)
 	sub_test.TestSuite(s.T(), st)
 }
 
 func (s *RedisSuite) TestSession() {
 	a := assert.New(s.T())
-	st, err := s.p.NewSessionStore(queue_test.TestServerConfig)
+	st, err := s.p.NewSessionStore(server.Config{})
 	a.Nil(err)
 	sess_test.TestSuite(s.T(), st)
 }
 
-func TestRedis(t *testing.T) {
+func (s *RedisSuite) TestUnack() {
+	a := assert.New(s.T())
+	st, err := s.p.NewUnackStore(unack_test.TestServerConfig, unack_test.TestClientID)
+	a.Nil(err)
+	unack_test.TestSuite(s.T(), st)
+}
 
+func TestRedis(t *testing.T) {
 	suite.Run(t, &RedisSuite{})
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/session"
 	subscription_trie "github.com/DrmagicE/gmqtt/persistence/subscription/mem"
+	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
 
@@ -119,6 +120,7 @@ type server struct {
 	persistence Persistence
 	//
 	queueStore   map[string]queue.Store
+	unackStore   map[string]unack.Store
 	sessionStore session.Store
 
 	// gard config
@@ -226,6 +228,7 @@ func setWillProperties(willPpt *packets.Properties, msg *gmqtt.Message) {
 func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.Properties, client *client) (err error) {
 	var sessionResume bool
 	var qs queue.Store
+	var ua unack.Store
 	var sess *gmqtt.Session
 	now := time.Now()
 	srv.mu.Lock()
@@ -266,8 +269,10 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 				srv.hooks.OnSessionCreated(context.Background(), client)
 			}
 			srv.clients[client.opts.ClientID] = client
+			srv.unackStore[client.opts.ClientID] = ua
 			srv.queueStore[client.opts.ClientID] = qs
 			client.queueStore = qs
+			client.unackStore = ua
 			connack = connect.NewConnackPacket(codes.Success, sessionResume)
 		} else {
 			connack = connect.NewConnackPacket(codes.UnspecifiedError, sessionResume)
@@ -332,14 +337,23 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 				if err != nil {
 					return err
 				}
-				zaplog.Info("logged in with session reuse",
-					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-					zap.String("client_id", client.opts.ClientID))
-			} else {
-				// This could happen if backend store loss the queue data which will bring the session into "inconsistent state".
+			}
+			ua = srv.unackStore[client.opts.ClientID]
+			if ua != nil {
+				err := ua.Init(false)
+				if err != nil {
+					return err
+				}
+			}
+			if ua == nil || qs == nil {
+				// This could happen if backend store loss some data which will bring the session into "inconsistent state".
 				// We should create a new session and prevent the client reuse the inconsistent one.
 				sessionResume = false
 				zaplog.Error("detect inconsistent session state",
+					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+					zap.String("client_id", client.opts.ClientID))
+			} else {
+				zaplog.Info("logged in with session reuse",
 					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 					zap.String("client_id", client.opts.ClientID))
 			}
@@ -353,6 +367,15 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			return err
 		}
 		err = qs.Init(true)
+		if err != nil {
+			return err
+		}
+
+		ua, err = srv.persistence.NewUnackStore(srv.config, client.opts.ClientID)
+		if err != nil {
+			return err
+		}
+		err = ua.Init(true)
 		if err != nil {
 			return err
 		}
@@ -693,6 +716,7 @@ func defaultServer() *server {
 		config:          DefaultConfig,
 		statsManager:    statsMgr,
 		queueStore:      make(map[string]queue.Store),
+		unackStore:      make(map[string]unack.Store),
 	}
 	if DefaultTopicAliasMgrFactory != nil {
 		srv.topicAliasManager = DefaultTopicAliasMgrFactory.New()
@@ -834,7 +858,6 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 		cleanWillFlag: false,
 		statsManager:  newSessionStatsManager(),
 		config:        cfg,
-		unackpublish:  make(map[packets.PacketID]bool),
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
@@ -1105,8 +1128,7 @@ func (srv *server) Run() error {
 	if err != nil {
 		return err
 	}
-
-	// init queue store from persistence
+	// init queue store & unack store from persistence
 	for _, v := range sts {
 		q, err := srv.persistence.NewQueueStore(srv.config, v.ClientID)
 		if err != nil {
@@ -1114,6 +1136,12 @@ func (srv *server) Run() error {
 		}
 		srv.queueStore[v.ClientID] = q
 		srv.offlineClients[v.ClientID] = time.Now().Add(time.Duration(v.ExpiryInterval) * time.Second)
+
+		ua, err := srv.persistence.NewUnackStore(srv.config, v.ClientID)
+		if err != nil {
+			return err
+		}
+		srv.unackStore[v.ClientID] = ua
 	}
 	zaplog.Info("init subscription store")
 	err = srv.subscriptionsDB.Init(cids)

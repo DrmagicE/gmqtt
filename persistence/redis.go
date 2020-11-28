@@ -11,6 +11,8 @@ import (
 	redis_sess "github.com/DrmagicE/gmqtt/persistence/session/redis"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	redis_sub "github.com/DrmagicE/gmqtt/persistence/subscription/redis"
+	"github.com/DrmagicE/gmqtt/persistence/unack"
+	redis_unack "github.com/DrmagicE/gmqtt/persistence/unack/redis"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
@@ -33,6 +35,10 @@ func (r *redisFactory) New(config server.Config, hooks server.Hooks) (server.Per
 type redis struct {
 	pool         *redigo.Pool
 	onMsgDropped server.OnMsgDropped
+}
+
+func (r *redis) NewUnackStore(config server.Config, clientID string) (unack.Store, error) {
+	return redis_unack.New(config, clientID, r.pool), nil
 }
 
 func (r *redis) NewSessionStore(config server.Config) (session.Store, error) {

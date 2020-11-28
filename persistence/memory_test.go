@@ -9,6 +9,7 @@ import (
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
 	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
+	unack_test "github.com/DrmagicE/gmqtt/persistence/unack/test"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
@@ -36,6 +37,13 @@ func (s *MemorySuite) TestSession() {
 	st, err := s.p.NewSessionStore(queue_test.TestServerConfig)
 	a.Nil(err)
 	sess_test.TestSuite(s.T(), st)
+}
+
+func (s *MemorySuite) TestUnack() {
+	a := assert.New(s.T())
+	st, err := s.p.NewUnackStore(unack_test.TestServerConfig, unack_test.TestClientID)
+	a.Nil(err)
+	unack_test.TestSuite(s.T(), st)
 }
 
 func TestMemory(t *testing.T) {
