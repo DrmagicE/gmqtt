@@ -8,7 +8,9 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 )
 
-// TrieDB implement the subscription.Interface, it use trie tree  to store topics.
+var _ subscription.Store = (*TrieDB)(nil)
+
+// TrieDB implement the subscription.Interface, it use trie tree to store topics.
 type TrieDB struct {
 	sync.RWMutex
 	userIndex map[string]map[string]*topicNode // [clientID][topicFilter]

@@ -17,24 +17,16 @@ import (
 
 var _ queue.Store = (*Queue)(nil)
 
-func New(config server.Config, queueID string, pool *redigo.Pool, dropped server.OnMsgDropped) (*Queue, error) {
-	return &Queue{
-		cond:            sync.NewCond(&sync.Mutex{}),
-		queueID:         queueID,
-		max:             config.MaxQueuedMsg,
-		len:             0,
-		pool:            pool,
-		closed:          false,
-		inflightDrained: false,
-		current:         0,
-		log:             server.LoggerWithField(zap.String("queue", "redis")),
-		onMsgDropped:    dropped,
-	}, nil
+type Options struct {
+	MaxQueuedMsg int
+	ClientID     string
+	DropHandler  server.OnMsgDropped
+	Pool         *redigo.Pool
 }
 
 type Queue struct {
 	cond            *sync.Cond
-	queueID         string
+	clientID        string
 	max             int
 	len             int // the length of the list
 	pool            *redigo.Pool
@@ -45,6 +37,21 @@ type Queue struct {
 	err             error
 	onMsgDropped    server.OnMsgDropped
 	log             *zap.Logger
+}
+
+func New(opts Options) (*Queue, error) {
+	return &Queue{
+		cond:            sync.NewCond(&sync.Mutex{}),
+		clientID:        opts.ClientID,
+		max:             opts.MaxQueuedMsg,
+		len:             0,
+		pool:            opts.Pool,
+		closed:          false,
+		inflightDrained: false,
+		current:         0,
+		log:             server.LoggerWithField(zap.String("queue", "redis")),
+		onMsgDropped:    opts.DropHandler,
+	}, nil
 }
 
 func wrapError(err error) *codes.Error {
@@ -74,12 +81,12 @@ func (r *Queue) Init(cleanStart bool) error {
 	defer conn.Close()
 
 	if cleanStart {
-		_, err := conn.Do("del", r.queueID)
+		_, err := conn.Do("del", r.clientID)
 		if err != nil {
 			return wrapError(err)
 		}
 	}
-	b, err := conn.Do("llen", r.queueID)
+	b, err := conn.Do("llen", r.clientID)
 	if err != nil {
 		return err
 	}
@@ -95,7 +102,7 @@ func (r *Queue) Init(cleanStart bool) error {
 func (r *Queue) Clean() error {
 	conn := r.pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("del", r.queueID)
+	_, err := conn.Do("del", r.clientID)
 	return err
 }
 
@@ -114,21 +121,21 @@ func (r *Queue) Add(elem *queue.Elem) (err error) {
 	defer func() {
 		if drop {
 			r.log.Warn("message queue is full, drop message",
-				zap.String("queueID", r.queueID),
+				zap.String("clientID", r.clientID),
 			)
 			if dropBytes == nil {
 				if r.onMsgDropped != nil {
-					r.onMsgDropped(context.Background(), r.queueID, elem.MessageWithID.(*queue.Publish).Message)
+					r.onMsgDropped(context.Background(), r.clientID, elem.MessageWithID.(*queue.Publish).Message)
 				}
 				return
 			} else {
-				err = conn.Send("lrem", r.queueID, 1, dropBytes)
+				err = conn.Send("lrem", r.clientID, 1, dropBytes)
 			}
 			if r.onMsgDropped != nil {
-				r.onMsgDropped(context.Background(), r.queueID, dropElem.MessageWithID.(*queue.Publish).Message)
+				r.onMsgDropped(context.Background(), r.clientID, dropElem.MessageWithID.(*queue.Publish).Message)
 			}
 		}
-		_ = conn.Send("rpush", r.queueID, elem.Encode())
+		_ = conn.Send("rpush", r.clientID, elem.Encode())
 		err = conn.Flush()
 		r.len++
 	}()
@@ -139,7 +146,7 @@ func (r *Queue) Add(elem *queue.Elem) (err error) {
 			return
 		}
 		var rs []interface{}
-		rs, err = redigo.Values(conn.Do("lrange", r.queueID, r.current, r.len))
+		rs, err = redigo.Values(conn.Do("lrange", r.clientID, r.current, r.len))
 		if err != nil {
 			return err
 		}
@@ -204,7 +211,7 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 	if stop < 0 {
 		stop = 0
 	}
-	rs, err := redigo.Values(conn.Do("lrange", r.queueID, 0, stop))
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, 0, stop))
 	if err != nil {
 		return false, err
 	}
@@ -216,7 +223,7 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 			return false, err
 		}
 		if e.ID() == elem.ID() {
-			_, err = conn.Do("lset", r.queueID, k, eb)
+			_, err = conn.Do("lset", r.clientID, k, eb)
 			if err != nil {
 				return false, err
 			}
@@ -243,7 +250,7 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	if r.closed {
 		return nil, queue.ErrClosed
 	}
-	rs, err := redigo.Values(conn.Do("lrange", r.queueID, r.current, r.current+len(pids)-1))
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+len(pids)-1))
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -257,7 +264,7 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		}
 		// remove expired message
 		if queue.ElemExpiry(now, e) {
-			err = conn.Send("lrem", r.queueID, 1, b)
+			err = conn.Send("lrem", r.clientID, 1, b)
 			r.len--
 			if err != nil {
 				return nil, err
@@ -266,7 +273,7 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		}
 
 		if e.MessageWithID.(*queue.Publish).QoS == 0 {
-			err = conn.Send("lrem", r.queueID, 1, b)
+			err = conn.Send("lrem", r.clientID, 1, b)
 			r.len--
 			if err != nil {
 				return nil, err
@@ -275,7 +282,7 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			e.MessageWithID.SetID(pids[pflag])
 			pflag++
 			nb := e.Encode()
-			err = conn.Send("lset", r.queueID, r.current, nb)
+			err = conn.Send("lset", r.clientID, r.current, nb)
 			r.current++
 			r.readCache[e.MessageWithID.ID()] = nb
 		}
@@ -290,7 +297,7 @@ func (r *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
 	defer r.cond.L.Unlock()
 	conn := r.pool.Get()
 	defer conn.Close()
-	rs, err := redigo.Values(conn.Do("lrange", r.queueID, r.current, r.current+int(maxSize)-1))
+	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+int(maxSize)-1))
 	if len(rs) == 0 {
 		r.inflightDrained = true
 		return
@@ -324,7 +331,7 @@ func (r *Queue) Remove(pid packets.PacketID) error {
 	conn := r.pool.Get()
 	defer conn.Close()
 	if b, ok := r.readCache[pid]; ok {
-		_, err := conn.Do("lrem", r.queueID, 1, b)
+		_, err := conn.Do("lrem", r.clientID, 1, b)
 		if err != nil {
 			return err
 		}

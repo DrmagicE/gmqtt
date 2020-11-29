@@ -2,7 +2,9 @@ package command
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,9 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt/cmd/gmqttd/config"
+	"github.com/DrmagicE/gmqtt/config"
+	"github.com/DrmagicE/gmqtt/pkg/codes"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/pkg/pidfile"
-	"github.com/DrmagicE/gmqtt/plugin/prometheus"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
@@ -51,7 +54,7 @@ func installSignal(srv server.Server) {
 				logger.Error("reload error", zap.Error(err))
 
 			}
-			srv.ApplyConfig(c.MQTT)
+			srv.ApplyConfig(c)
 			logger.Info("gmqtt reloaded")
 		case <-stopSignalCh:
 			srv.Stop(context.Background())
@@ -59,6 +62,38 @@ func installSignal(srv server.Server) {
 		}
 	}
 
+}
+
+func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*server.WsServer, err error) {
+	for _, v := range c.Listeners {
+		var ln net.Listener
+		if v.Websocket != nil {
+			ws := &server.WsServer{
+				Server: &http.Server{Addr: v.Address},
+				Path:   v.Websocket.Path,
+			}
+			if v.TLSOptions != nil {
+				ws.KeyFile = v.KeyFile
+				ws.CertFile = v.CertFile
+			}
+			websockets = append(websockets, ws)
+			continue
+		}
+		if v.TLSOptions != nil {
+			var cert tls.Certificate
+			cert, err = tls.LoadX509KeyPair(v.CertFile, v.KeyFile)
+			if err != nil {
+				return
+			}
+			ln, err = tls.Listen("tcp", v.Address, &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			})
+		} else {
+			ln, err = net.Listen("tcp", v.Address)
+		}
+		tcpListeners = append(tcpListeners, ln)
+	}
+	return
 }
 
 // NewStartCmd creates a *cobra.Command object for start command.
@@ -84,7 +119,7 @@ func NewStartCmd() *cobra.Command {
 			pid, err := pidfile.New(c.PidFile)
 			must(err)
 			defer pid.Remove()
-			tcpListeners, websockets, err := c.GetListeners()
+			tcpListeners, websockets, err := GetListeners(c)
 			must(err)
 			l, err := c.GetLogger(c.Log)
 			must(err)
@@ -92,15 +127,35 @@ func NewStartCmd() *cobra.Command {
 			if useDefault {
 				l.Warn("config file not exist, use default configration")
 			}
+			// subscribe failure test
+			// TODO remove this
+			h := server.Hooks{
+				OnSubscribe: func(ctx context.Context, client server.Client, subscribe *packets.Subscribe) (resp *server.SubscribeResponse, err *codes.ErrorDetails) {
+					if subscribe.Topics[0].Name == "test/nosubscribe" {
+						topics := subscribe.Topics
+						topics[0].Qos = packets.SubscribeFailure
+						return &server.SubscribeResponse{
+							Topics: topics,
+							ID:     nil,
+						}, nil
+					}
+					return &server.SubscribeResponse{
+						Topics: subscribe.Topics,
+						ID:     nil,
+					}, nil
+
+				},
+			}
 			s := server.New(
-				server.WithConfig(c.MQTT),
+				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
 				server.WithWebsocketServer(websockets...),
 				//gmqtt.WithPlugin(management.New(":8081", nil)),
-				server.WithPlugin(prometheus.New(&http.Server{
-					Addr: c.Plugins.Prometheus.ListenAddress,
-				}, c.Plugins.Prometheus.Path)),
+				//server.WithPlugin(prometheus.New(&http.Server{
+				//	Addr: c.Plugins.Prometheus.ListenAddress,
+				//}, c.Plugins.Prometheus.Path)),
 				server.WithLogger(l),
+				server.WithHook(h),
 			)
 			s.Run()
 			installSignal(s)

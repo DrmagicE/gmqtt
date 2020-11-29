@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -16,7 +17,7 @@ import (
 )
 
 var (
-	TestServerConfig = server.Config{MaxQueuedMsg: 5}
+	TestServerConfig = config.Config{MaxQueuedMsg: 5}
 	TestHooks        = server.Hooks{OnMsgDropped: func(ctx context.Context, clientID string, msg *gmqtt.Message) {
 		dropMsg[cid] = append(dropMsg[cid], msg)
 	}}
@@ -128,7 +129,7 @@ func reconnect(a *assert.Assertions, cleanStart bool, store queue.Store) {
 	a.Nil(store.Init(cleanStart))
 }
 
-type New func(config server.Config, hooks server.Hooks) (server.Persistence, error)
+type New func(config config.Config, hooks server.Hooks) (server.Persistence, error)
 
 func TestQueue(t *testing.T, store queue.Store) {
 	initDrop()

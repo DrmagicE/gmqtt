@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/session"
 	subscription_trie "github.com/DrmagicE/gmqtt/persistence/subscription/mem"
@@ -78,13 +79,13 @@ type Server interface {
 	// Client return the client specified by clientID.
 	Client(clientID string) Client
 	// GetConfig returns the config of the server
-	GetConfig() Config
+	GetConfig() config.Config
 	// GetStatsManager returns StatsManager
 	GetStatsManager() StatsManager
 	// Stop stop the server gracefully
 	Stop(ctx context.Context) error
 	// ApplyConfig will replace the config of the server
-	ApplyConfig(config Config)
+	ApplyConfig(config config.Config)
 }
 
 // PublishService provides the ability to Publish messages to the broker.
@@ -125,7 +126,7 @@ type server struct {
 
 	// gard config
 	configMu sync.RWMutex
-	config   Config
+	config   config.Config
 	hooks    Hooks
 	plugins  []Plugable
 
@@ -138,7 +139,7 @@ type server struct {
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 }
 
-func (srv *server) ApplyConfig(config Config) {
+func (srv *server) ApplyConfig(config config.Config) {
 	srv.configMu.Lock()
 	defer srv.configMu.Unlock()
 	srv.config = config
@@ -171,7 +172,7 @@ const (
 )
 
 // GetConfig returns the config of the server
-func (srv *server) GetConfig() Config {
+func (srv *server) GetConfig() config.Config {
 	return srv.config
 }
 
@@ -247,7 +248,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			}
 			// use default expiry if the client version is version3.1.1
 			if client.version == packets.Version311 && !connect.CleanStart {
-				expiryInterval = uint32(srv.config.SessionExpiry.Seconds())
+				expiryInterval = uint32(srv.config.MQTT.SessionExpiry.Seconds())
 			} else if connect.Properties != nil {
 				willDelayInterval = convertUint32(connect.WillProperties.WillDelayInterval, 0)
 				expiryInterval = convertUint32(connect.Properties.SessionExpiryInterval, 0)
@@ -493,7 +494,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 					sub      *gmqtt.Subscription
 				}{clientID: clientID, sub: sub})
 			} else {
-				if srv.config.DeliveryMode == Overlap {
+				if srv.config.MQTT.DeliveryMode == Overlap {
 					newMsg := msg.Copy()
 					if newMsg.QoS > sub.QoS {
 						newMsg.QoS = sub.QoS
@@ -545,7 +546,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 		MatchType: subscription.MatchFilter,
 		TopicName: msg.Topic,
 	})
-	if srv.config.DeliveryMode == OnlyOnce {
+	if srv.config.MQTT.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if qs := srv.queueStore[clientID]; qs != nil {
 				newMsg := msg.Copy()
@@ -577,7 +578,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 				if err != nil {
 					zaplog.Error("fail to add message to queue",
 						zap.String("topic", subscription.GetFullTopicName(v.sub.ShareName, v.sub.TopicFilter)),
-						zap.Uint8("qos", v.sub.QoS))
+						zap.Uint8("qos", v.sub.QoS), zap.Error(err))
 				}
 			}
 		}
@@ -713,7 +714,7 @@ func defaultServer() *server {
 		willMessage:     make(map[string]*willMsg),
 		retainedDB:      retained_trie.NewStore(),
 		subscriptionsDB: subStore,
-		config:          DefaultConfig,
+		config:          config.DefaultConfig,
 		statsManager:    statsMgr,
 		queueStore:      make(map[string]queue.Store),
 		unackStore:      make(map[string]unack.Store),
@@ -1095,19 +1096,23 @@ func (srv *server) wsHandler() http.HandlerFunc {
 }
 
 // Run starts the mqtt server. This method is non-blocking
-func (srv *server) Run() error {
+func (srv *server) Run() (err error) {
 
-	// TODO read from configration
-	persistence, err := persistenceFactories["redis"].New(srv.config, srv.hooks)
+	var pf PersistenceFactory
+	var pe Persistence
+	peType := srv.config.Persistence.Type
+	if pf = persistenceFactories[peType]; pf != nil {
+		pe, err = persistenceFactories[srv.config.Persistence.Type].New(srv.config, srv.hooks)
+		if err != nil {
+			return err
+		}
+	}
+	err = pe.Open()
 	if err != nil {
 		return err
 	}
-	err = persistence.Open()
-	if err != nil {
-		return err
-	}
-	zaplog.Info("open redis persistence")
-	srv.persistence = persistence
+	zaplog.Info("open persistence succeeded", zap.String("type", peType))
+	srv.persistence = pe
 
 	srv.subscriptionsDB, err = srv.persistence.NewSubscriptionStore(srv.config)
 	if err != nil {
@@ -1120,6 +1125,7 @@ func (srv *server) Run() error {
 	srv.sessionStore = st
 	var sts []*gmqtt.Session
 	var cids []string
+
 	err = st.Iterate(func(session *gmqtt.Session) bool {
 		sts = append(sts, session)
 		cids = append(cids, session.ClientID)
@@ -1128,6 +1134,8 @@ func (srv *server) Run() error {
 	if err != nil {
 		return err
 	}
+	zaplog.Info("init session store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
+
 	// init queue store & unack store from persistence
 	for _, v := range sts {
 		q, err := srv.persistence.NewQueueStore(srv.config, v.ClientID)
@@ -1143,7 +1151,8 @@ func (srv *server) Run() error {
 		}
 		srv.unackStore[v.ClientID] = ua
 	}
-	zaplog.Info("init subscription store")
+	zaplog.Info("init queue store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
+	zaplog.Info("init subscription store succeeded", zap.String("type", peType), zap.Int("client_total", len(cids)))
 	err = srv.subscriptionsDB.Init(cids)
 	if err != nil {
 		return err

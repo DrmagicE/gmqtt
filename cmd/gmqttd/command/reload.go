@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/DrmagicE/gmqtt/cmd/gmqttd/config"
+	"github.com/DrmagicE/gmqtt/config"
 )
 
 // NewReloadCommand creates a *cobra.Command object for reload command.

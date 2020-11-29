@@ -3,13 +3,15 @@ package redis
 import (
 	"github.com/gomodule/redigo/redis"
 
+	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
 )
 
 const (
 	unackPrefix = "unack:"
 )
+
+var _ unack.Store = (*Store)(nil)
 
 type Store struct {
 	clientID     string
@@ -17,10 +19,15 @@ type Store struct {
 	unackpublish map[packets.PacketID]struct{}
 }
 
-func New(config server.Config, clientID string, pool *redis.Pool) *Store {
+type Options struct {
+	ClientID string
+	Pool     *redis.Pool
+}
+
+func New(opts Options) *Store {
 	return &Store{
-		clientID:     clientID,
-		pool:         pool,
+		clientID:     opts.ClientID,
+		pool:         opts.Pool,
 		unackpublish: make(map[packets.PacketID]struct{}),
 	}
 }

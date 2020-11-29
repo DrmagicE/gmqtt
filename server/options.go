@@ -4,12 +4,14 @@ import (
 	"net"
 
 	"go.uber.org/zap"
+
+	"github.com/DrmagicE/gmqtt/config"
 )
 
 type Options func(srv *server)
 
 // WithConfig set the config of the server
-func WithConfig(config Config) Options {
+func WithConfig(config config.Config) Options {
 	return func(srv *server) {
 		srv.config = config
 	}

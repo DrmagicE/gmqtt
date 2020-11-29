@@ -9,9 +9,9 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 
-	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
-
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/command"
+	_ "github.com/DrmagicE/gmqtt/persistence"
+	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
 )
 
 var (
@@ -39,6 +39,12 @@ func init() {
 }
 
 func main() {
+	//	f, err := os.Create("cpu.profile")
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//	pprof.StartCPUProfile(f)
+	//	defer pprof.StopCPUProfile()
 	go func() {
 		http.ListenAndServe(":6060", nil)
 	}()

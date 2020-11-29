@@ -13,20 +13,17 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
-func New(config server.Config, queueID string, dropped server.OnMsgDropped) (*Queue, error) {
-	return &Queue{
-		queueID:      queueID,
-		cond:         sync.NewCond(&sync.Mutex{}),
-		l:            list.New(),
-		max:          config.MaxQueuedMsg,
-		onMsgDropped: dropped,
-		log:          server.LoggerWithField(zap.String("queue", "memory")),
-	}, nil
+var _ queue.Store = (*Queue)(nil)
+
+type Options struct {
+	MaxQueuedMsg int
+	ClientID     string
+	DropHandler  server.OnMsgDropped
 }
 
 type Queue struct {
 	cond            *sync.Cond
-	queueID         string
+	clientID        string
 	l               *list.List
 	current         *list.Element
 	inflightDrained bool
@@ -34,6 +31,17 @@ type Queue struct {
 	max             int
 	log             *zap.Logger
 	onMsgDropped    server.OnMsgDropped
+}
+
+func New(opts Options) (*Queue, error) {
+	return &Queue{
+		clientID:     opts.ClientID,
+		cond:         sync.NewCond(&sync.Mutex{}),
+		l:            list.New(),
+		max:          opts.MaxQueuedMsg,
+		onMsgDropped: opts.DropHandler,
+		log:          server.LoggerWithField(zap.String("queue", "memory")),
+	}, nil
 }
 
 func (m *Queue) Close() error {
@@ -73,11 +81,11 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 	defer func() {
 		if drop {
 			m.log.Warn("message queue is full, drop message",
-				zap.String("queueID", m.queueID),
+				zap.String("clientID", m.clientID),
 			)
 			if dropElem == nil {
 				if m.onMsgDropped != nil {
-					m.onMsgDropped(context.Background(), m.queueID, elem.MessageWithID.(*queue.Publish).Message)
+					m.onMsgDropped(context.Background(), m.clientID, elem.MessageWithID.(*queue.Publish).Message)
 				}
 				return
 			} else {
@@ -87,7 +95,7 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 				m.l.Remove(dropElem)
 			}
 			if m.onMsgDropped != nil {
-				m.onMsgDropped(context.Background(), m.queueID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
+				m.onMsgDropped(context.Background(), m.clientID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
 			}
 		}
 		e := m.l.PushBack(elem)

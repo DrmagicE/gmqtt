@@ -1,18 +1,24 @@
 package mem
 
 import (
+	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
 )
+
+var _ unack.Store = (*Store)(nil)
 
 type Store struct {
 	clientID     string
 	unackpublish map[packets.PacketID]struct{}
 }
 
-func New(config server.Config, clientID string) *Store {
+type Options struct {
+	ClientID string
+}
+
+func New(opts Options) *Store {
 	return &Store{
-		clientID:     clientID,
+		clientID:     opts.ClientID,
 		unackpublish: make(map[packets.PacketID]struct{}),
 	}
 }

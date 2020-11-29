@@ -1,10 +1,9 @@
 package persistence
 
 import (
-	"time"
-
 	redigo "github.com/gomodule/redigo/redis"
 
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	redis_queue "github.com/DrmagicE/gmqtt/persistence/queue/redis"
 	"github.com/DrmagicE/gmqtt/persistence/session"
@@ -20,42 +19,61 @@ func init() {
 	server.RegisterPersistenceFactory("redis", &redisFactory{})
 }
 
-type NewQueueStore func(config server.Config, client server.Client) (queue.Store, error)
-
 type redisFactory struct {
-	config server.Config
+	config config.Config
 }
 
-func (r *redisFactory) New(config server.Config, hooks server.Hooks) (server.Persistence, error) {
+func (r *redisFactory) New(config config.Config, hooks server.Hooks) (server.Persistence, error) {
 	return &redis{
 		onMsgDropped: hooks.OnMsgDropped,
+		config:       config,
 	}, nil
 }
 
 type redis struct {
 	pool         *redigo.Pool
+	config       config.Config
 	onMsgDropped server.OnMsgDropped
 }
 
-func (r *redis) NewUnackStore(config server.Config, clientID string) (unack.Store, error) {
-	return redis_unack.New(config, clientID, r.pool), nil
+func (r *redis) NewUnackStore(config config.Config, clientID string) (unack.Store, error) {
+	return redis_unack.New(redis_unack.Options{
+		ClientID: clientID,
+		Pool:     r.pool,
+	}), nil
 }
 
-func (r *redis) NewSessionStore(config server.Config) (session.Store, error) {
+func (r *redis) NewSessionStore(config config.Config) (session.Store, error) {
 	return redis_sess.New(r.pool), nil
 }
 
-func newPool(addr string) *redigo.Pool {
+func newPool(config config.Config) *redigo.Pool {
 	return &redigo.Pool{
-		MaxIdle:     3,
-		IdleTimeout: 240 * time.Second,
 		// Dial or DialContext must be set. When both are set, DialContext takes precedence over Dial.
-		Dial: func() (redigo.Conn, error) { return redigo.Dial("tcp", addr) },
+		Dial: func() (redigo.Conn, error) {
+			c, err := redigo.Dial("tcp", config.Persistence.Redis.Addr)
+			if err != nil {
+				return nil, err
+			}
+			if pswd := config.Persistence.Redis.Password; pswd != "" {
+				if _, err := c.Do("AUTH", pswd); err != nil {
+					c.Close()
+					return nil, err
+				}
+			}
+			if _, err := c.Do("SELECT", config.Persistence.Redis.Database); err != nil {
+				c.Close()
+				return nil, err
+			}
+			return c, nil
+		},
 	}
 }
 func (r *redis) Open() error {
-	// TODO read from config
-	r.pool = newPool(":6379")
+	r.pool = newPool(r.config)
+	r.pool.MaxIdle = int(*r.config.Persistence.Redis.MaxIdle)
+	r.pool.MaxActive = int(*r.config.Persistence.Redis.MaxActive)
+	r.pool.IdleTimeout = r.config.Persistence.Redis.IdleTimeout
 	conn := r.pool.Get()
 	defer conn.Close()
 	// Test the connection
@@ -64,11 +82,16 @@ func (r *redis) Open() error {
 	return err
 }
 
-func (r *redis) NewQueueStore(config server.Config, queueID string) (queue.Store, error) {
-	return redis_queue.New(config, queueID, r.pool, r.onMsgDropped)
+func (r *redis) NewQueueStore(config config.Config, clientID string) (queue.Store, error) {
+	return redis_queue.New(redis_queue.Options{
+		MaxQueuedMsg: config.MQTT.MaxQueuedMsg,
+		ClientID:     clientID,
+		DropHandler:  r.onMsgDropped,
+		Pool:         r.pool,
+	})
 }
 
-func (r *redis) NewSubscriptionStore(config server.Config) (subscription.Store, error) {
+func (r *redis) NewSubscriptionStore(config config.Config) (subscription.Store, error) {
 	return redis_sub.New(r.pool), nil
 }
 

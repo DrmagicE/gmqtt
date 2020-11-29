@@ -17,6 +17,8 @@ const (
 	subPrefix = "sub:"
 )
 
+var _ subscription.Store = (*sub)(nil)
+
 func EncodeSubscription(sub *gmqtt.Subscription) []byte {
 	w := &bytes.Buffer{}
 	encoding.WriteString(w, []byte(sub.ShareName))
@@ -79,7 +81,7 @@ type sub struct {
 	pool     *redigo.Pool
 }
 
-// 加载所有clientID到内存
+// Init loads the subscriptions of given clientIDs from backend into memory.
 func (s *sub) Init(clientIDs []string) error {
 	if len(clientIDs) == 0 {
 		return nil
@@ -170,5 +172,5 @@ func (s *sub) GetStats() subscription.Stats {
 func (s *sub) GetClientStats(clientID string) (subscription.Stats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.memStore.GetClientStats(clientID)
+	return s.memStore.GetClientStatsLocked(clientID)
 }

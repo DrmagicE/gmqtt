@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/DrmagicE/gmqtt/config"
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
 	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
@@ -29,7 +30,7 @@ func (s *RedisSuite) SetupTest() {
 	time.Sleep(2 * time.Second) // wait for redis start
 
 	factory := &redisFactory{}
-	p, err := factory.New(server.Config{}, queue_test.TestHooks)
+	p, err := factory.New(config.Config{}, queue_test.TestHooks)
 	if err != nil {
 		s.Suite.T().Fatal(err.Error())
 	}
@@ -52,14 +53,14 @@ func (s *RedisSuite) TestQueue() {
 }
 func (s *RedisSuite) TestSubscription() {
 	a := assert.New(s.T())
-	st, err := s.p.NewSubscriptionStore(server.Config{})
+	st, err := s.p.NewSubscriptionStore(config.Config{})
 	a.Nil(err)
 	sub_test.TestSuite(s.T(), st)
 }
 
 func (s *RedisSuite) TestSession() {
 	a := assert.New(s.T())
-	st, err := s.p.NewSessionStore(server.Config{})
+	st, err := s.p.NewSessionStore(config.Config{})
 	a.Nil(err)
 	sess_test.TestSuite(s.T(), st)
 }

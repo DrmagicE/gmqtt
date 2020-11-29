@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
-	"github.com/DrmagicE/gmqtt/server"
 )
 
 var (
-	TestServerConfig = server.Config{}
+	TestServerConfig = config.Config{}
 	cid              = "cid"
 	TestClientID     = cid
 )

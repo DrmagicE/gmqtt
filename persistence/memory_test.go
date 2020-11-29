@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/DrmagicE/gmqtt/config"
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
 	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
@@ -49,7 +50,7 @@ func (s *MemorySuite) TestUnack() {
 func TestMemory(t *testing.T) {
 
 	factory := &memoryFactory{}
-	p, err := factory.New(server.Config{}, queue_test.TestHooks)
+	p, err := factory.New(config.Config{}, queue_test.TestHooks)
 	if err != nil {
 		t.Fatal(err.Error())
 	}

@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/persistence/unack"
@@ -210,7 +211,7 @@ type client struct {
 	clientQuotaMu             sync.Mutex
 	clientReceiveMaximumQuota uint16
 
-	config Config
+	config config.Config
 	// for testing
 	publishMessageHandler func(msg *gmqtt.Message)
 
@@ -581,7 +582,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					err = codes.ErrProtocol
 					return
 				}
-				if !client.config.AllowZeroLenClientID && len(conn.ClientID) == 0 {
+				if !client.config.MQTT.AllowZeroLenClientID && len(conn.ClientID) == 0 {
 					err = &codes.Error{
 						Code: codes.ClientIdentifierNotValid,
 					}
@@ -589,12 +590,12 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				}
 
 				// set default options.
-				client.opts.RetainAvailable = client.config.RetainAvailable
-				client.opts.WildcardSubAvailable = client.config.WildcardAvailable
-				client.opts.SubIDAvailable = client.config.SubscriptionIDAvailable
-				client.opts.SharedSubAvailable = client.config.SharedSubAvailable
-				client.opts.ServerMaxPacketSize = client.config.MaxPacketSize
-				client.opts.SessionExpiry = uint32(client.config.SessionExpiry.Seconds())
+				client.opts.RetainAvailable = client.config.MQTT.RetainAvailable
+				client.opts.WildcardSubAvailable = client.config.MQTT.WildcardAvailable
+				client.opts.SubIDAvailable = client.config.MQTT.SubscriptionIDAvailable
+				client.opts.SharedSubAvailable = client.config.MQTT.SharedSubAvailable
+				client.opts.ServerMaxPacketSize = client.config.MQTT.MaxPacketSize
+				client.opts.SessionExpiry = uint32(client.config.MQTT.SessionExpiry.Seconds())
 
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
@@ -706,8 +707,8 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
 
 				recvMax := int(convertUint16(ppt.ReceiveMaximum, math.MaxUint16))
-				if recvMax >= client.config.MaxInflight {
-					client.config.MaxInflight = recvMax
+				if recvMax >= client.config.MQTT.MaxInflight {
+					client.config.MQTT.MaxInflight = recvMax
 				}
 
 			} else {
@@ -734,7 +735,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			if client.opts.ClientReceiveMax != 0 {
 				client.newPacketIDLimiter(client.opts.ClientReceiveMax)
 			} else {
-				client.newPacketIDLimiter(uint16(client.config.MaxInflight))
+				client.newPacketIDLimiter(uint16(client.config.MQTT.MaxInflight))
 			}
 			err = client.server.registerClient(conn, ppt, client)
 			return
@@ -768,23 +769,23 @@ func (client *client) defaultConnackProperties(connect *packets.Connect) *packet
 	}
 	ppt := &packets.Properties{
 		SessionExpiryInterval: connect.Properties.SessionExpiryInterval,
-		ReceiveMaximum:        &client.config.ReceiveMax,
-		MaximumQoS:            &client.config.MaximumQoS,
-		RetainAvailable:       bool2Byte(client.config.RetainAvailable),
-		TopicAliasMaximum:     &client.config.TopicAliasMax,
-		WildcardSubAvailable:  bool2Byte(client.config.WildcardAvailable),
-		SubIDAvailable:        bool2Byte(client.config.SubscriptionIDAvailable),
-		SharedSubAvailable:    bool2Byte(client.config.SharedSubAvailable),
+		ReceiveMaximum:        &client.config.MQTT.ReceiveMax,
+		MaximumQoS:            &client.config.MQTT.MaximumQoS,
+		RetainAvailable:       bool2Byte(client.config.MQTT.RetainAvailable),
+		TopicAliasMaximum:     &client.config.MQTT.TopicAliasMax,
+		WildcardSubAvailable:  bool2Byte(client.config.MQTT.WildcardAvailable),
+		SubIDAvailable:        bool2Byte(client.config.MQTT.SubscriptionIDAvailable),
+		SharedSubAvailable:    bool2Byte(client.config.MQTT.SharedSubAvailable),
 	}
-	if client.config.MaxPacketSize != 0 {
-		ppt.MaximumPacketSize = &client.config.MaxPacketSize
+	if client.config.MQTT.MaxPacketSize != 0 {
+		ppt.MaximumPacketSize = &client.config.MQTT.MaxPacketSize
 	}
 
-	if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(client.config.SessionExpiry.Seconds()) {
+	if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(client.config.MQTT.SessionExpiry.Seconds()) {
 		ppt.SessionExpiryInterval = i
 	}
-	if connect.KeepAlive > client.config.MaxKeepAlive {
-		ppt.ServerKeepAlive = &client.config.MaxKeepAlive
+	if connect.KeepAlive > client.config.MQTT.MaxKeepAlive {
+		ppt.ServerKeepAlive = &client.config.MQTT.MaxKeepAlive
 	}
 
 	return ppt
@@ -844,7 +845,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		if client.opts.SubIDAvailable && len(sub.Properties.SubscriptionIdentifier) != 0 {
 			subID = sub.Properties.SubscriptionIdentifier[0]
 		}
-		if !client.config.SubscriptionIDAvailable && subID != 0 {
+		if !client.config.MQTT.SubscriptionIDAvailable && subID != 0 {
 			return &codes.Error{
 				Code: codes.SubIDNotSupported,
 			}
@@ -1319,7 +1320,7 @@ func (client *client) readHandle() {
 
 func (client *client) pollInflights() (cont bool, err error) {
 	var elems []*queue.Elem
-	elems, err = client.queueStore.ReadInflight(uint(client.config.MaxInflight))
+	elems, err = client.queueStore.ReadInflight(uint(client.config.MQTT.MaxInflight))
 	if err != nil || len(elems) == 0 {
 		return false, err
 	}
@@ -1389,7 +1390,7 @@ func (client *client) pollMessageHandler() {
 	}
 	var ids []packets.PacketID
 	for {
-		ids = client.pl.pollPacketIDs(uint16(client.config.MaxInflight))
+		ids = client.pl.pollPacketIDs(uint16(client.config.MQTT.MaxInflight))
 		if ids == nil {
 			return
 		}

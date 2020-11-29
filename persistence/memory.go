@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	mem_queue "github.com/DrmagicE/gmqtt/persistence/queue/mem"
 	"github.com/DrmagicE/gmqtt/persistence/session"
@@ -17,10 +18,10 @@ func init() {
 }
 
 type memoryFactory struct {
-	config server.Config
+	config config.Config
 }
 
-func (m *memoryFactory) New(config server.Config, hooks server.Hooks) (server.Persistence, error) {
+func (m *memoryFactory) New(config config.Config, hooks server.Hooks) (server.Persistence, error) {
 	return &memory{
 		onMsgDropped: hooks.OnMsgDropped,
 	}, nil
@@ -30,22 +31,28 @@ type memory struct {
 	onMsgDropped server.OnMsgDropped
 }
 
-func (m *memory) NewUnackStore(config server.Config, clientID string) (unack.Store, error) {
-	return mem_unack.New(config, clientID), nil
+func (m *memory) NewUnackStore(config config.Config, clientID string) (unack.Store, error) {
+	return mem_unack.New(mem_unack.Options{
+		ClientID: clientID,
+	}), nil
 }
 
-func (m *memory) NewSessionStore(config server.Config) (session.Store, error) {
+func (m *memory) NewSessionStore(config config.Config) (session.Store, error) {
 	return mem_session.New(), nil
 }
 
 func (m *memory) Open() error {
 	return nil
 }
-func (m *memory) NewQueueStore(config server.Config, clientID string) (queue.Store, error) {
-	return mem_queue.New(config, clientID, m.onMsgDropped)
+func (m *memory) NewQueueStore(config config.Config, clientID string) (queue.Store, error) {
+	return mem_queue.New(mem_queue.Options{
+		MaxQueuedMsg: config.MQTT.MaxQueuedMsg,
+		ClientID:     clientID,
+		DropHandler:  m.onMsgDropped,
+	})
 }
 
-func (m *memory) NewSubscriptionStore(config server.Config) (subscription.Store, error) {
+func (m *memory) NewSubscriptionStore(config config.Config) (subscription.Store, error) {
 	return mem_sub.NewStore(), nil
 }
 
