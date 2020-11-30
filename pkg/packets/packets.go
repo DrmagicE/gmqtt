@@ -22,9 +22,10 @@ type Version = byte
 type QoS = byte
 
 const (
-	VersionAuto Version = 0x00
-	Version311  Version = 0x04
-	Version5    Version = 0x05
+	Version311 Version = 0x04
+	Version5   Version = 0x05
+	// The maximum packet size of a MQTT packet
+	MaximumSize = 268435456
 )
 
 //Packet type
@@ -211,6 +212,16 @@ func (r *Reader) ReadPacket() (Packet, error) {
 // Call Flush after WritePacket to flush buffered data to the underlying io.Writer.
 func (w *Writer) WritePacket(packet Packet) error {
 	err := packet.Pack(w.bufw)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// WriteRaw write raw bytes to the Writer.
+// Call Flush after WriteRaw to flush buffered data to the underlying io.Writer.
+func (w *Writer) WriteRaw(b []byte) error {
+	_, err := w.bufw.Write(b)
 	if err != nil {
 		return err
 	}

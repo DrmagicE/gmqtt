@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -27,6 +26,8 @@ type Options struct {
 type Queue struct {
 	cond            *sync.Cond
 	clientID        string
+	version         packets.Version
+	readBytesLimit  uint32
 	max             int
 	len             int // the length of the list
 	pool            *redigo.Pool
@@ -64,89 +65,87 @@ func wrapError(err error) *codes.Error {
 	}
 }
 
-func (r *Queue) Close() error {
-	r.cond.L.Lock()
+func (q *Queue) Close() error {
+	q.cond.L.Lock()
 	defer func() {
-		r.cond.L.Unlock()
-		r.cond.Signal()
+		q.cond.L.Unlock()
+		q.cond.Signal()
 	}()
-	r.closed = true
+	q.closed = true
 	return nil
 }
 
-func (r *Queue) Init(cleanStart bool) error {
-	r.cond.L.Lock()
-	defer r.cond.L.Unlock()
-	conn := r.pool.Get()
+func (q *Queue) Init(opts *queue.InitOptions) error {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	conn := q.pool.Get()
 	defer conn.Close()
 
-	if cleanStart {
-		_, err := conn.Do("del", r.clientID)
+	if opts.CleanStart {
+		_, err := conn.Do("del", q.clientID)
 		if err != nil {
 			return wrapError(err)
 		}
 	}
-	b, err := conn.Do("llen", r.clientID)
+	b, err := conn.Do("llen", q.clientID)
 	if err != nil {
 		return err
 	}
-	r.len = int(b.(int64))
-	r.closed = false
-	r.inflightDrained = false
-	r.current = 0
-	r.readCache = make(map[packets.PacketID][]byte)
-	r.cond.Signal()
+	q.version = opts.Version
+	q.readBytesLimit = opts.ReadBytesLimit
+	q.len = int(b.(int64))
+	q.closed = false
+	q.inflightDrained = false
+	q.current = 0
+	q.readCache = make(map[packets.PacketID][]byte)
+	q.cond.Signal()
 	return nil
 }
 
-func (r *Queue) Clean() error {
-	conn := r.pool.Get()
+func (q *Queue) Clean() error {
+	conn := q.pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("del", r.clientID)
+	_, err := conn.Do("del", q.clientID)
 	return err
 }
 
-func (r *Queue) Add(elem *queue.Elem) (err error) {
+func (q *Queue) Add(elem *queue.Elem) (err error) {
 	now := time.Now()
-	conn := r.pool.Get()
-	r.cond.L.Lock()
+	conn := q.pool.Get()
+	q.cond.L.Lock()
+	var dropErr error
 	var dropBytes []byte
 	var dropElem *queue.Elem
 	var drop bool
 	defer func() {
 		conn.Close()
-		r.cond.L.Unlock()
-		r.cond.Signal()
+		q.cond.L.Unlock()
+		q.cond.Signal()
 	}()
 	defer func() {
 		if drop {
-			r.log.Warn("message queue is full, drop message",
-				zap.String("clientID", r.clientID),
-			)
 			if dropBytes == nil {
-				if r.onMsgDropped != nil {
-					r.onMsgDropped(context.Background(), r.clientID, elem.MessageWithID.(*queue.Publish).Message)
-				}
+				queue.Drop(q.onMsgDropped, q.log, q.clientID, elem.MessageWithID.(*queue.Publish).Message, dropErr)
 				return
 			} else {
-				err = conn.Send("lrem", r.clientID, 1, dropBytes)
+				err = conn.Send("lrem", q.clientID, 1, dropBytes)
 			}
-			if r.onMsgDropped != nil {
-				r.onMsgDropped(context.Background(), r.clientID, dropElem.MessageWithID.(*queue.Publish).Message)
-			}
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, dropElem.MessageWithID.(*queue.Publish).Message, dropErr)
 		}
-		_ = conn.Send("rpush", r.clientID, elem.Encode())
+		_ = conn.Send("rpush", q.clientID, elem.Encode())
 		err = conn.Flush()
-		r.len++
+		q.len++
 	}()
-	if r.len >= r.max {
+	if q.len >= q.max {
+		// set default drop error
+		dropErr = queue.ErrDropQueueFull
 		drop = true
 		// drop the current elem if there is no more non-inflight messages.
-		if r.inflightDrained && r.current >= r.len {
+		if q.inflightDrained && q.current >= q.len {
 			return
 		}
 		var rs []interface{}
-		rs, err = redigo.Values(conn.Do("lrange", r.clientID, r.current, r.len))
+		rs, err = redigo.Values(conn.Do("lrange", q.clientID, q.current, q.len))
 		if err != nil {
 			return err
 		}
@@ -168,11 +167,11 @@ func (r *Queue) Add(elem *queue.Elem) (err error) {
 				}
 				// drop expired message
 				if queue.ElemExpiry(now, e) {
+					dropErr = queue.ErrDropExpired
 					dropBytes = b
 					dropElem = e
 					return
 				}
-
 				if pub.QoS == packets.Qos0 && dropElem == nil {
 					dropBytes = b
 					dropElem = e
@@ -198,20 +197,20 @@ func (r *Queue) Add(elem *queue.Elem) (err error) {
 	return nil
 }
 
-func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
-	conn := r.pool.Get()
-	r.cond.L.Lock()
+func (q *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
+	conn := q.pool.Get()
+	q.cond.L.Lock()
 	defer func() {
 		conn.Close()
-		r.cond.L.Unlock()
+		q.cond.L.Unlock()
 	}()
 	id := elem.ID()
 	eb := elem.Encode()
-	stop := r.current - 1
+	stop := q.current - 1
 	if stop < 0 {
 		stop = 0
 	}
-	rs, err := redigo.Values(conn.Do("lrange", r.clientID, 0, stop))
+	rs, err := redigo.Values(conn.Do("lrange", q.clientID, 0, stop))
 	if err != nil {
 		return false, err
 	}
@@ -223,11 +222,11 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 			return false, err
 		}
 		if e.ID() == elem.ID() {
-			_, err = conn.Do("lset", r.clientID, k, eb)
+			_, err = conn.Do("lset", q.clientID, k, eb)
 			if err != nil {
 				return false, err
 			}
-			r.readCache[id] = eb
+			q.readCache[id] = eb
 			return true, nil
 		}
 	}
@@ -235,22 +234,22 @@ func (r *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 	return false, nil
 }
 
-func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
+func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	now := time.Now()
-	r.cond.L.Lock()
-	defer r.cond.L.Unlock()
-	conn := r.pool.Get()
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	conn := q.pool.Get()
 	defer conn.Close()
-	if !r.inflightDrained {
+	if !q.inflightDrained {
 		panic("must call ReadInflight to drain all inflight messages before Read")
 	}
-	for (r.current >= r.len) && !r.closed {
-		r.cond.Wait()
+	for (q.current >= q.len) && !q.closed {
+		q.cond.Wait()
 	}
-	if r.closed {
+	if q.closed {
 		return nil, queue.ErrClosed
 	}
-	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+len(pids)-1))
+	rs, err := redigo.Values(conn.Do("lrange", q.clientID, q.current, q.current+len(pids)-1))
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -264,17 +263,30 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		}
 		// remove expired message
 		if queue.ElemExpiry(now, e) {
-			err = conn.Send("lrem", r.clientID, 1, b)
-			r.len--
+			err = conn.Send("lrem", q.clientID, 1, b)
+			q.len--
 			if err != nil {
 				return nil, err
 			}
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, e.MessageWithID.(*queue.Publish).Message, queue.ErrDropExpired)
+			continue
+		}
+
+		// remove message which exceeds maximum packet size
+		pub := e.MessageWithID.(*queue.Publish)
+		if size := pub.TotalBytes(q.version); size > q.readBytesLimit {
+			err = conn.Send("lrem", q.clientID, 1, b)
+			q.len--
+			if err != nil {
+				return nil, err
+			}
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, pub.Message, queue.ErrDropExceedsMaxPacketSize)
 			continue
 		}
 
 		if e.MessageWithID.(*queue.Publish).QoS == 0 {
-			err = conn.Send("lrem", r.clientID, 1, b)
-			r.len--
+			err = conn.Send("lrem", q.clientID, 1, b)
+			q.len--
 			if err != nil {
 				return nil, err
 			}
@@ -282,9 +294,9 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			e.MessageWithID.SetID(pids[pflag])
 			pflag++
 			nb := e.Encode()
-			err = conn.Send("lset", r.clientID, r.current, nb)
-			r.current++
-			r.readCache[e.MessageWithID.ID()] = nb
+			err = conn.Send("lset", q.clientID, q.current, nb)
+			q.current++
+			q.readCache[e.MessageWithID.ID()] = nb
 		}
 		elems = append(elems, e)
 	}
@@ -292,14 +304,14 @@ func (r *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	return
 }
 
-func (r *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
-	r.cond.L.Lock()
-	defer r.cond.L.Unlock()
-	conn := r.pool.Get()
+func (q *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	conn := q.pool.Get()
 	defer conn.Close()
-	rs, err := redigo.Values(conn.Do("lrange", r.clientID, r.current, r.current+int(maxSize)-1))
+	rs, err := redigo.Values(conn.Do("lrange", q.clientID, q.current, q.current+int(maxSize)-1))
 	if len(rs) == 0 {
-		r.inflightDrained = true
+		q.inflightDrained = true
 		return
 	}
 	if err != nil {
@@ -315,29 +327,29 @@ func (r *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
 		id := e.MessageWithID.ID()
 		if id != 0 {
 			elems = append(elems, e)
-			r.readCache[id] = b
-			r.current++
+			q.readCache[id] = b
+			q.current++
 		} else {
-			r.inflightDrained = true
+			q.inflightDrained = true
 			return elems, nil
 		}
 	}
 	return
 }
 
-func (r *Queue) Remove(pid packets.PacketID) error {
-	r.cond.L.Lock()
-	defer r.cond.L.Unlock()
-	conn := r.pool.Get()
+func (q *Queue) Remove(pid packets.PacketID) error {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	conn := q.pool.Get()
 	defer conn.Close()
-	if b, ok := r.readCache[pid]; ok {
-		_, err := conn.Do("lrem", r.clientID, 1, b)
+	if b, ok := q.readCache[pid]; ok {
+		_, err := conn.Do("lrem", q.clientID, 1, b)
 		if err != nil {
 			return err
 		}
-		delete(r.readCache, pid)
-		r.len--
-		r.current--
+		delete(q.readCache, pid)
+		q.len--
+		q.current--
 	}
 	return nil
 }

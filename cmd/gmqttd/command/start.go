@@ -157,7 +157,11 @@ func NewStartCmd() *cobra.Command {
 				server.WithLogger(l),
 				server.WithHook(h),
 			)
-			s.Run()
+			err = s.Run()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
 			installSignal(s)
 		},
 	}

@@ -18,15 +18,14 @@ var (
 		SessionExpiry:              2 * time.Hour,
 		SessionExpiryCheckInterval: 20 * time.Second,
 		MessageExpiry:              2 * time.Hour,
-		MaxPacketSize:              0,
-		ReceiveMax:                 10,
+		MaxPacketSize:              packets.MaximumSize,
+		ReceiveMax:                 100,
 		MaxKeepAlive:               60,
 		TopicAliasMax:              10,
 		SubscriptionIDAvailable:    true,
 		SharedSubAvailable:         true,
 		WildcardAvailable:          true,
 		RetainAvailable:            true,
-		MaxInflight:                100,
 		MaxQueuedMsg:               1000,
 		MaximumQoS:                 2,
 		QueueQos0Msg:               true,
@@ -47,7 +46,6 @@ type MQTT struct {
 	SharedSubAvailable         bool          `yaml:"shared_subscription_available"`
 	WildcardAvailable          bool          `yaml:"wildcard_subscription_available"`
 	RetainAvailable            bool          `yaml:"retain_available"`
-	MaxInflight                int           `yaml:"max_inflight"`
 	MaxQueuedMsg               int           `yaml:"max_queued_messages"`
 	MaximumQoS                 uint8         `yaml:"maximum_qos"`
 	QueueQos0Msg               bool          `yaml:"queue_qos0_messages"`
@@ -59,11 +57,14 @@ func (c MQTT) Validate() error {
 	if c.MaximumQoS > packets.Qos2 {
 		return fmt.Errorf("invalid maximum_qos: %d", c.MaximumQoS)
 	}
-	if c.MaxInflight <= 0 {
-		return fmt.Errorf("invalid max_inflight: %d", c.MaxInflight)
-	}
 	if c.MaxQueuedMsg <= 0 {
 		return fmt.Errorf("invalid max_queued_messages : %d", c.MaxQueuedMsg)
+	}
+	if c.ReceiveMax == 0 {
+		return fmt.Errorf("server_receive_maximum cannot be 0")
+	}
+	if c.MaxPacketSize == 0 {
+		return fmt.Errorf("max_packet_size cannot be 0")
 	}
 	if c.DeliveryMode != Overlap && c.DeliveryMode != OnlyOnce {
 		return fmt.Errorf("invalid delivery_mode: %s", c.DeliveryMode)

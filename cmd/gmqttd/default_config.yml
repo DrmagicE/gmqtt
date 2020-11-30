@@ -7,8 +7,8 @@ mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
   message_expiry: 2h
-  max_packet_size: 0 # 0 means no limit
-  server_receive_maximum: 10
+  max_packet_size: 268435456
+  server_receive_maximum: 100
   max_keepalive: 60
   topic_alias_maximum: 10
   subscription_identifier_available: true
@@ -17,14 +17,12 @@ mqtt:
   maximum_qos: 2
   retain_available: true
   max_queued_messages: 1000
-  max_inflight: 100
-  max_awaiting_rel: 100
   queue_qos0_messages: true
   delivery_mode: onlyonce # overlap or onlyonce
   allow_zero_length_clientid: true
 
 persistence:
-  type: redis
+  type: memory
   redis:
     addr: "127.0.0.1:6379"
     max_idle: 1000
@@ -37,7 +35,7 @@ plugins:
     listen_address: ":8082"
 
 log:
-  level: info # debug | info | warn | error
+  level: error # debug | info | warn | error
 
 
 

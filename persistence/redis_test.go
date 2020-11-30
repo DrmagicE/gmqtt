@@ -16,6 +16,21 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
+var redisConfig config.RedisPersistence
+
+func init() {
+	maxIdle := uint(100)
+	maxActive := uint(100)
+	redisConfig = config.RedisPersistence{
+		Addr:        ":6379",
+		Password:    "",
+		Database:    0,
+		MaxIdle:     &maxIdle,
+		MaxActive:   &maxActive,
+		IdleTimeout: 100 * time.Second,
+	}
+}
+
 type RedisSuite struct {
 	suite.Suite
 	factory *redisFactory
@@ -30,7 +45,12 @@ func (s *RedisSuite) SetupTest() {
 	time.Sleep(2 * time.Second) // wait for redis start
 
 	factory := &redisFactory{}
-	p, err := factory.New(config.Config{}, queue_test.TestHooks)
+	p, err := factory.New(config.Config{
+		Persistence: config.Persistence{
+			Type:  config.PersistenceTypeRedis,
+			Redis: redisConfig,
+		},
+	}, queue_test.TestHooks)
 	if err != nil {
 		s.Suite.T().Fatal(err.Error())
 	}
@@ -41,16 +61,20 @@ func (s *RedisSuite) SetupTest() {
 	s.factory = factory
 	s.p = p
 }
+
 func (s *RedisSuite) TearDownSuite() {
 	stopContainer()
 }
 
 func (s *RedisSuite) TestQueue() {
 	a := assert.New(s.T())
-	qs, err := s.p.NewQueueStore(queue_test.TestServerConfig, queue_test.TestClientID)
+	cfg := queue_test.TestServerConfig
+	cfg.Persistence.Redis = redisConfig
+	qs, err := s.p.NewQueueStore(cfg, queue_test.TestClientID)
 	a.Nil(err)
 	queue_test.TestQueue(s.T(), qs)
 }
+
 func (s *RedisSuite) TestSubscription() {
 	a := assert.New(s.T())
 	st, err := s.p.NewSubscriptionStore(config.Config{})

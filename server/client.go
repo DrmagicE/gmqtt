@@ -207,10 +207,6 @@ type client struct {
 	serverQuotaMu             sync.Mutex
 	serverReceiveMaximumQuota uint16
 
-	// gard clientReceiveMaximumQuota
-	clientQuotaMu             sync.Mutex
-	clientReceiveMaximumQuota uint16
-
 	config config.Config
 	// for testing
 	publishMessageHandler func(msg *gmqtt.Message)
@@ -332,7 +328,6 @@ func (client *client) writeLoop() {
 		client.setError(err)
 		client.wg.Done()
 	}()
-
 	for {
 		select {
 		case <-client.close:
@@ -397,6 +392,7 @@ func (client *client) writePacket(packet packets.Packet) error {
 	}
 	return client.packetWriter.Flush()
 }
+
 func (client *client) addServerQuota() {
 	client.serverQuotaMu.Lock()
 	if client.serverReceiveMaximumQuota < client.opts.ServerReceiveMax {
@@ -413,20 +409,6 @@ func (client *client) tryDecServerQuota() error {
 	}
 	client.serverReceiveMaximumQuota--
 	return nil
-}
-
-func (client *client) tryDecClientQuota() bool {
-	client.clientQuotaMu.Lock()
-	defer client.clientQuotaMu.Unlock()
-	if client.clientReceiveMaximumQuota == 0 {
-		return false
-	}
-	client.clientReceiveMaximumQuota--
-	zaplog.Debug("dec client quota",
-		zap.String("client_id", client.opts.ClientID),
-		zap.Uint16("quota", client.clientReceiveMaximumQuota),
-		zap.String("remote_addr", client.rwc.RemoteAddr().String()))
-	return true
 }
 
 func (client *client) readLoop() {
@@ -577,7 +559,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			var authData []byte
 			switch p.(type) {
 			case *packets.Connect:
-
 				if conn != nil {
 					err = codes.ErrProtocol
 					return
@@ -589,19 +570,26 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					return
 				}
 
-				// set default options.
-				client.opts.RetainAvailable = client.config.MQTT.RetainAvailable
-				client.opts.WildcardSubAvailable = client.config.MQTT.WildcardAvailable
-				client.opts.SubIDAvailable = client.config.MQTT.SubscriptionIDAvailable
-				client.opts.SharedSubAvailable = client.config.MQTT.SharedSubAvailable
-				client.opts.ServerMaxPacketSize = client.config.MQTT.MaxPacketSize
-				client.opts.SessionExpiry = uint32(client.config.MQTT.SessionExpiry.Seconds())
-
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
 				// default connack properties
 				ppt = client.defaultConnackProperties(conn)
-				if client.version == packets.Version311 || (client.version == packets.Version5 && len(conn.Properties.AuthMethod) != 0) {
+				// set default options.
+				client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
+				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
+				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
+				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
+				client.opts.SessionExpiry = *ppt.SessionExpiryInterval
+
+				client.opts.ClientReceiveMax = math.MaxUint16 // unlimited
+				client.opts.ServerReceiveMax = *ppt.ReceiveMaximum
+
+				client.opts.ClientMaxPacketSize = math.MaxUint32 // unlimited
+				client.opts.ServerMaxPacketSize = *ppt.MaximumPacketSize
+
+				client.opts.ServerTopicAliasMax = *ppt.TopicAliasMaximum
+
+				if conn.Properties == nil || len(conn.Properties.AuthMethod) == 0 {
 					// basic auth
 					if srv.hooks.OnBasicAuth != nil {
 						resp := srv.hooks.OnBasicAuth(context.Background(), client, &ConnectRequest{
@@ -669,29 +657,25 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				}
 				continue
 			}
-			// code = codes.Success
+
 			if client.version == packets.Version5 {
 				client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
 				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
 				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
 				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
-				client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, 0)
+				client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, client.opts.SessionExpiry)
 
-				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, 65535)
-				client.opts.ServerReceiveMax = convertUint16(ppt.ReceiveMaximum, 65535)
+				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, client.opts.ClientReceiveMax)
+				client.opts.ServerReceiveMax = convertUint16(ppt.ReceiveMaximum, client.opts.ServerReceiveMax)
 
-				client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, 0)
-				client.opts.ServerMaxPacketSize = convertUint32(ppt.MaximumPacketSize, 0)
+				client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, client.opts.ClientMaxPacketSize)
+				client.opts.ServerMaxPacketSize = convertUint32(ppt.MaximumPacketSize, client.opts.ServerMaxPacketSize)
 
-				client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, 0)
-				client.opts.ServerTopicAliasMax = convertUint16(ppt.TopicAliasMaximum, 0)
+				client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, client.opts.ClientTopicAliasMax)
+				client.opts.ServerTopicAliasMax = convertUint16(ppt.TopicAliasMaximum, client.opts.ServerTopicAliasMax)
 
 				client.opts.AuthMethod = conn.Properties.AuthMethod
-
-				client.clientReceiveMaximumQuota = client.opts.ClientReceiveMax
-
 				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
-
 				client.aliasMapper = make([][]byte, client.opts.ServerReceiveMax+1)
 
 				if len(conn.ClientID) == 0 {
@@ -706,11 +690,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				}
 				client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
 
-				recvMax := int(convertUint16(ppt.ReceiveMaximum, math.MaxUint16))
-				if recvMax >= client.config.MQTT.MaxInflight {
-					client.config.MQTT.MaxInflight = recvMax
-				}
-
 			} else {
 				if len(conn.ClientID) == 0 {
 					client.opts.ClientID = getRandomUUID()
@@ -723,7 +702,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
-
 			client.opts.CleanStart = conn.CleanStart
 			client.opts.Username = string(conn.Username)
 			client.opts.Will.Flag = conn.WillFlag
@@ -732,11 +710,9 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			client.opts.Will.Retain = conn.WillRetain
 			client.opts.Will.Topic = conn.WillTopic
 			client.opts.Will.Properties = conn.WillProperties
-			if client.opts.ClientReceiveMax != 0 {
-				client.newPacketIDLimiter(client.opts.ClientReceiveMax)
-			} else {
-				client.newPacketIDLimiter(uint16(client.config.MQTT.MaxInflight))
-			}
+
+			client.newPacketIDLimiter(client.opts.ClientReceiveMax)
+
 			err = client.server.registerClient(conn, ppt, client)
 			return
 		case <-timeout.C:
@@ -764,11 +740,9 @@ func setErrorProperties(client *client, errDetails *codes.ErrorDetails, ppt *pac
 }
 
 func (client *client) defaultConnackProperties(connect *packets.Connect) *packets.Properties {
-	if connect.Version != packets.Version5 {
-		return nil
-	}
+	cfgExpiry := uint32(client.config.MQTT.SessionExpiry.Seconds())
 	ppt := &packets.Properties{
-		SessionExpiryInterval: connect.Properties.SessionExpiryInterval,
+		SessionExpiryInterval: &cfgExpiry,
 		ReceiveMaximum:        &client.config.MQTT.ReceiveMax,
 		MaximumQoS:            &client.config.MQTT.MaximumQoS,
 		RetainAvailable:       bool2Byte(client.config.MQTT.RetainAvailable),
@@ -776,18 +750,17 @@ func (client *client) defaultConnackProperties(connect *packets.Connect) *packet
 		WildcardSubAvailable:  bool2Byte(client.config.MQTT.WildcardAvailable),
 		SubIDAvailable:        bool2Byte(client.config.MQTT.SubscriptionIDAvailable),
 		SharedSubAvailable:    bool2Byte(client.config.MQTT.SharedSubAvailable),
+		MaximumPacketSize:     &client.config.MQTT.MaxPacketSize,
+		ServerKeepAlive:       &client.config.MQTT.MaxKeepAlive,
 	}
-	if client.config.MQTT.MaxPacketSize != 0 {
-		ppt.MaximumPacketSize = &client.config.MQTT.MaxPacketSize
+	if connect.KeepAlive < client.config.MQTT.MaxKeepAlive {
+		ppt.ServerKeepAlive = &connect.KeepAlive
 	}
-
-	if i := ppt.SessionExpiryInterval; i != nil && *i < uint32(client.config.MQTT.SessionExpiry.Seconds()) {
-		ppt.SessionExpiryInterval = i
+	if client.version == packets.Version5 {
+		if i := connect.Properties.SessionExpiryInterval; i != nil && *i < cfgExpiry {
+			ppt.SessionExpiryInterval = i
+		}
 	}
-	if connect.KeepAlive > client.config.MQTT.MaxKeepAlive {
-		ppt.ServerKeepAlive = &client.config.MQTT.MaxKeepAlive
-	}
-
 	return ppt
 }
 
@@ -950,6 +923,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 						},
 					})
 					if err != nil {
+						queue.Drop(srv.hooks.OnMsgDropped, zaplog, client.opts.ClientID, v, &queue.InternalError{Err: err})
 						if codesErr, ok := err.(*codes.Error); ok {
 							return codesErr
 						}
@@ -1221,7 +1195,6 @@ func (client *client) reAuthHandler(auth *packets.Auth) *codes.Error {
 		},
 	})
 	return nil
-
 }
 
 func (client *client) disconnectHandler(dis *packets.Disconnect) *codes.Error {
@@ -1320,7 +1293,7 @@ func (client *client) readHandle() {
 
 func (client *client) pollInflights() (cont bool, err error) {
 	var elems []*queue.Elem
-	elems, err = client.queueStore.ReadInflight(uint(client.config.MQTT.MaxInflight))
+	elems, err = client.queueStore.ReadInflight(uint(client.opts.ServerReceiveMax))
 	if err != nil || len(elems) == 0 {
 		return false, err
 	}
@@ -1357,10 +1330,6 @@ func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.
 			if m.QoS != packets.Qos0 {
 				ids = ids[1:]
 			}
-			if client.opts.ClientMaxPacketSize != 0 && m.Message.TotalBytes(client.version) >= client.opts.ClientMaxPacketSize {
-				continue
-			}
-			// TODO onMsgDroped
 			if client.version == packets.Version5 && m.Message.MessageExpiry != 0 {
 				d := uint32(now.Sub(v.At).Seconds())
 				m.Message.MessageExpiry = d
@@ -1390,7 +1359,7 @@ func (client *client) pollMessageHandler() {
 	}
 	var ids []packets.PacketID
 	for {
-		ids = client.pl.pollPacketIDs(uint16(client.config.MQTT.MaxInflight))
+		ids = client.pl.pollPacketIDs(client.opts.ServerReceiveMax)
 		if ids == nil {
 			return
 		}

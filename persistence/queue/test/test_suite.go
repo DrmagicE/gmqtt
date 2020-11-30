@@ -17,17 +17,24 @@ import (
 )
 
 var (
-	TestServerConfig = config.Config{MaxQueuedMsg: 5}
-	TestHooks        = server.Hooks{OnMsgDropped: func(ctx context.Context, clientID string, msg *gmqtt.Message) {
+	TestServerConfig = config.Config{
+		MQTT: config.MQTT{
+			MaxQueuedMsg: 5,
+		},
+	}
+	TestHooks = server.Hooks{OnMsgDropped: func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {
 		dropMsg[cid] = append(dropMsg[cid], msg)
+		dropErr[cid] = err
 	}}
 	dropMsg      = make(map[string][]*gmqtt.Message)
+	dropErr      = make(map[string]error)
 	cid          = "cid"
 	TestClientID = cid
 )
 
 func initDrop() {
 	dropMsg = make(map[string][]*gmqtt.Message)
+	dropErr = make(map[string]error)
 }
 
 func assertElemEqual(a *assert.Assertions, expected, actual *queue.Elem) {
@@ -106,7 +113,11 @@ var initElems = []*queue.Elem{
 }
 
 func initStore(store queue.Store) error {
-	return store.Init(true)
+	return store.Init(&queue.InitOptions{
+		CleanStart:     true,
+		Version:        packets.Version5,
+		ReadBytesLimit: 100,
+	})
 }
 
 func add(store queue.Store) error {
@@ -118,15 +129,20 @@ func add(store queue.Store) error {
 	}
 	return nil
 }
-func assertDrop(a *assert.Assertions, elem *queue.Elem) {
+func assertDrop(a *assert.Assertions, elem *queue.Elem, err error) {
 	a.Len(dropMsg, 1)
 	a.Equal(elem.MessageWithID.(*queue.Publish).Message, dropMsg[cid][0])
+	a.Equal(err, dropErr[cid])
 	initDrop()
 }
 
 func reconnect(a *assert.Assertions, cleanStart bool, store queue.Store) {
 	a.Nil(store.Close())
-	a.Nil(store.Init(cleanStart))
+	a.Nil(store.Init(&queue.InitOptions{
+		CleanStart:     cleanStart,
+		Version:        packets.Version5,
+		ReadBytesLimit: 100,
+	}))
 }
 
 type New func(config config.Config, hooks server.Hooks) (server.Persistence, error)
@@ -142,6 +158,7 @@ func TestQueue(t *testing.T, store queue.Store) {
 	testDrop(a, store)
 	testReplace(a, store)
 	testCleanStart(a, store)
+	testReadExceedsDrop(a, store)
 	testClose(a, store)
 }
 
@@ -163,7 +180,6 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 		})
 		a.Nil(err)
 	}
-
 	e, err := store.Read([]packets.PacketID{5, 6, 7})
 	a.Nil(err)
 	a.Len(e, 3)
@@ -190,7 +206,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 	}
 	err = store.Add(dropElem)
 	a.Nil(err)
-	assertDrop(a, dropElem)
+	assertDrop(a, dropElem, queue.ErrDropQueueFull)
 	// queue: 1,2,5,6,7
 	a.Nil(store.Remove(1))
 	a.Nil(store.Remove(2))
@@ -244,7 +260,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 	}
 	a.Nil(store.Add(dropFront))
 
-	assertDrop(a, dropExpired)
+	assertDrop(a, dropExpired, queue.ErrDropExpired)
 	// queue: 5,6,7,0,0
 	// drop case 3. drop qos0 message
 	a.Nil(store.Add(&queue.Elem{
@@ -260,7 +276,7 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 			},
 		},
 	}))
-	assertDrop(a, dropQoS0)
+	assertDrop(a, dropQoS0, queue.ErrDropQueueFull)
 
 	// queue: 5(qos2),6(qos2),7(qos2),0(qos0),0(qos1)
 	// drop case 4. drop the front message
@@ -278,7 +294,8 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 		},
 	}))
 
-	assertDrop(a, dropFront)
+	assertDrop(a, dropFront, queue.ErrDropQueueFull)
+
 }
 
 func testRead(a *assert.Assertions, store queue.Store) {
@@ -339,6 +356,48 @@ func testReplace(a *assert.Assertions, store queue.Store) {
 		PacketID: 7,
 	}, inflights[2].MessageWithID)
 
+}
+
+func testReadExceedsDrop(a *assert.Assertions, store queue.Store) {
+	// add exceeded message
+	exceeded := &queue.Elem{
+		At: time.Now(),
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      1,
+				Retained: false,
+				Topic:    "/drop_exceed",
+
+				Payload: make([]byte, 100),
+			},
+		},
+	}
+	a.Nil(store.Add(exceeded))
+	e, err := store.Read([]packets.PacketID{1})
+	a.Nil(err)
+	a.Len(e, 0)
+	assertDrop(a, exceeded, queue.ErrDropExceedsMaxPacketSize)
+
+	expired := &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Now(),
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      1,
+				Retained: false,
+				Topic:    "/drop_exceed",
+
+				Payload: make([]byte, 100),
+			},
+		},
+	}
+	a.Nil(store.Add(expired))
+	e, err = store.Read([]packets.PacketID{1})
+	a.Nil(err)
+	a.Len(e, 0)
+	assertDrop(a, exceeded, queue.ErrDropExpired)
 }
 
 func testCleanStart(a *assert.Assertions, store queue.Store) {

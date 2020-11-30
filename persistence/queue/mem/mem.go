@@ -2,7 +2,6 @@ package mem
 
 import (
 	"container/list"
-	"context"
 	"sync"
 	"time"
 
@@ -24,13 +23,15 @@ type Options struct {
 type Queue struct {
 	cond            *sync.Cond
 	clientID        string
+	version         packets.Version
+	readBytesLimit  uint32
 	l               *list.List
 	current         *list.Element
 	inflightDrained bool
 	closed          bool
 	max             int
 	log             *zap.Logger
-	onMsgDropped    server.OnMsgDropped
+	onMsgDropped    queue.OnMsgDropped
 }
 
 func New(opts Options) (*Queue, error) {
@@ -44,24 +45,26 @@ func New(opts Options) (*Queue, error) {
 	}, nil
 }
 
-func (m *Queue) Close() error {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-	m.closed = true
-	m.cond.Signal()
+func (q *Queue) Close() error {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	q.closed = true
+	q.cond.Signal()
 	return nil
 }
 
-func (m *Queue) Init(cleanStart bool) error {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-	m.closed = false
-	m.inflightDrained = false
-	if cleanStart {
-		m.l = list.New()
+func (q *Queue) Init(opts *queue.InitOptions) error {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	q.closed = false
+	q.inflightDrained = false
+	if opts.CleanStart {
+		q.l = list.New()
 	}
-	m.current = m.l.Front()
-	m.cond.Signal()
+	q.readBytesLimit = opts.ReadBytesLimit
+	q.version = opts.Version
+	q.current = q.l.Front()
+	q.cond.Signal()
 	return nil
 }
 
@@ -69,69 +72,65 @@ func (*Queue) Clean() error {
 	return nil
 }
 
-func (m *Queue) Add(elem *queue.Elem) (err error) {
+func (q *Queue) Add(elem *queue.Elem) (err error) {
 	now := time.Now()
-	m.cond.L.Lock()
+	var dropErr error
 	var dropElem *list.Element
 	var drop bool
+	q.cond.L.Lock()
 	defer func() {
-		m.cond.L.Unlock()
-		m.cond.Signal()
+		q.cond.L.Unlock()
+		q.cond.Signal()
 	}()
 	defer func() {
 		if drop {
-			m.log.Warn("message queue is full, drop message",
-				zap.String("clientID", m.clientID),
-			)
 			if dropElem == nil {
-				if m.onMsgDropped != nil {
-					m.onMsgDropped(context.Background(), m.clientID, elem.MessageWithID.(*queue.Publish).Message)
-				}
+				queue.Drop(q.onMsgDropped, q.log, q.clientID, elem.MessageWithID.(*queue.Publish).Message, dropErr)
 				return
 			} else {
-				if dropElem == m.current {
-					m.current = m.current.Next()
+				if dropElem == q.current {
+					q.current = q.current.Next()
 				}
-				m.l.Remove(dropElem)
+				q.l.Remove(dropElem)
 			}
-			if m.onMsgDropped != nil {
-				m.onMsgDropped(context.Background(), m.clientID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message)
-			}
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message, dropErr)
 		}
-		e := m.l.PushBack(elem)
-		if m.current == nil {
-			m.current = e
+		e := q.l.PushBack(elem)
+		if q.current == nil {
+			q.current = e
 		}
 	}()
-	if m.l.Len() >= m.max {
+	if q.l.Len() >= q.max {
+		// set default drop error
+		dropErr = queue.ErrDropQueueFull
 		drop = true
 		// drop the current elem if there is no more non-inflight messages.
-		if m.inflightDrained && m.current == nil {
+		if q.inflightDrained && q.current == nil {
 			return
 		}
-		// drop expired message
-		for e := m.current; e != nil; e = e.Next() {
+		for e := q.current; e != nil; e = e.Next() {
 			pub := e.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
+			// drop expired message
 			if pub.ID() == 0 &&
 				queue.ElemExpiry(now, e.Value.(*queue.Elem)) {
 				dropElem = e
+				dropErr = queue.ErrDropExpired
 				return
 			}
+			// drop qos0 message in the queue
 			if pub.ID() == 0 && pub.QoS == packets.Qos0 && dropElem == nil {
 				dropElem = e
 			}
 		}
-
-		// drop qos0 message in the queue
 		if dropElem != nil {
 			return
 		}
 		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
 			return
 		}
-		if m.inflightDrained {
+		if q.inflightDrained {
 			// drop the front message
-			dropElem = m.current
+			dropElem = q.current
 			return
 		}
 
@@ -142,11 +141,11 @@ func (m *Queue) Add(elem *queue.Elem) (err error) {
 	return nil
 }
 
-func (m *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-	unread := m.current
-	for e := m.l.Front(); e != nil && e != unread; e = e.Next() {
+func (q *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	unread := q.current
+	for e := q.l.Front(); e != nil && e != unread; e = e.Next() {
 		if e.Value.(*queue.Elem).ID() == elem.ID() {
 			e.Value = elem
 			return true, nil
@@ -155,78 +154,87 @@ func (m *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 	return false, nil
 }
 
-func (m *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
+func (q *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 	now := time.Now()
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-	if !m.inflightDrained {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	if !q.inflightDrained {
 		panic("must call ReadInflight to drain all inflight messages before Read")
 	}
-	for (m.l.Len() == 0 || m.current == nil) && !m.closed {
-		m.cond.Wait()
+	for (q.l.Len() == 0 || q.current == nil) && !q.closed {
+		q.cond.Wait()
 	}
-	if m.closed {
+	if q.closed {
 		return nil, queue.ErrClosed
 	}
-	length := m.l.Len()
+	length := q.l.Len()
 	if len(pids) < length {
 		length = len(pids)
 	}
 	var pflag int
-	// TODO add expiry test case
-	for i := 0; i < length && m.current != nil; i++ {
-		v := m.current
+	for i := 0; i < length && q.current != nil; i++ {
+		v := q.current
 		// remove expired message
 		if queue.ElemExpiry(now, v.Value.(*queue.Elem)) {
-			m.current = m.current.Next()
-			m.l.Remove(v)
+			q.current = q.current.Next()
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, v.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message, queue.ErrDropExpired)
+			q.l.Remove(v)
 			continue
 		}
+		// remove message which exceeds maximum packet size
+		pub := v.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
+		if size := pub.TotalBytes(q.version); size > q.readBytesLimit {
+			q.current = q.current.Next()
+			q.l.Remove(v)
+			queue.Drop(q.onMsgDropped, q.log, q.clientID, pub.Message, queue.ErrDropExceedsMaxPacketSize)
+			continue
+		}
+
 		// remove qos 0 message after read
-		if v.Value.(*queue.Elem).MessageWithID.(*queue.Publish).QoS == 0 {
-			m.current = m.current.Next()
-			m.l.Remove(v)
+		if pub.QoS == 0 {
+			q.current = q.current.Next()
+			q.l.Remove(v)
 		} else {
-			v.Value.(*queue.Elem).MessageWithID.SetID(pids[pflag])
+			pub.SetID(pids[pflag])
 			pflag++
-			m.current = m.current.Next()
+			q.current = q.current.Next()
 		}
 		rs = append(rs, v.Value.(*queue.Elem))
 	}
 	return rs, nil
 }
 
-func (m *Queue) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-	length := m.l.Len()
-	if length == 0 || m.current == nil {
-		m.inflightDrained = true
+func (q *Queue) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	length := q.l.Len()
+	if length == 0 || q.current == nil {
+		q.inflightDrained = true
 		return nil, nil
 	}
 	if int(maxSize) < length {
 		length = int(maxSize)
 	}
-	for i := 0; i < length && m.current != nil; i++ {
-		if m.current.Value.(*queue.Elem).ID() != 0 {
-			rs = append(rs, m.current.Value.(*queue.Elem))
-			m.current = m.current.Next()
+	for i := 0; i < length && q.current != nil; i++ {
+		if q.current.Value.(*queue.Elem).ID() != 0 {
+			rs = append(rs, q.current.Value.(*queue.Elem))
+			q.current = q.current.Next()
 		} else {
-			m.inflightDrained = true
+			q.inflightDrained = true
 			break
 		}
 	}
 	return rs, nil
 }
 
-func (m *Queue) Remove(pid packets.PacketID) error {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
+func (q *Queue) Remove(pid packets.PacketID) error {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
 	// 不允许删除还没读过的元素
-	unread := m.current
-	for e := m.l.Front(); e != nil && e != unread; e = e.Next() {
+	unread := q.current
+	for e := q.l.Front(); e != nil && e != unread; e = e.Next() {
 		if e.Value.(*queue.Elem).ID() == pid {
-			m.l.Remove(e)
+			q.l.Remove(e)
 			return nil
 		}
 	}

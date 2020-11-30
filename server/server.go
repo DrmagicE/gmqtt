@@ -334,7 +334,11 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		} else {
 			qs = srv.queueStore[client.opts.ClientID]
 			if qs != nil {
-				err := qs.Init(false)
+				err := qs.Init(&queue.InitOptions{
+					CleanStart:     false,
+					Version:        client.version,
+					ReadBytesLimit: client.opts.ClientMaxPacketSize,
+				})
 				if err != nil {
 					return err
 				}
@@ -367,7 +371,11 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		if err != nil {
 			return err
 		}
-		err = qs.Init(true)
+		err = qs.Init(&queue.InitOptions{
+			CleanStart:     true,
+			Version:        client.version,
+			ReadBytesLimit: client.opts.ClientMaxPacketSize,
+		})
 		if err != nil {
 			return err
 		}
@@ -467,6 +475,36 @@ func (srv *server) unregisterClient(client *client) {
 	srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 }
 
+func (srv *server) addMsgToQueue(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
+	if msg.QoS > sub.QoS {
+		msg.QoS = sub.QoS
+	}
+	for _, id := range ids {
+		if id != 0 {
+			msg.SubscriptionIdentifier = append(msg.SubscriptionIdentifier, id)
+		}
+	}
+	msg.Dup = false
+	if !sub.RetainAsPublished {
+		msg.Retained = false
+	}
+	var expiry time.Time
+	if msg.MessageExpiry != 0 {
+		expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
+	}
+	err := q.Add(&queue.Elem{
+		At:     now,
+		Expiry: expiry,
+		MessageWithID: &queue.Publish{
+			Message: msg,
+		},
+	})
+	if err != nil {
+		queue.Drop(srv.hooks.OnMsgDropped, zaplog, clientID, msg, &queue.InternalError{Err: err})
+	}
+
+}
+
 // deliverMessage send msg to matched client, must call under srv.Lock
 func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions, key by share name.
@@ -480,7 +518,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 		subIDs []uint32
 	})
 	now := time.Now()
-	// 先取的所有的share 和unshare
+	// Iterate all matched topics
 	srv.subscriptionsDB.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
 		if sub.NoLocal && clientID == srcClientID {
 			return true
@@ -495,34 +533,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 				}{clientID: clientID, sub: sub})
 			} else {
 				if srv.config.MQTT.DeliveryMode == Overlap {
-					newMsg := msg.Copy()
-					if newMsg.QoS > sub.QoS {
-						newMsg.QoS = sub.QoS
-					}
-					if sub.ID != 0 {
-						newMsg.SubscriptionIdentifier = []uint32{sub.ID}
-					}
-					newMsg.Dup = false
-					if !sub.RetainAsPublished {
-						newMsg.Retained = false
-					}
-					var expiry time.Time
-					if msg.MessageExpiry != 0 {
-						expiry = now.Add(time.Duration(newMsg.MessageExpiry) * time.Second)
-					}
-					err := qs.Add(&queue.Elem{
-						At:     now,
-						Expiry: expiry,
-						MessageWithID: &queue.Publish{
-							Message: msg.Copy(),
-						},
-					})
-					if err != nil {
-						zaplog.Error("fail to add message to queue",
-							zap.String("topic", subscription.GetFullTopicName(sub.ShareName, sub.TopicFilter)),
-							zap.Uint8("qos", sub.QoS))
-					}
-
+					srv.addMsgToQueue(now, clientID, msg.Copy(), sub, []uint32{sub.ID}, qs)
 				} else {
 					// OnlyOnce
 					if maxQos[clientID] == nil {
@@ -549,37 +560,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 	if srv.config.MQTT.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if qs := srv.queueStore[clientID]; qs != nil {
-				newMsg := msg.Copy()
-				if newMsg.QoS > v.sub.QoS {
-					newMsg.QoS = v.sub.QoS
-				}
-
-				for _, id := range v.subIDs {
-					if id != 0 {
-						newMsg.SubscriptionIdentifier = append(newMsg.SubscriptionIdentifier, id)
-					}
-				}
-
-				newMsg.Dup = false
-				if !v.sub.RetainAsPublished {
-					newMsg.Retained = false
-				}
-				var expiry time.Time
-				if newMsg.MessageExpiry != 0 {
-					expiry = now.Add(time.Duration(newMsg.MessageExpiry) * time.Second)
-				}
-				err := qs.Add(&queue.Elem{
-					At:     now,
-					Expiry: expiry,
-					MessageWithID: &queue.Publish{
-						Message: newMsg,
-					},
-				})
-				if err != nil {
-					zaplog.Error("fail to add message to queue",
-						zap.String("topic", subscription.GetFullTopicName(v.sub.ShareName, v.sub.TopicFilter)),
-						zap.Uint8("qos", v.sub.QoS), zap.Error(err))
-				}
+				srv.addMsgToQueue(now, clientID, msg.Copy(), v.sub, v.subIDs, qs)
 			}
 		}
 	}
@@ -592,30 +573,8 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 		}
 		// random
 		rs = v[rand.Intn(len(v))]
-		if c, ok := srv.clients[rs.clientID]; ok {
-			newMsg := msg.Copy()
-			if newMsg.QoS > rs.sub.QoS {
-				newMsg.QoS = rs.sub.QoS
-			}
-			newMsg.SubscriptionIdentifier = []uint32{v[0].sub.ID}
-			newMsg.Dup = false
-			if !rs.sub.RetainAsPublished {
-				newMsg.Retained = false
-			}
-			var expiry time.Time
-			if msg.MessageExpiry != 0 {
-				expiry = now.Add(time.Duration(newMsg.MessageExpiry) * time.Second)
-			}
-			err := c.queueStore.Add(&queue.Elem{
-				At:     now,
-				Expiry: expiry,
-				MessageWithID: &queue.Publish{
-					Message: newMsg,
-				},
-			})
-			if err != nil {
-				c.setError(err)
-			}
+		if c, ok := srv.queueStore[rs.clientID]; ok {
+			srv.addMsgToQueue(now, rs.clientID, msg.Copy(), rs.sub, []uint32{rs.sub.ID}, c)
 		}
 	}
 	return
@@ -1068,7 +1027,7 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnStop = onStop
 	}
 	if onMsgDroppedWrappers != nil {
-		onMsgDropped := func(ctx context.Context, clientID string, msg *gmqtt.Message) {}
+		onMsgDropped := func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {}
 		for i := len(onMsgDroppedWrappers); i > 0; i-- {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}

@@ -199,9 +199,8 @@ type OnAcked func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnAckedWrapper func(OnAcked) OnAcked
 
-// OnMessageDropped 丢弃报文后触发
-//
-// OnMsgDropped will be called after the Msg dropped
-type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message)
+// OnMsgDropped will be called after the Msg dropped.
+// The err indicates the reason of dropping
+type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped

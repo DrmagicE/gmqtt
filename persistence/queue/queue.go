@@ -1,18 +1,52 @@
 package queue
 
 import (
+	"context"
 	"errors"
 	"time"
 
+	"go.uber.org/zap"
+
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 var (
-	ErrClosed = errors.New("queue has been closed")
+	ErrClosed                   = errors.New("queue has been closed")
+	ErrDropExceedsMaxPacketSize = errors.New("maximum packet size exceeded")
+	ErrDropQueueFull            = errors.New("the message queue is full")
+	ErrDropExpired              = errors.New("the message is expired")
 )
 
-type Config struct {
-	MaxQueuedMsg int
+// InternalError wraps the error of the backend storage.
+type InternalError struct {
+	// Err is the error return by the backend storage.
+	Err error
+}
+
+func (i *InternalError) Error() string {
+	return i.Error()
+}
+
+// OnMsgDropped is same as server.OnMsgDropped. It is used to avoid cycle import.
+type OnMsgDropped = func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
+
+// Drop wraps the logging for drop event.
+func Drop(onMsgDropped OnMsgDropped, l *zap.Logger, clientID string, msg *gmqtt.Message, err error) {
+	if onMsgDropped != nil {
+		l.Warn("message dropped", zap.String("client_id", clientID), zap.Error(err))
+		onMsgDropped(context.Background(), clientID, msg, err)
+	}
+}
+
+// InitOptions is used to pass some required client information to the queue.Init()
+type InitOptions struct {
+	// CleanStart is the cleanStart field in the connect packet.
+	CleanStart bool
+	// Version is the client MQTT protocol version.
+	Version packets.Version
+	// ReadBytesLimit indicates the maximum publish size that is allow to read.
+	ReadBytesLimit uint32
 }
 
 // Store represents a queue store for one client.
@@ -21,9 +55,10 @@ type Store interface {
 	// This method must unblock the Read method.
 	Close() error
 	// Init will be called when the client connect.
-	// If cleanStart set to true, the implementation should remove any associated data in backend store.
-	// If it set to false, the implementation should retrieve the associated data from backend store.
-	Init(cleanStart bool) error
+	// If opts.CleanStart set to true, the implementation should remove any associated data in backend store.
+	// If it sets to false, the implementation should be able to retrieve the associated data from backend store.
+	// The opts.version indicates the protocol version of the connected client, it is mainly used to calculate the publish packet size.
+	Init(opts *InitOptions) error
 	Clean() error
 	// Add inserts a elem to the queue.
 	// When the len of queue is reaching the maximum setting, the implementation should drop non-inflight messages according the following priorities:
@@ -37,9 +72,12 @@ type Store interface {
 	Replace(elem *Elem) (replaced bool, err error)
 
 	// Read reads a batch of new message (non-inflight) from the store. The qos0 messages will be removed after read.
-	// The implementation must validate the expiry and remove the expired messages while reading.
-	// The caller must call ReadInflight first to read all inflight message before calling this method.
 	// The size of the batch will be less than or equal to the size of the given packet id list.
+	// The implementation must remove and do not return any :
+	// 1. expired messages
+	// 2. publish message which exceeds the InitOptions.ReadBytesLimit
+	// while reading.
+	// The caller must call ReadInflight first to read all inflight message before calling this method.
 	// Calling this method will be blocked until there are any new messages can be read or the store has been closed.
 	// If the store has been closed, returns nil, ErrClosed.
 	Read(pids []packets.PacketID) ([]*Elem, error)
@@ -55,7 +93,6 @@ type Store interface {
 
 // ElemExpiry return whether the elem is expired
 func ElemExpiry(now time.Time, elem *Elem) bool {
-
 	if !elem.Expiry.IsZero() {
 		return now.After(elem.Expiry)
 	}
