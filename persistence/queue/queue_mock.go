@@ -48,17 +48,17 @@ func (mr *MockStoreMockRecorder) Close() *gomock.Call {
 }
 
 // Init mocks base method
-func (m *MockStore) Init(cleanStart bool) error {
+func (m *MockStore) Init(opts *InitOptions) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", cleanStart)
+	ret := m.ctrl.Call(m, "Init", opts)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init
-func (mr *MockStoreMockRecorder) Init(cleanStart interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) Init(opts interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockStore)(nil).Init), cleanStart)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockStore)(nil).Init), opts)
 }
 
 // Clean mocks base method

@@ -14,21 +14,15 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
+	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/unack"
+	unack_mem "github.com/DrmagicE/gmqtt/persistence/unack/mem"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/retained"
 )
-
-func uint32P(v uint32) *uint32 {
-	return &v
-}
-func uint16P(v uint16) *uint16 {
-	return &v
-}
-func byteP(v byte) *byte {
-	return &v
-}
 
 const testRedeliveryInternal = 10 * time.Second
 
@@ -220,11 +214,12 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			retainedDB := retained.NewMockStore(ctrl)
 
 			srv := &server{
-				config:          DefaultConfig,
+				config:          config.DefaultConfig,
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
 			c.opts.ClientID = v.clientID
 			c.opts.SubIDAvailable = true
 			c.version = v.version
@@ -245,7 +240,7 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 						Subscription:   sub,
 						AlreadyExisted: false,
 					},
-				})
+				}, nil)
 				// We are not going to test retained logic in this test case.
 				retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter).Return(nil)
 			}
@@ -362,11 +357,12 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			subDB := subscription.NewMockStore(ctrl)
 			retainedDB := retained.NewMockStore(ctrl)
 			srv := &server{
-				config:          DefaultConfig,
+				config:          config.DefaultConfig,
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
 			c.opts.ClientID = v.clientID
 			c.opts.SharedSubAvailable = v.sharedSubAvailable
 			c.version = v.version
@@ -395,7 +391,7 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 							Subscription:   sub,
 							AlreadyExisted: false,
 						},
-					})
+					}, nil)
 				}
 			}
 
@@ -701,22 +697,29 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 
 			subDB := subscription.NewMockStore(ctrl)
 			retainedDB := retained.NewMockStore(ctrl)
+			qs := queue.NewMockStore(ctrl)
 			srv := &server{
-				config:          DefaultConfig,
+				config:          config.DefaultConfig,
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
 			c.opts.ClientID = v.clientID
+			c.queueStore = qs
+			srv.queueStore = make(map[string]queue.Store)
+			srv.queueStore[v.clientID] = qs
 
-			var publishHandlerCalled bool
-			c.publishMessageHandler = func(publish *packets.Publish) {
-				if v.shouldSendRetained {
-					a.Equal(v.expected.qos, publish.Qos)
-					a.Equal(v.expected.retained, publish.Retain)
-					publishHandlerCalled = true
-				}
+			if v.shouldSendRetained {
+				qs.EXPECT().Add(gomock.Any()).DoAndReturn(func(elem *queue.Elem) error {
+					if v.shouldSendRetained {
+						a.Equal(v.expected.qos, elem.MessageWithID.(*queue.Publish).QoS)
+						a.Equal(v.expected.retained, elem.MessageWithID.(*queue.Publish).Retained)
+					}
+					return nil
+				}).Return(nil)
 			}
+
 			c.opts.RetainAvailable = v.retainedAvailable
 			c.version = v.version
 			for _, topic := range v.in.Topics {
@@ -735,7 +738,7 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 						Subscription:   sub,
 						AlreadyExisted: v.alreadyExisted,
 					},
-				})
+				}, nil)
 				if v.shouldSendRetained {
 					retainedDB.EXPECT().GetMatchedMessages(sub.TopicFilter).Return([]*gmqtt.Message{v.retainedMsg})
 				}
@@ -752,11 +755,6 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 				a.Equal(v.out.Properties, suback.Properties)
 			default:
 				t.Fatal("missing output")
-			}
-			if v.shouldSendRetained {
-				a.True(publishHandlerCalled)
-			} else {
-				a.False(publishHandlerCalled)
 			}
 		})
 	}
@@ -831,21 +829,29 @@ func TestClient_publishHandler_common(t *testing.T) {
 			retainedDB := retained.NewMockStore(ctrl)
 			subscriptionDB := subscription.NewMockStore(ctrl)
 			srv := &server{
-				config:          DefaultConfig,
+				config:          config.DefaultConfig,
 				retainedDB:      retainedDB,
 				subscriptionsDB: subscriptionDB,
 			}
 
 			var deliverMessageCalled bool
 
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				deliverMessageCalled = true
 				return v.topicMatched
 			}
 
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
+			c.unackStore = unack_mem.New(unack_mem.Options{
+				ClientID: v.clientID,
+			})
+			srv.unackStore = make(map[string]unack.Store)
+			srv.unackStore[v.clientID] = c.unackStore
+
+			a.Nil(er)
 			c.opts.ClientID = v.clientID
 			c.version = v.version
 
@@ -862,7 +868,9 @@ func TestClient_publishHandler_common(t *testing.T) {
 					a.Equal(v.in.NewPuback(codes.Success, nil), p)
 				case packets.Qos2:
 					a.Equal(v.in.NewPubrec(codes.Success, nil), p)
-					a.True(c.session.unackpublish[v.in.PacketID])
+					bo, err := c.unackStore.Set(v.in.PacketID)
+					a.Nil(err)
+					a.True(bo)
 				}
 			default:
 				if v.in.Qos != packets.Qos0 {
@@ -946,15 +954,21 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 
 			retainedDB := retained.NewMockStore(ctrl)
 			srv := &server{
-				config:     DefaultConfig,
+				config:     config.DefaultConfig,
 				retainedDB: retainedDB,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return v.topicMatched
 			}
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
+			c.unackStore = unack_mem.New(unack_mem.Options{
+				ClientID: v.clientID,
+			})
+			srv.unackStore = make(map[string]unack.Store)
+			srv.unackStore[v.clientID] = c.unackStore
 			c.opts.ClientID = v.clientID
 			c.version = v.version
 			c.opts.RetainAvailable = v.retainedAvailable
@@ -977,7 +991,9 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 					a.Equal(v.in.NewPuback(codes.Success, nil), p)
 				case packets.Qos2:
 					a.Equal(v.in.NewPubrec(codes.Success, nil), p)
-					a.True(c.session.unackpublish[v.in.PacketID])
+					bo, err := c.unackStore.Set(v.in.PacketID)
+					a.Nil(err)
+					a.True(bo)
 				}
 			default:
 				if v.in.Qos != packets.Qos0 {
@@ -1045,14 +1061,15 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			defer ctrl.Finish()
 
 			srv := &server{
-				config: DefaultConfig,
+				config: config.DefaultConfig,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return true
 			}
-			c := srv.newClient(noopConn{})
+			c, er := srv.newClient(noopConn{})
+			a.Nil(er)
 
 			c.opts.ClientID = v.clientID
 			c.version = v.version
@@ -1106,16 +1123,17 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	defer ctrl.Finish()
 
 	srv := &server{
-		config: DefaultConfig,
+		config: config.DefaultConfig,
 	}
 	var deliveredMsg []*gmqtt.Message
-	srv.deliverMessageHandler = func(srcClientID string, dstClientID string, msg *gmqtt.Message) (matched bool) {
+	srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
 		a.Equal("cid", srcClientID)
 		deliveredMsg = append(deliveredMsg, msg)
 		return true
 	}
 	serverTopicAliasMax := uint16(5)
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.aliasMapper = make([][]byte, serverTopicAliasMax+1)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
@@ -1132,86 +1150,28 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	a.Equal(gmqtt.MessageFromPublish(delivered), deliveredMsg[1])
 }
 
-func TestClient_pubackHandler(t *testing.T) {
-	var tt = []struct {
-		name             string
-		clientID         string
-		version          packets.Version
-		in               *packets.Puback
-		clientReceiveMax uint16
-	}{
-		{
-			name:     "v5",
-			clientID: "cid",
-			version:  packets.Version5,
-			in: &packets.Puback{
-				Version:    packets.Version5,
-				PacketID:   1,
-				Code:       codes.Success,
-				Properties: &packets.Properties{},
-			},
-			clientReceiveMax: 10,
-		},
-		{
-			name:     "v311",
-			clientID: "cid",
-			version:  packets.Version311,
-			in: &packets.Puback{
-				Version:    packets.Version311,
-				PacketID:   1,
-				Code:       codes.Success,
-				Properties: nil,
-			},
-		},
-	}
-	for _, v := range tt {
-		t.Run(v.name, func(t *testing.T) {
-			a := assert.New(t)
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			srv := defaultServer()
-			c := srv.newClient(noopConn{})
-			c.opts.ClientID = v.clientID
-			c.version = v.version
-			if v.version == packets.Version5 {
-				c.opts.ClientReceiveMax = v.clientReceiveMax
-				c.clientReceiveMaximumQuota = 1
-			}
-			c.setInflight(&packets.Publish{
-				Version:    v.version,
-				Dup:        false,
-				Qos:        1,
-				Retain:     false,
-				TopicName:  []byte("/topic/A"),
-				PacketID:   1,
-				Payload:    []byte("b"),
-				Properties: nil,
-			})
-			a.Equal(1, c.session.inflight.Len())
-			c.pubackHandler(v.in)
-			if v.version == packets.Version5 {
-				a.EqualValues(1, c.clientReceiveMaximumQuota)
-			}
-			a.Equal(0, c.session.inflight.Len())
-		})
-	}
-
-}
-
 func TestClient_pubrelHandler(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
+	ua := unack.NewMockStore(ctrl)
+	c.unackStore = ua
+	srv.unackStore = make(map[string]unack.Store)
+	srv.unackStore[c.opts.ClientID] = ua
+
+	ua.EXPECT().Remove(packets.PacketID(1))
+
 	c.version = packets.Version5
 	pubrel := &packets.Pubrel{
 		PacketID:   1,
 		Code:       codes.Success,
 		Properties: &packets.Properties{},
 	}
-	c.pubrelHandler(pubrel)
+	a.Nil(c.pubrelHandler(pubrel))
 
 	select {
 	case p := <-c.out:
@@ -1228,19 +1188,24 @@ func TestClient_pubrecHandler_ErrorV5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 	c.opts.ClientReceiveMax = 10
-	c.clientReceiveMaximumQuota = 2
+	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	qs := queue.NewMockStore(ctrl)
+	c.queueStore = qs
+	srv.queueStore = make(map[string]queue.Store)
+	srv.queueStore[c.opts.ClientID] = qs
 	pubrec := &packets.Pubrec{
 		PacketID:   1,
 		Code:       codes.UnspecifiedError,
 		Properties: &packets.Properties{},
 	}
+	qs.EXPECT().Remove(pubrec.PacketID)
 	c.pubrecHandler(pubrec)
-	a.EqualValues(3, c.clientReceiveMaximumQuota)
-	a.Equal(0, c.session.awaitRel.Len())
+
 	select {
 	case p := <-c.out:
 		t.Fatalf("unexpected output: %v", p)
@@ -1253,20 +1218,26 @@ func TestClient_pubrecHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 	c.opts.ClientReceiveMax = 10
-	c.clientReceiveMaximumQuota = 2
+	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	qs := queue.NewMockStore(ctrl)
+	c.queueStore = qs
+	srv.queueStore = make(map[string]queue.Store)
+	srv.queueStore[c.opts.ClientID] = qs
 	pubrec := &packets.Pubrec{
 		PacketID:   1,
 		Code:       codes.Success,
 		Properties: &packets.Properties{},
 	}
+	qs.EXPECT().Replace(gomock.Any()).DoAndReturn(func(elem *queue.Elem) (bool, error) {
+		a.Equal(pubrec.PacketID, elem.MessageWithID.(*queue.Pubrel).PacketID)
+		return true, nil
+	})
 	c.pubrecHandler(pubrec)
-	a.EqualValues(2, c.clientReceiveMaximumQuota)
-
-	a.Equal(1, c.session.awaitRel.Len())
 	select {
 	case p := <-c.out:
 		a.IsType(&packets.Pubrel{}, p)
@@ -1281,18 +1252,23 @@ func TestClient_pubcompHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 	c.opts.ClientReceiveMax = 10
-	c.clientReceiveMaximumQuota = 2
+	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	qs := queue.NewMockStore(ctrl)
+	c.queueStore = qs
+	srv.queueStore = make(map[string]queue.Store)
+	srv.queueStore[c.opts.ClientID] = qs
 	pubcomp := &packets.Pubcomp{
 		PacketID:   1,
 		Code:       codes.Success,
 		Properties: &packets.Properties{},
 	}
+	qs.EXPECT().Remove(pubcomp.PacketID)
 	c.pubcompHandler(pubcomp)
-	a.EqualValues(3, c.clientReceiveMaximumQuota)
 }
 
 func TestClient_pingreqHandler(t *testing.T) {
@@ -1300,7 +1276,8 @@ func TestClient_pingreqHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 	pingreq := &packets.Pingreq{}
@@ -1321,7 +1298,8 @@ func TestClient_unsubscribeHandler(t *testing.T) {
 	subDB := subscription.NewMockStore(ctrl)
 	srv := defaultServer()
 	srv.subscriptionsDB = subDB
-	c := srv.newClient(noopConn{})
+	c, er := srv.newClient(noopConn{})
+	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
 

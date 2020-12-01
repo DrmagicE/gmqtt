@@ -208,8 +208,6 @@ type client struct {
 	serverReceiveMaximumQuota uint16
 
 	config config.Config
-	// for testing
-	publishMessageHandler func(msg *gmqtt.Message)
 
 	queueStore queue.Store
 	unackStore unack.Store
