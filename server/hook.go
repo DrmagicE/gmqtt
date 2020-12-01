@@ -25,7 +25,6 @@ type Hooks struct {
 	OnSessionResumed
 	OnSessionTerminated
 	OnDeliver
-	OnAcked
 	OnClose
 	OnMsgDropped
 }
@@ -191,13 +190,6 @@ type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 type OnDeliver func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnDeliverWrapper func(OnDeliver) OnDeliver
-
-// OnAcked 当客户端对qos1或qos2返回确认的时候调用
-//
-// OnAcked  will be called when receiving the ack in for a published qos1 or qos2 message.
-type OnAcked func(ctx context.Context, client Client, msg *gmqtt.Message)
-
-type OnAckedWrapper func(OnAcked) OnAcked
 
 // OnMsgDropped will be called after the Msg dropped.
 // The err indicates the reason of dropping

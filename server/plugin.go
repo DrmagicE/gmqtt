@@ -12,7 +12,6 @@ type HookWrapper struct {
 	OnSubscribedWrapper        OnSubscribedWrapper
 	OnUnsubscribedWrapper      OnUnsubscribedWrapper
 	OnMsgArrivedWrapper        OnMsgArrivedWrapper
-	OnAckedWrapper             OnAckedWrapper
 	OnMsgDroppedWrapper        OnMsgDroppedWrapper
 	OnDeliverWrapper           OnDeliverWrapper
 	OnCloseWrapper             OnCloseWrapper

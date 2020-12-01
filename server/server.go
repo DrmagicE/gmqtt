@@ -505,6 +505,11 @@ func (srv *server) addMsgToQueue(now time.Time, clientID string, msg *gmqtt.Mess
 
 }
 
+var (
+	mu sync.Mutex
+	i  int
+)
+
 // deliverMessage send msg to matched client, must call under srv.Lock
 func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions, key by share name.
@@ -841,11 +846,9 @@ func (srv *server) loadPlugins() error {
 		onUnsubscribedWrappers     []OnUnsubscribedWrapper
 		onMsgArrivedWrappers       []OnMsgArrivedWrapper
 		onDeliverWrappers          []OnDeliverWrapper
-		// TODO remove onAck wrappers
-		onAckedWrappers      []OnAckedWrapper
-		onCloseWrappers      []OnCloseWrapper
-		onStopWrappers       []OnStopWrapper
-		onMsgDroppedWrappers []OnMsgDroppedWrapper
+		onCloseWrappers            []OnCloseWrapper
+		onStopWrappers             []OnStopWrapper
+		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
 	for _, p := range srv.plugins {
 		zaplog.Info("loading plugin", zap.String("name", p.Name()))
@@ -893,9 +896,6 @@ func (srv *server) loadPlugins() error {
 		}
 		if hooks.OnDeliverWrapper != nil {
 			onDeliverWrappers = append(onDeliverWrappers, hooks.OnDeliverWrapper)
-		}
-		if hooks.OnAckedWrapper != nil {
-			onAckedWrappers = append(onAckedWrappers, hooks.OnAckedWrapper)
 		}
 		if hooks.OnCloseWrapper != nil {
 			onCloseWrappers = append(onCloseWrappers, hooks.OnCloseWrapper)
@@ -1004,13 +1004,6 @@ func (srv *server) loadPlugins() error {
 			onDeliver = onDeliverWrappers[i-1](onDeliver)
 		}
 		srv.hooks.OnDeliver = onDeliver
-	}
-	if onAckedWrappers != nil {
-		onAcked := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
-		for i := len(onAckedWrappers); i > 0; i-- {
-			onAcked = onAckedWrappers[i-1](onAcked)
-		}
-		srv.hooks.OnAcked = onAcked
 	}
 	if onCloseWrappers != nil {
 		onClose := func(ctx context.Context, client Client, err error) {}

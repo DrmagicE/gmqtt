@@ -302,15 +302,14 @@ func (client *client) setError(err error) {
 				if code, ok := err.(*codes.Error); ok {
 					if client.IsConnected() {
 						// send Disconnect
-						client.out <- &packets.Disconnect{
+						client.write(&packets.Disconnect{
 							Version: packets.Version5,
 							Code:    code.Code,
 							Properties: &packets.Properties{
 								ReasonString: code.ReasonString,
 								User:         kvsToProperties(code.UserProperties),
 							},
-						}
-
+						})
 					}
 				}
 			}
