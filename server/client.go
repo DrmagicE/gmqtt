@@ -1288,6 +1288,17 @@ func (client *client) readHandle() {
 
 }
 
+func (client *client) newPacketIDLimiter(limit uint16) {
+	client.pl = &packetIDLimiter{
+		cond:      sync.NewCond(&sync.Mutex{}),
+		used:      0,
+		limit:     limit,
+		exit:      false,
+		freePid:   1,
+		lockedPid: make(map[packets.PacketID]bool),
+	}
+}
+
 func (client *client) pollInflights() (cont bool, err error) {
 	var elems []*queue.Elem
 	elems, err = client.queueStore.ReadInflight(uint(client.opts.ServerReceiveMax))

@@ -3,34 +3,30 @@ package server
 import (
 	"sync"
 
-	"go.uber.org/zap"
-
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-// packetIDLimiter limit the generation of packet id to keep the number of inflight messages always less or equal than receive maximum setting of the client.
-type packetIDLimiter struct {
-	cond   *sync.Cond
-	used   uint16 // 当前用了多少ID
-	limit  uint16 // 最多同时可以用多少个个ID
-	exit   bool
-	client *client
-
-	lockedPid map[packets.PacketID]bool // packet id in-use
-	freePid   packets.PacketID          //下一个可以使用的freeID
-}
-
-func (client *client) newPacketIDLimiter(limit uint16) {
-	client.pl = &packetIDLimiter{
+func newPacketIDLimiter(limit uint16) *packetIDLimiter {
+	return &packetIDLimiter{
 		cond:      sync.NewCond(&sync.Mutex{}),
 		used:      0,
 		limit:     limit,
 		exit:      false,
-		client:    client,
 		freePid:   1,
 		lockedPid: make(map[packets.PacketID]bool),
 	}
 }
+
+// packetIDLimiter limit the generation of packet id to keep the number of inflight messages always less or equal than receive maximum setting of the client.
+type packetIDLimiter struct {
+	cond      *sync.Cond
+	used      uint16 // 当前用了多少ID
+	limit     uint16 // 最多同时可以用多少个个ID
+	exit      bool
+	lockedPid map[packets.PacketID]bool // packet id in-use
+	freePid   packets.PacketID          //下一个可以使用的freeID
+}
+
 func (p *packetIDLimiter) close() {
 	p.cond.L.Lock()
 	p.exit = true
@@ -57,17 +53,19 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 	}
 	for j := uint16(0); j < n; j++ {
 		for p.lockedPid[p.freePid] {
-			p.freePid++
-			if p.freePid > packets.MaxPacketID {
+			if p.freePid == packets.MaxPacketID {
 				p.freePid = packets.MinPacketID
+			} else {
+				p.freePid++
 			}
 		}
 		id = append(id, p.freePid)
 		p.used++
 		p.lockedPid[p.freePid] = true
-		p.freePid++
-		if p.freePid > packets.MaxPacketID {
+		if p.freePid == packets.MaxPacketID {
 			p.freePid = packets.MinPacketID
+		} else {
+			p.freePid++
 		}
 	}
 	return id
@@ -77,11 +75,6 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 func (p *packetIDLimiter) release(id packets.PacketID) {
 	p.cond.L.Lock()
 	p.releaseLocked(id)
-	zaplog.Debug("release client quota",
-		zap.String("client_id", p.client.opts.ClientID),
-		zap.Uint16("quota", p.used),
-		zap.String("remote_addr", p.client.rwc.RemoteAddr().String()),
-	)
 	p.cond.L.Unlock()
 	p.cond.Signal()
 
