@@ -16,14 +16,10 @@ import (
 )
 
 func init() {
-	server.RegisterPersistenceFactory("redis", &redisFactory{})
+	server.RegisterPersistenceFactory("redis", NewRedis)
 }
 
-type redisFactory struct {
-	config config.Config
-}
-
-func (r *redisFactory) New(config config.Config, hooks server.Hooks) (server.Persistence, error) {
+func NewRedis(config config.Config, hooks server.Hooks) (server.Persistence, error) {
 	return &redis{
 		onMsgDropped: hooks.OnMsgDropped,
 		config:       config,

@@ -12,68 +12,6 @@ import (
 	time "time"
 )
 
-// MockTopicAliasManager is a mock of TopicAliasManager interface
-type MockTopicAliasManager struct {
-	ctrl     *gomock.Controller
-	recorder *MockTopicAliasManagerMockRecorder
-}
-
-// MockTopicAliasManagerMockRecorder is the mock recorder for MockTopicAliasManager
-type MockTopicAliasManagerMockRecorder struct {
-	mock *MockTopicAliasManager
-}
-
-// NewMockTopicAliasManager creates a new mock instance
-func NewMockTopicAliasManager(ctrl *gomock.Controller) *MockTopicAliasManager {
-	mock := &MockTopicAliasManager{ctrl: ctrl}
-	mock.recorder = &MockTopicAliasManagerMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use
-func (m *MockTopicAliasManager) EXPECT() *MockTopicAliasManagerMockRecorder {
-	return m.recorder
-}
-
-// Create mocks base method
-func (m *MockTopicAliasManager) Create(client Client) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Create", client)
-}
-
-// Create indicates an expected call of Create
-func (mr *MockTopicAliasManagerMockRecorder) Create(client interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockTopicAliasManager)(nil).Create), client)
-}
-
-// Check mocks base method
-func (m *MockTopicAliasManager) Check(client Client, publish *packets.Publish) (uint16, bool) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Check", client, publish)
-	ret0, _ := ret[0].(uint16)
-	ret1, _ := ret[1].(bool)
-	return ret0, ret1
-}
-
-// Check indicates an expected call of Check
-func (mr *MockTopicAliasManagerMockRecorder) Check(client, publish interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Check", reflect.TypeOf((*MockTopicAliasManager)(nil).Check), client, publish)
-}
-
-// Delete mocks base method
-func (m *MockTopicAliasManager) Delete(client Client) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Delete", client)
-}
-
-// Delete indicates an expected call of Delete
-func (mr *MockTopicAliasManagerMockRecorder) Delete(client interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockTopicAliasManager)(nil).Delete), client)
-}
-
 // MockClient is a mock of Client interface
 type MockClient struct {
 	ctrl     *gomock.Controller

@@ -29,13 +29,16 @@ persistence:
     max_active: 0
     idle_timeout: 240s
 
+topic_alias_manager:
+  type: fifo
+
 plugins:
   prometheus:
     path: "/metrics"
     listen_address: ":8082"
 
 log:
-  level: error # debug | info | warn | error
+  level: info # debug | info | warn | error
 
 
 

@@ -36,18 +36,23 @@ var (
 
 	plugins []Plugable
 
-	// DefaultTopicAliasMgrFactory is optional, see the topicalias package
-	DefaultTopicAliasMgrFactory topicAliasMgrFactory
+	topicAliasMgrFactory = make(map[string]NewTopicAliasManager)
 
-	persistenceFactories = make(map[string]PersistenceFactory)
+	persistenceFactories = make(map[string]NewPersistence)
 )
 
-func RegisterPersistenceFactory(name string, factory PersistenceFactory) {
-	persistenceFactories[name] = factory
+func RegisterPersistenceFactory(name string, new NewPersistence) {
+	if _, ok := persistenceFactories[name]; ok {
+		panic("duplicated persistence factory: " + name)
+	}
+	persistenceFactories[name] = new
 }
 
-type topicAliasMgrFactory interface {
-	New() TopicAliasManager
+func RegisterTopicAliasMgrFactory(name string, new NewTopicAliasManager) {
+	if _, ok := topicAliasMgrFactory[name]; ok {
+		panic("duplicated topic alias manager factory: " + name)
+	}
+	topicAliasMgrFactory[name] = new
 }
 
 // Server status
@@ -133,8 +138,7 @@ type server struct {
 	statsManager   StatsManager
 	publishService PublishService
 
-	// manage topic alias for V5 clients
-	topicAliasManager TopicAliasManager
+	newTopicAliasManager NewTopicAliasManager
 	// for testing
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 }
@@ -274,6 +278,9 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			srv.queueStore[client.opts.ClientID] = qs
 			client.queueStore = qs
 			client.unackStore = ua
+			if client.version == packets.Version5 {
+				client.topicAliasManager = srv.newTopicAliasManager(client.config, client.opts.ClientTopicAliasMax, client.opts.ClientID)
+			}
 			connack = connect.NewConnackPacket(codes.Success, sessionResume)
 		} else {
 			connack = connect.NewConnackPacket(codes.UnspecifiedError, sessionResume)
@@ -394,9 +401,6 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		)
 	}
 	delete(srv.offlineClients, client.opts.ClientID)
-	if srv.topicAliasManager != nil {
-		srv.topicAliasManager.Create(client)
-	}
 	return
 }
 
@@ -682,9 +686,6 @@ func defaultServer() *server {
 		statsManager:    statsMgr,
 		queueStore:      make(map[string]queue.Store),
 		unackStore:      make(map[string]unack.Store),
-	}
-	if DefaultTopicAliasMgrFactory != nil {
-		srv.topicAliasManager = DefaultTopicAliasMgrFactory.New()
 	}
 
 	srv.deliverMessageHandler = srv.deliverMessage
@@ -1050,14 +1051,15 @@ func (srv *server) wsHandler() http.HandlerFunc {
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() (err error) {
 
-	var pf PersistenceFactory
 	var pe Persistence
 	peType := srv.config.Persistence.Type
-	if pf = persistenceFactories[peType]; pf != nil {
-		pe, err = persistenceFactories[srv.config.Persistence.Type].New(srv.config, srv.hooks)
+	if newFn := persistenceFactories[peType]; newFn != nil {
+		pe, err = newFn(srv.config, srv.hooks)
 		if err != nil {
 			return err
 		}
+	} else {
+		return fmt.Errorf("persistence factory: %s not found", peType)
 	}
 	err = pe.Open()
 	if err != nil {
@@ -1108,6 +1110,13 @@ func (srv *server) Run() (err error) {
 	err = srv.subscriptionsDB.Init(cids)
 	if err != nil {
 		return err
+	}
+
+	topicAliasMgrFactory := topicAliasMgrFactory[srv.config.TopicAliasManager.Type]
+	if topicAliasMgrFactory != nil {
+		srv.newTopicAliasManager = topicAliasMgrFactory
+	} else {
+		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
 
 	var tcps []string

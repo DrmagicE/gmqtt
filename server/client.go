@@ -136,22 +136,6 @@ type ClientOptions struct {
 	}
 }
 
-// TopicAliasManager manage the topic alias for V5 client.
-// see topicalias/fifo for more details.
-type TopicAliasManager interface {
-	// Create will be called when the client connects
-	Create(client Client)
-	// Check return the alias number and whether the alias exist.
-	// For examples:
-	// If the Publish alias exist and the manager decides to use the alias, it return the alias number and true.
-	// If the Publish alias exist, but the manager decides not to use alias, it return 0 and true.
-	// If the Publish alias not exist and the manager decides to assign a new alias, it return the new alias and false.
-	// If the Publish alias not exist, but the manager decides not to assign alias, it return the 0 and false.
-	Check(client Client, publish *packets.Publish) (alias uint16, exist bool)
-	// Delete will be called when the client disconnects.
-	Delete(client Client)
-}
-
 // Client represent a mqtt client.
 type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
@@ -199,9 +183,10 @@ type client struct {
 	connectedAt    int64
 	disconnectedAt int64
 
-	statsManager SessionStatsManager
-	version      packets.Version
-	aliasMapper  [][]byte
+	statsManager      SessionStatsManager
+	topicAliasManager TopicAliasManager
+	version           packets.Version
+	aliasMapper       [][]byte
 
 	// gard serverReceiveMaximumQuota
 	serverQuotaMu             sync.Mutex
@@ -317,7 +302,6 @@ func (client *client) setError(err error) {
 
 func (client *client) writeLoop() {
 	var err error
-	srv := client.server
 	defer func() {
 		if re := recover(); re != nil {
 			err = errors.New(fmt.Sprint(re))
@@ -336,9 +320,9 @@ func (client *client) writeLoop() {
 				client.statsManager.messageSent(p.Qos)
 
 				if client.version == packets.Version5 {
-					if client.opts.ClientTopicAliasMax > 0 && srv.topicAliasManager != nil {
+					if client.opts.ClientTopicAliasMax > 0 {
 						// use alias if exist
-						if alias, ok := srv.topicAliasManager.Check(client, p); ok {
+						if alias, ok := client.topicAliasManager.Check(p); ok {
 							p.TopicName = []byte{}
 							p.Properties.TopicAlias = &alias
 						} else {
@@ -776,9 +760,6 @@ func (client *client) internalClose() {
 	client.setDisconnectedAt(time.Now())
 	client.server.statsManager.addClientDisconnected()
 	client.server.statsManager.decSessionActive()
-	if client.server.topicAliasManager != nil {
-		client.server.topicAliasManager.Delete(client)
-	}
 }
 
 func (client *client) checkMaxPacketSize(msg *gmqtt.Message) (valid bool) {

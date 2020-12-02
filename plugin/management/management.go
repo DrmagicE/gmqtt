@@ -7,9 +7,9 @@ import (
 	"strconv"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
-	"github.com/DrmagicE/gmqtt/subscription"
 
 	"github.com/gin-gonic/gin"
 )

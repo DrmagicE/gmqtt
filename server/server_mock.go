@@ -14,43 +14,6 @@ import (
 	reflect "reflect"
 )
 
-// MocktopicAliasMgrFactory is a mock of topicAliasMgrFactory interface
-type MocktopicAliasMgrFactory struct {
-	ctrl     *gomock.Controller
-	recorder *MocktopicAliasMgrFactoryMockRecorder
-}
-
-// MocktopicAliasMgrFactoryMockRecorder is the mock recorder for MocktopicAliasMgrFactory
-type MocktopicAliasMgrFactoryMockRecorder struct {
-	mock *MocktopicAliasMgrFactory
-}
-
-// NewMocktopicAliasMgrFactory creates a new mock instance
-func NewMocktopicAliasMgrFactory(ctrl *gomock.Controller) *MocktopicAliasMgrFactory {
-	mock := &MocktopicAliasMgrFactory{ctrl: ctrl}
-	mock.recorder = &MocktopicAliasMgrFactoryMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use
-func (m *MocktopicAliasMgrFactory) EXPECT() *MocktopicAliasMgrFactoryMockRecorder {
-	return m.recorder
-}
-
-// New mocks base method
-func (m *MocktopicAliasMgrFactory) New() TopicAliasManager {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "New")
-	ret0, _ := ret[0].(TopicAliasManager)
-	return ret0
-}
-
-// New indicates an expected call of New
-func (mr *MocktopicAliasMgrFactoryMockRecorder) New() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "New", reflect.TypeOf((*MocktopicAliasMgrFactory)(nil).New))
-}
-
 // MockServer is a mock of Server interface
 type MockServer struct {
 	ctrl     *gomock.Controller

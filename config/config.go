@@ -20,7 +20,8 @@ var DefaultConfig = Config{
 	//Plugins: PluginsConfig{
 	//	Prometheus: prometheus.DefaultConfig,
 	//},
-	Persistence: DefaultPersistenceConfig,
+	Persistence:       DefaultPersistenceConfig,
+	TopicAliasManager: DefaultTopicAliasManager,
 }
 var DefaultListeners = []*ListenerConfig{
 	{
@@ -42,7 +43,8 @@ type Config struct {
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
 	//Plugins     PluginsConfig     `yaml:"plugins"`
-	Persistence Persistence `yaml:"persistence"`
+	Persistence       Persistence       `yaml:"persistence"`
+	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
 }
 
 //type PluginsConfig struct {
@@ -106,8 +108,8 @@ func (c Config) GetLogger(config LogConfig) (l *zap.Logger, err error) {
 		return
 	}
 
-	lc := zap.NewDevelopmentConfig()
-	lc.Level = zap.NewAtomicLevelAt(logLevel)
-	l, err = lc.Build()
-	return
+	lc := zap.NewNop()
+	//lc.Level = zap.NewAtomicLevelAt(logLevel)
+	//l, err = lc.Build()
+	return lc, nil
 }

@@ -16,8 +16,8 @@ import (
 
 type MemorySuite struct {
 	suite.Suite
-	factory *memoryFactory
-	p       server.Persistence
+	new server.NewPersistence
+	p   server.Persistence
 }
 
 func (s *MemorySuite) TestQueue() {
@@ -48,14 +48,11 @@ func (s *MemorySuite) TestUnack() {
 }
 
 func TestMemory(t *testing.T) {
-
-	factory := &memoryFactory{}
-	p, err := factory.New(config.Config{}, queue_test.TestHooks)
+	p, err := NewMemory(config.Config{}, queue_test.TestHooks)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 	suite.Run(t, &MemorySuite{
-		factory: &memoryFactory{},
-		p:       p,
+		p: p,
 	})
 }

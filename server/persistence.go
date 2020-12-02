@@ -8,6 +8,8 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/unack"
 )
 
+type NewPersistence func(config config.Config, hooks Hooks) (Persistence, error)
+
 type Persistence interface {
 	Open() error
 	NewQueueStore(config config.Config, clientID string) (queue.Store, error)
@@ -15,8 +17,4 @@ type Persistence interface {
 	NewSessionStore(config config.Config) (session.Store, error)
 	NewUnackStore(config config.Config, clientID string) (unack.Store, error)
 	Close() error
-}
-
-type PersistenceFactory interface {
-	New(config config.Config, hooks Hooks) (Persistence, error)
 }

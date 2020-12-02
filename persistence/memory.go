@@ -14,14 +14,10 @@ import (
 )
 
 func init() {
-	server.RegisterPersistenceFactory("memory", &memoryFactory{})
+	server.RegisterPersistenceFactory("memory", NewMemory)
 }
 
-type memoryFactory struct {
-	config config.Config
-}
-
-func (m *memoryFactory) New(config config.Config, hooks server.Hooks) (server.Persistence, error) {
+func NewMemory(config config.Config, hooks server.Hooks) (server.Persistence, error) {
 	return &memory{
 		onMsgDropped: hooks.OnMsgDropped,
 	}, nil

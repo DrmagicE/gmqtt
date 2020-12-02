@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/server"
-	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
+	_ "github.com/DrmagicE/gmqtt/topicalias/fifo" // set default topicalias manager
 )
 
 func main() {

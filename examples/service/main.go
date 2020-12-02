@@ -12,10 +12,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
-	"github.com/DrmagicE/gmqtt/subscription"
-	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
+	_ "github.com/DrmagicE/gmqtt/topicalias/fifo"
 )
 
 func main() {

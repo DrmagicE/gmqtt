@@ -33,8 +33,7 @@ func init() {
 
 type RedisSuite struct {
 	suite.Suite
-	factory *redisFactory
-	p       server.Persistence
+	p server.Persistence
 }
 
 func (s *RedisSuite) SetupTest() {
@@ -44,8 +43,7 @@ func (s *RedisSuite) SetupTest() {
 	}
 	time.Sleep(2 * time.Second) // wait for redis start
 
-	factory := &redisFactory{}
-	p, err := factory.New(config.Config{
+	p, err := NewRedis(config.Config{
 		Persistence: config.Persistence{
 			Type:  config.PersistenceTypeRedis,
 			Redis: redisConfig,
@@ -58,7 +56,6 @@ func (s *RedisSuite) SetupTest() {
 	if err != nil {
 		s.Suite.T().Fatal("fail to open redis", err)
 	}
-	s.factory = factory
 	s.p = p
 }
 

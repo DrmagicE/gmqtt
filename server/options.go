@@ -50,9 +50,3 @@ func WithLogger(logger *zap.Logger) Options {
 		zaplog = logger
 	}
 }
-
-func WithTopicAliasMgr(mgr TopicAliasManager) Options {
-	return func(srv *server) {
-		srv.topicAliasManager = mgr
-	}
-}

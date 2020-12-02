@@ -11,18 +11,20 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
+	_ "github.com/DrmagicE/gmqtt/persistence"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
-	_ "github.com/DrmagicE/gmqtt/topicalias" // set default topicalias manager
+	_ "github.com/DrmagicE/gmqtt/topicalias/fifo"
 )
 
 var validUser = map[string]string{
-	"root":          "rootpwd",
-	"qos0":          "0pwd",
-	"qos1":          "1pwd",
-	"publishonly":   "ppwd",
-	"subscribeonly": "spwd",
+	"root":           "rootpwd",
+	"qos0":           "0pwd",
+	"qos1":           "1pwd",
+	"publishonly":    "ppwd",
+	"subscribeonly":  "spwd",
+	"disable_shared": "shared",
 }
 
 func validateUser(username string, password string) bool {
@@ -52,6 +54,13 @@ func main() {
 		}
 		switch client.Version() {
 		case packets.Version5:
+			var ppt *packets.Properties
+
+			if username == "disable_shared" {
+				ppt = req.DefaultConnackProperties
+				b := byte(0)
+				ppt.SharedSubAvailable = &b
+			}
 			return &server.ConnectResponse{
 				Code: codes.BadUserNameOrPassword,
 			}
@@ -108,7 +117,6 @@ func main() {
 					Version: packets.Version5,
 					Code:    codes.UnspecifiedError,
 				})
-
 			}
 		}
 		//Only qos1 & qos0 are acceptable(will be delivered)
