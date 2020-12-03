@@ -41,15 +41,11 @@ type OnStop func(ctx context.Context)
 
 type OnStopWrapper func(OnStop) OnStop
 
-/*
-OnSubscribe 返回topic允许订阅的最高QoS等级
-
-OnSubscribe returns the maximum available QoS for the topic:
- 0x00 - Success - Maximum QoS 0
- 0x01 - Success - Maximum QoS 1
- 0x02 - Success - Maximum QoS 2
- 0x80 - Failure
-*/
+// OnSubscribe returns the maximum available QoS for the topic:
+// 0x00 - Success - Maximum QoS 0
+// 0x01 - Success - Maximum QoS 1
+// 0x02 - Success - Maximum QoS 2
+// 0x80 - Failure
 type OnSubscribe func(ctx context.Context, client Client, subscribe *packets.Subscribe) (resp *SubscribeResponse, err *codes.ErrorDetails)
 
 type SubscribeResponse struct {
@@ -96,43 +92,59 @@ type OnClose func(ctx context.Context, client Client, err error)
 
 type OnCloseWrapper func(OnClose) OnClose
 
-type ConnectRequest struct {
-	Connect                  *packets.Connect
-	DefaultConnackProperties *packets.Properties
+type AuthOptions struct {
+	SessionExpiry        uint32
+	ReceiveMax           uint16
+	MaximumQoS           uint8
+	MaxPacketSize        uint32
+	TopicAliasMax        uint16
+	RetainAvailable      bool
+	WildcardSubAvailable bool
+	SubIDAvailable       bool
+	SharedSubAvailable   bool
+	KeepAlive            uint16
+	UserProperties       []*packets.UserProperty
+	AssignedClientID     []byte
+	ResponseInfo         []byte
 }
 
 // OnBasicAuth will be called when receive v311 connect packet or v5 connect packet with empty auth method property.
-type OnBasicAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *ConnectResponse)
-type ConnectResponse struct {
-	Code              codes.Code
-	ConnackProperties *packets.Properties
+type OnBasicAuth func(ctx context.Context, client Client, req *ConnectRequest) (err error)
+
+// ConnectRequest
+type ConnectRequest struct {
+	// Connect is the MQTT connect packet.It is immutable, do not edit.
+	Connect *packets.Connect
+	// Options represents the setting which will be applied to the current client if auth success.
+	// Caller can edit this property to change the setting.
+	Options *AuthOptions
 }
+
 type OnBasicAuthWrapper func(OnBasicAuth) OnBasicAuth
 
 // OnEnhancedAuth will be called when receive v5 connect packet with auth method property.
-type OnEnhancedAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse)
+type OnEnhancedAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error)
+
 type EnhancedAuthResponse struct {
-	Code              codes.Code
-	OnAuth            OnAuth
-	AuthData          []byte
-	ConnackProperties *packets.Properties
+	Continue   bool
+	OnAuth     OnAuth
+	AuthData   []byte
+	AuthMethod []byte
 }
 type OnEnhancedAuthWrapper func(OnEnhancedAuth) OnEnhancedAuth
 
 type AuthRequest struct {
-	Auth                     *packets.Auth
-	DefaultConnackProperties *packets.Properties
+	Auth    *packets.Auth
+	Options *AuthOptions
 }
 
 type AuthResponse struct {
-	codes codes.Code
+	Continue bool
 	// AuthData is the auth data property of the auth packet.
 	AuthData []byte
-	// ConnackProperties is the connack properties.
-	ConnackProperties *packets.Properties
 }
 
-type OnAuth func(ctx context.Context, client Client, authRequest *AuthRequest) *AuthResponse
+type OnAuth func(ctx context.Context, client Client, req *AuthRequest) (resp *AuthResponse)
 
 type OnReAuthWrapper func(OnReAuth) OnReAuth
 

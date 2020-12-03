@@ -44,30 +44,20 @@ func main() {
 		return
 	}
 	//authentication
-	var onBasicAuth server.OnBasicAuth = func(ctx context.Context, client server.Client, req *server.ConnectRequest) (resp *server.ConnectResponse) {
+	var onBasicAuth server.OnBasicAuth = func(ctx context.Context, client server.Client, req *server.ConnectRequest) error {
 		username := string(req.Connect.Username)
 		password := string(req.Connect.Password)
 		if validateUser(username, password) {
-			return &server.ConnectResponse{
-				Code: codes.Success,
+			if username == "disable_shared" {
+				req.Options.SharedSubAvailable = false
 			}
+			return nil
 		}
 		switch client.Version() {
 		case packets.Version5:
-			var ppt *packets.Properties
-
-			if username == "disable_shared" {
-				ppt = req.DefaultConnackProperties
-				b := byte(0)
-				ppt.SharedSubAvailable = &b
-			}
-			return &server.ConnectResponse{
-				Code: codes.BadUserNameOrPassword,
-			}
+			return codes.NewError(codes.BadUserNameOrPassword)
 		case packets.Version311:
-			return &server.ConnectResponse{
-				Code: codes.V3BadUsernameorPassword,
-			}
+			return codes.NewError(codes.V3BadUsernameorPassword)
 		}
 		return nil
 	}

@@ -40,7 +40,6 @@ const (
 	Connecting = iota
 	Connected
 	Switiching
-	Disconnected
 )
 const (
 	readBufferSize  = 4096
@@ -105,7 +104,10 @@ type ClientOptions struct {
 	CleanStart    bool
 	SessionExpiry uint32
 
+	// Client 最多能同时接受多少 Server发过去的message。Server发送要限速
+	// Inflightmessage
 	ClientReceiveMax uint16
+	// Server 最多能同时接受多少 Client发过来的message，Client要限速
 	ServerReceiveMax uint16
 
 	ClientMaxPacketSize uint32
@@ -143,12 +145,8 @@ type Client interface {
 	ClientOptions() *ClientOptions
 	// Version return the protocol version of the used client.
 	Version() packets.Version
-	// IsConnected returns whether the client is connected.
-	IsConnected() bool
 	// ConnectedAt returns the connected time
 	ConnectedAt() time.Time
-	// DisconnectedAt return the disconnected time
-	DisconnectedAt() time.Time
 	// Connection returns the raw net.Conn
 	Connection() net.Conn
 	// Close closes the client connection. The returned channel will be closed after unregister process has been done
@@ -224,11 +222,6 @@ func (client *client) ConnectedAt() time.Time {
 	return time.Unix(atomic.LoadInt64(&client.connectedAt), 0)
 }
 
-// DisconnectedAt
-func (client *client) DisconnectedAt() time.Time {
-	return time.Unix(atomic.LoadInt64(&client.disconnectedAt), 0)
-}
-
 // Connection returns the raw net.Conn
 func (client *client) Connection() net.Conn {
 	return client.rwc
@@ -247,10 +240,6 @@ func (client *client) setConnected(time time.Time) {
 	atomic.StoreInt32(&client.status, Connected)
 }
 
-func (client *client) setDisConnected() {
-	atomic.StoreInt32(&client.status, Disconnected)
-}
-
 //Status returns client's status
 func (client *client) Status() int32 {
 	return atomic.LoadInt32(&client.status)
@@ -259,11 +248,6 @@ func (client *client) Status() int32 {
 // IsConnected returns whether the client is connected or not.
 func (client *client) IsConnected() bool {
 	return client.Status() == Connected
-}
-
-// IsDisConnected returns whether the client is connected or not.
-func (client *client) IsDisConnected() bool {
-	return client.Status() == Disconnected
 }
 
 func (client *client) setError(err error) {
@@ -424,7 +408,7 @@ func (client *client) readLoop() {
 		client.server.statsManager.packetReceived(packet)
 		if pub, ok := packet.(*packets.Publish); ok {
 			client.server.statsManager.messageReceived(pub.Qos)
-			if client.version == packets.Version5 {
+			if client.version == packets.Version5 && pub.Qos > packets.Qos0 {
 				err = client.tryDecServerQuota()
 				if err != nil {
 					return
@@ -526,8 +510,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	var conn *packets.Connect
-	// connack Properties
-	var ppt *packets.Properties
+	var authOpts *AuthOptions
 	// for enhanced auth
 	var onAuth OnAuth
 	for {
@@ -553,49 +536,50 @@ func (client *client) connectWithTimeOut() (ok bool) {
 
 				conn = p.(*packets.Connect)
 				client.version = conn.Version
-				// default connack properties
-				ppt = client.defaultConnackProperties(conn)
+				// default auth options
+				authOpts = client.defaultAuthOptions(conn)
 				// set default options.
-				client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
-				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
-				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
-				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
-				client.opts.SessionExpiry = *ppt.SessionExpiryInterval
+				client.opts.RetainAvailable = authOpts.RetainAvailable
+				client.opts.WildcardSubAvailable = authOpts.WildcardSubAvailable
+				client.opts.SubIDAvailable = authOpts.SubIDAvailable
+				client.opts.SharedSubAvailable = authOpts.SharedSubAvailable
+				client.opts.SessionExpiry = authOpts.SessionExpiry
 
 				client.opts.ClientReceiveMax = math.MaxUint16 // unlimited
-				client.opts.ServerReceiveMax = *ppt.ReceiveMaximum
+				client.opts.ServerReceiveMax = authOpts.ReceiveMax
 
 				client.opts.ClientMaxPacketSize = math.MaxUint32 // unlimited
-				client.opts.ServerMaxPacketSize = *ppt.MaximumPacketSize
+				client.opts.ServerMaxPacketSize = authOpts.MaxPacketSize
 
-				client.opts.ServerTopicAliasMax = *ppt.TopicAliasMaximum
+				client.opts.ServerTopicAliasMax = authOpts.TopicAliasMax
 
 				if conn.Properties == nil || len(conn.Properties.AuthMethod) == 0 {
 					// basic auth
 					if srv.hooks.OnBasicAuth != nil {
-						resp := srv.hooks.OnBasicAuth(context.Background(), client, &ConnectRequest{
-							Connect:                  conn,
-							DefaultConnackProperties: ppt,
+						err = srv.hooks.OnBasicAuth(context.Background(), client, &ConnectRequest{
+							Connect: conn,
+							Options: authOpts,
 						})
-						code = resp.Code
-						if resp.ConnackProperties != nil {
-							// override connack properties
-							ppt = resp.ConnackProperties
+						if err != nil {
+							code = codes.Success
 						}
 					}
 				} else {
 					// enhanced auth
 					if srv.hooks.OnEnhancedAuth != nil {
-						resp := srv.hooks.OnEnhancedAuth(context.Background(), client, &ConnectRequest{
-							Connect:                  conn,
-							DefaultConnackProperties: ppt,
+						var resp *EnhancedAuthResponse
+						resp, err = srv.hooks.OnEnhancedAuth(context.Background(), client, &ConnectRequest{
+							Connect: conn,
+							Options: authOpts,
 						})
-						code = resp.Code
-						authData = resp.AuthData
-						onAuth = resp.OnAuth
-						if resp.ConnackProperties != nil {
-							// override connack properties
-							ppt = resp.ConnackProperties
+						if err != nil {
+							if resp.Continue {
+								code = codes.ContinueAuthentication
+							} else {
+								code = codes.Success
+							}
+							authData = resp.AuthData
+							onAuth = resp.OnAuth
 						}
 					}
 				}
@@ -606,28 +590,29 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				}
 				if onAuth != nil {
 					authResp := onAuth(context.Background(), client, &AuthRequest{
-						Auth:                     p.(*packets.Auth),
-						DefaultConnackProperties: ppt,
+						Auth:    p.(*packets.Auth),
+						Options: authOpts,
 					})
-					code = authResp.codes
-					authData = authResp.AuthData
-					if authResp.ConnackProperties != nil {
-						// override connack properties
-						ppt = authResp.ConnackProperties
+					if authResp.Continue {
+						code = codes.ContinueAuthentication
 					}
+					authData = authResp.AuthData
 				} else {
 					err = codes.ErrProtocol
 					return
 				}
 			}
 			// authentication faile
-			if code != codes.Success && code != codes.ContinueAuthentication {
+			if err != nil {
+				codeErr := converError(err)
 				client.out <- &packets.Connack{
-					Code:       code,
-					Properties: ppt,
+					Version:    client.version,
+					Code:       codeErr.Code,
+					Properties: getErrorProperties(client, &codeErr.ErrorDetails),
 				}
 				return
 			}
+			// authentication success
 			if code == codes.ContinueAuthentication && authData != nil {
 				client.out <- &packets.Auth{
 					Code: code,
@@ -639,38 +624,51 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				continue
 			}
 
-			if client.version == packets.Version5 {
-				client.opts.RetainAvailable = byte2bool(ppt.RetainAvailable)
-				client.opts.WildcardSubAvailable = byte2bool(ppt.WildcardSubAvailable)
-				client.opts.SubIDAvailable = byte2bool(ppt.SubIDAvailable)
-				client.opts.SharedSubAvailable = byte2bool(ppt.SharedSubAvailable)
-				client.opts.SessionExpiry = convertUint32(ppt.SessionExpiryInterval, client.opts.SessionExpiry)
+			client.opts.RetainAvailable = authOpts.RetainAvailable
+			client.opts.WildcardSubAvailable = authOpts.WildcardSubAvailable
+			client.opts.SubIDAvailable = authOpts.SubIDAvailable
+			client.opts.SharedSubAvailable = authOpts.SharedSubAvailable
+			client.opts.SessionExpiry = authOpts.SessionExpiry
 
+			var connackPpt *packets.Properties
+			if client.version == packets.Version5 {
 				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, client.opts.ClientReceiveMax)
-				client.opts.ServerReceiveMax = convertUint16(ppt.ReceiveMaximum, client.opts.ServerReceiveMax)
+				client.opts.ServerReceiveMax = authOpts.ReceiveMax
 
 				client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, client.opts.ClientMaxPacketSize)
-				client.opts.ServerMaxPacketSize = convertUint32(ppt.MaximumPacketSize, client.opts.ServerMaxPacketSize)
+				client.opts.ServerMaxPacketSize = authOpts.MaxPacketSize
 
 				client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, client.opts.ClientTopicAliasMax)
-				client.opts.ServerTopicAliasMax = convertUint16(ppt.TopicAliasMaximum, client.opts.ServerTopicAliasMax)
+				client.opts.ServerTopicAliasMax = authOpts.TopicAliasMax
 
 				client.opts.AuthMethod = conn.Properties.AuthMethod
 				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
 				client.aliasMapper = make([][]byte, client.opts.ServerReceiveMax+1)
 
 				if len(conn.ClientID) == 0 {
-					if len(ppt.AssignedClientID) != 0 {
-						client.opts.ClientID = string(ppt.AssignedClientID)
+					if len(authOpts.AssignedClientID) != 0 {
+						client.opts.ClientID = string(authOpts.AssignedClientID)
 					} else {
 						client.opts.ClientID = getRandomUUID()
-						ppt.AssignedClientID = []byte(client.opts.ClientID)
+						authOpts.AssignedClientID = []byte(client.opts.ClientID)
 					}
 				} else {
 					client.opts.ClientID = string(conn.ClientID)
 				}
-				client.opts.KeepAlive = convertUint16(ppt.ServerKeepAlive, conn.KeepAlive)
-
+				client.opts.KeepAlive = authOpts.KeepAlive
+				connackPpt = &packets.Properties{
+					SessionExpiryInterval: &authOpts.SessionExpiry,
+					ReceiveMaximum:        &authOpts.ReceiveMax,
+					MaximumQoS:            &authOpts.MaximumQoS,
+					RetainAvailable:       bool2Byte(authOpts.RetainAvailable),
+					TopicAliasMaximum:     &authOpts.TopicAliasMax,
+					WildcardSubAvailable:  bool2Byte(authOpts.WildcardSubAvailable),
+					SubIDAvailable:        bool2Byte(authOpts.SubIDAvailable),
+					SharedSubAvailable:    bool2Byte(authOpts.SharedSubAvailable),
+					MaximumPacketSize:     &authOpts.MaxPacketSize,
+					ServerKeepAlive:       &authOpts.KeepAlive,
+					AssignedClientID:      authOpts.AssignedClientID,
+				}
 			} else {
 				if len(conn.ClientID) == 0 {
 					client.opts.ClientID = getRandomUUID()
@@ -694,7 +692,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 
 			client.newPacketIDLimiter(client.opts.ClientReceiveMax)
 
-			err = client.server.registerClient(conn, ppt, client)
+			err = client.server.registerClient(conn, connackPpt, client)
 			return
 		case <-timeout.C:
 			err = ErrConnectTimeOut
@@ -720,29 +718,30 @@ func setErrorProperties(client *client, errDetails *codes.ErrorDetails, ppt *pac
 	}
 }
 
-func (client *client) defaultConnackProperties(connect *packets.Connect) *packets.Properties {
-	cfgExpiry := uint32(client.config.MQTT.SessionExpiry.Seconds())
-	ppt := &packets.Properties{
-		SessionExpiryInterval: &cfgExpiry,
-		ReceiveMaximum:        &client.config.MQTT.ReceiveMax,
-		MaximumQoS:            &client.config.MQTT.MaximumQoS,
-		RetainAvailable:       bool2Byte(client.config.MQTT.RetainAvailable),
-		TopicAliasMaximum:     &client.config.MQTT.TopicAliasMax,
-		WildcardSubAvailable:  bool2Byte(client.config.MQTT.WildcardAvailable),
-		SubIDAvailable:        bool2Byte(client.config.MQTT.SubscriptionIDAvailable),
-		SharedSubAvailable:    bool2Byte(client.config.MQTT.SharedSubAvailable),
-		MaximumPacketSize:     &client.config.MQTT.MaxPacketSize,
-		ServerKeepAlive:       &client.config.MQTT.MaxKeepAlive,
+func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions {
+	opts := &AuthOptions{
+		SessionExpiry:        uint32(client.config.MQTT.SessionExpiry.Seconds()),
+		ReceiveMax:           client.config.MQTT.ReceiveMax,
+		MaximumQoS:           client.config.MQTT.MaximumQoS,
+		MaxPacketSize:        client.config.MQTT.MaxPacketSize,
+		TopicAliasMax:        client.config.MQTT.TopicAliasMax,
+		RetainAvailable:      client.config.MQTT.RetainAvailable,
+		WildcardSubAvailable: client.config.MQTT.WildcardAvailable,
+		SubIDAvailable:       client.config.MQTT.SubscriptionIDAvailable,
+		SharedSubAvailable:   client.config.MQTT.SharedSubAvailable,
+		KeepAlive:            client.config.MQTT.MaxKeepAlive,
+		AssignedClientID:     make([]byte, 0, len(connect.ClientID)),
 	}
-	if connect.KeepAlive < client.config.MQTT.MaxKeepAlive {
-		ppt.ServerKeepAlive = &connect.KeepAlive
+	copy(opts.AssignedClientID, connect.ClientID)
+	if connect.KeepAlive < opts.KeepAlive {
+		opts.KeepAlive = connect.KeepAlive
 	}
 	if client.version == packets.Version5 {
-		if i := connect.Properties.SessionExpiryInterval; i != nil && *i < cfgExpiry {
-			ppt.SessionExpiryInterval = i
+		if i := connect.Properties.SessionExpiryInterval; i != nil && *i < opts.SessionExpiry {
+			opts.SessionExpiry = *i
 		}
 	}
-	return ppt
+	return opts
 }
 
 func (client *client) internalClose() {
@@ -1031,6 +1030,9 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 }
 
 func converError(err error) *codes.Error {
+	if err == nil {
+		return nil
+	}
 	if e, ok := err.(*codes.Error); ok {
 		return e
 	}
@@ -1348,7 +1350,8 @@ func (client *client) pollMessageHandler() {
 	}
 	var ids []packets.PacketID
 	for {
-		ids = client.pl.pollPacketIDs(client.opts.ServerReceiveMax)
+		//TODO config
+		ids = client.pl.pollPacketIDs(100)
 		if ids == nil {
 			return
 		}

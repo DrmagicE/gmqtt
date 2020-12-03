@@ -416,7 +416,6 @@ func (srv *server) unregisterClient(client *client) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	now := time.Now()
-	client.setDisConnected()
 
 	var storeSession bool
 	if sess, err := srv.sessionStore.Get(client.opts.ClientID); sess != nil {
@@ -915,10 +914,8 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnAccept = onAccept
 	}
 	if onBasicAuthWrappers != nil {
-		onBasicAuth := func(ctx context.Context, client Client, req *ConnectRequest) (resp *ConnectResponse) {
-			return &ConnectResponse{
-				Code: codes.Success,
-			}
+		onBasicAuth := func(ctx context.Context, client Client, req *ConnectRequest) error {
+			return nil
 		}
 		for i := len(onBasicAuthWrappers); i > 0; i-- {
 			onBasicAuth = onBasicAuthWrappers[i-1](onBasicAuth)
@@ -926,10 +923,10 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnBasicAuth = onBasicAuth
 	}
 	if onEnhancedAuthWrappers != nil {
-		onEnhancedAuth := func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse) {
+		onEnhancedAuth := func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error) {
 			return &EnhancedAuthResponse{
-				Code: codes.Success,
-			}
+				Continue: false,
+			}, nil
 		}
 		for i := len(onEnhancedAuthWrappers); i > 0; i-- {
 			onEnhancedAuth = onEnhancedAuthWrappers[i-1](onEnhancedAuth)
