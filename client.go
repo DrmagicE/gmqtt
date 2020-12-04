@@ -94,6 +94,12 @@ type Client interface {
 
 // Client represents a MQTT client and implements the Client interface
 type client struct {
+	// These two int64s must be at the top to guarantee they are 64bit aligned
+	// on 32bit architectures. If not then an attempt to store results in
+	// segfault. See: https://golang.org/pkg/sync/atomic/#pkg-note-BUG
+	connectedAt    int64
+	disconnectedAt int64
+
 	server        *server
 	wg            sync.WaitGroup
 	rwc           net.Conn //raw tcp connection
@@ -114,9 +120,6 @@ type client struct {
 	//自定义数据
 	keys  map[string]interface{}
 	ready chan struct{} //close after session prepared
-
-	connectedAt    int64
-	disconnectedAt int64
 
 	statsManager SessionStatsManager
 }
