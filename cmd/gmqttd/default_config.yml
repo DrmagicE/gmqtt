@@ -17,6 +17,7 @@ mqtt:
   maximum_qos: 2
   retain_available: true
   max_queued_messages: 1000
+  max_inflight: 100
   queue_qos0_messages: true
   delivery_mode: onlyonce # overlap or onlyonce
   allow_zero_length_clientid: true

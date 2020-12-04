@@ -108,8 +108,8 @@ func (c Config) GetLogger(config LogConfig) (l *zap.Logger, err error) {
 		return
 	}
 
-	lc := zap.NewNop()
-	//lc.Level = zap.NewAtomicLevelAt(logLevel)
-	//l, err = lc.Build()
-	return lc, nil
+	lc := zap.NewDevelopmentConfig()
+	lc.Level = zap.NewAtomicLevelAt(logLevel)
+	l, err = lc.Build()
+	return l, nil
 }

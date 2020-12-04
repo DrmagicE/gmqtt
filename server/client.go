@@ -97,18 +97,21 @@ func (client *client) ClientOptions() *ClientOptions {
 
 // ClientOptions will be set after the client connected successfully
 type ClientOptions struct {
-	ClientID string
-	Username string
-
-	KeepAlive     uint16
-	CleanStart    bool
+	ClientID  string
+	Username  string
+	KeepAlive uint16
+	// SessionExpiry is the session expiry interval in seconds.
+	// If the client version is v5, this value will be set into connack Session Expiry Interval property.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901082
 	SessionExpiry uint32
-
-	// Client 最多能同时接受多少 Server发过去的message。Server发送要限速
-	// Inflightmessage
-	ClientReceiveMax uint16
-	// Server 最多能同时接受多少 Client发过来的message，Client要限速
-	ServerReceiveMax uint16
+	// MaxInflight limits the number of QoS 1 and QoS 2 publications that the client is willing to process concurrently.
+	// For v3 client, it is default to config.MQTT.MaxInflight.
+	// For v5 client, it is the minimum of config.MQTT.MaxInflight and Receive Maximum property in CONNECT packet.
+	MaxInflight uint16
+	// ReceiveMax limits the number of QoS 1 and QoS 2 publications that the server is willing to process concurrently for the Client.
+	// If the client version is v5, this value will be set into  Receive Maximum property in CONNACK packet.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901083
+	ReceiveMax uint16
 
 	ClientMaxPacketSize uint32
 	ServerMaxPacketSize uint32
@@ -116,9 +119,8 @@ type ClientOptions struct {
 	ClientTopicAliasMax uint16
 	ServerTopicAliasMax uint16
 
-	RequestResponseInfo bool
-	RequestProblemInfo  bool
-	UserProperties      []*packets.UserProperty
+	RequestProblemInfo bool
+	UserProperties     []*packets.UserProperty
 
 	RetainAvailable      bool
 	WildcardSubAvailable bool
@@ -127,15 +129,6 @@ type ClientOptions struct {
 
 	// AuthMethod v5 only
 	AuthMethod []byte
-
-	Will struct {
-		Flag       bool
-		Retain     bool
-		Qos        uint8
-		Topic      []byte
-		Payload    []byte
-		Properties *packets.Properties
-	}
 }
 
 // Client represent a mqtt client.
@@ -143,6 +136,9 @@ type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
 	// This is mainly used in callback functions.
 	ClientOptions() *ClientOptions
+	// SessionInfo return a reference of session information of the client. Do not edit.
+	// Session info will be available after the client has passed OnSessionCreated or OnSessionResume.
+	SessionInfo() *gmqtt.Session
 	// Version return the protocol version of the used client.
 	Version() packets.Version
 	// ConnectedAt returns the connected time
@@ -171,11 +167,14 @@ type client struct {
 	closeComplete chan struct{} //连接关闭
 	status        int32         //client状态
 
-	error         chan error //错误
-	errOnce       sync.Once
-	err           error
-	opts          *ClientOptions //OnConnect之前填充,set up before OnConnect()
-	cleanWillFlag bool           //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
+	error   chan error //错误
+	errOnce sync.Once
+	err     error
+
+	opts    *ClientOptions //OnConnect之前填充,set up before OnConnect()
+	session *gmqtt.Session
+
+	cleanWillFlag bool //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
 	disconnect    *packets.Disconnect
 
 	connectedAt    int64
@@ -195,6 +194,10 @@ type client struct {
 	queueStore queue.Store
 	unackStore unack.Store
 	pl         *packetIDLimiter
+}
+
+func (client *client) SessionInfo() *gmqtt.Session {
+	return client.session
 }
 
 func (client *client) Version() packets.Version {
@@ -360,7 +363,7 @@ func (client *client) writePacket(packet packets.Packet) error {
 
 func (client *client) addServerQuota() {
 	client.serverQuotaMu.Lock()
-	if client.serverReceiveMaximumQuota < client.opts.ServerReceiveMax {
+	if client.serverReceiveMaximumQuota < client.opts.ReceiveMax {
 		client.serverReceiveMaximumQuota++
 	}
 	client.serverQuotaMu.Unlock()
@@ -545,8 +548,8 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				client.opts.SharedSubAvailable = authOpts.SharedSubAvailable
 				client.opts.SessionExpiry = authOpts.SessionExpiry
 
-				client.opts.ClientReceiveMax = math.MaxUint16 // unlimited
-				client.opts.ServerReceiveMax = authOpts.ReceiveMax
+				client.opts.MaxInflight = authOpts.MaxInflight
+				client.opts.ReceiveMax = authOpts.ReceiveMax
 
 				client.opts.ClientMaxPacketSize = math.MaxUint32 // unlimited
 				client.opts.ServerMaxPacketSize = authOpts.MaxPacketSize
@@ -589,14 +592,16 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					return
 				}
 				if onAuth != nil {
-					authResp := onAuth(context.Background(), client, &AuthRequest{
+					authResp, err := onAuth(context.Background(), client, &AuthRequest{
 						Auth:    p.(*packets.Auth),
 						Options: authOpts,
 					})
-					if authResp.Continue {
-						code = codes.ContinueAuthentication
+					if err != nil {
+						if authResp.Continue {
+							code = codes.ContinueAuthentication
+						}
+						authData = authResp.AuthData
 					}
-					authData = authResp.AuthData
 				} else {
 					err = codes.ErrProtocol
 					return
@@ -629,21 +634,21 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			client.opts.SubIDAvailable = authOpts.SubIDAvailable
 			client.opts.SharedSubAvailable = authOpts.SharedSubAvailable
 			client.opts.SessionExpiry = authOpts.SessionExpiry
+			client.opts.ServerMaxPacketSize = authOpts.MaxPacketSize
 
 			var connackPpt *packets.Properties
 			if client.version == packets.Version5 {
-				client.opts.ClientReceiveMax = convertUint16(conn.Properties.ReceiveMaximum, client.opts.ClientReceiveMax)
-				client.opts.ServerReceiveMax = authOpts.ReceiveMax
+				client.opts.MaxInflight = convertUint16(conn.Properties.ReceiveMaximum, client.opts.MaxInflight)
+				client.opts.ReceiveMax = authOpts.ReceiveMax
 
 				client.opts.ClientMaxPacketSize = convertUint32(conn.Properties.MaximumPacketSize, client.opts.ClientMaxPacketSize)
-				client.opts.ServerMaxPacketSize = authOpts.MaxPacketSize
 
 				client.opts.ClientTopicAliasMax = convertUint16(conn.Properties.TopicAliasMaximum, client.opts.ClientTopicAliasMax)
 				client.opts.ServerTopicAliasMax = authOpts.TopicAliasMax
 
 				client.opts.AuthMethod = conn.Properties.AuthMethod
-				client.serverReceiveMaximumQuota = client.opts.ServerReceiveMax
-				client.aliasMapper = make([][]byte, client.opts.ServerReceiveMax+1)
+				client.serverReceiveMaximumQuota = client.opts.ReceiveMax
+				client.aliasMapper = make([][]byte, client.opts.ReceiveMax+1)
 
 				if len(conn.ClientID) == 0 {
 					if len(authOpts.AssignedClientID) != 0 {
@@ -668,6 +673,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					MaximumPacketSize:     &authOpts.MaxPacketSize,
 					ServerKeepAlive:       &authOpts.KeepAlive,
 					AssignedClientID:      authOpts.AssignedClientID,
+					ResponseInfo:          authOpts.ResponseInfo,
 				}
 			} else {
 				if len(conn.ClientID) == 0 {
@@ -681,16 +687,8 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
 				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
-			client.opts.CleanStart = conn.CleanStart
 			client.opts.Username = string(conn.Username)
-			client.opts.Will.Flag = conn.WillFlag
-			client.opts.Will.Payload = conn.WillMsg
-			client.opts.Will.Qos = conn.WillQos
-			client.opts.Will.Retain = conn.WillRetain
-			client.opts.Will.Topic = conn.WillTopic
-			client.opts.Will.Properties = conn.WillProperties
-
-			client.newPacketIDLimiter(client.opts.ClientReceiveMax)
+			client.newPacketIDLimiter(client.opts.MaxInflight)
 
 			err = client.server.registerClient(conn, connackPpt, client)
 			return
@@ -730,14 +728,15 @@ func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions 
 		SubIDAvailable:       client.config.MQTT.SubscriptionIDAvailable,
 		SharedSubAvailable:   client.config.MQTT.SharedSubAvailable,
 		KeepAlive:            client.config.MQTT.MaxKeepAlive,
-		AssignedClientID:     make([]byte, 0, len(connect.ClientID)),
+		MaxInflight:          client.config.MQTT.MaxInflight,
 	}
-	copy(opts.AssignedClientID, connect.ClientID)
 	if connect.KeepAlive < opts.KeepAlive {
 		opts.KeepAlive = connect.KeepAlive
 	}
 	if client.version == packets.Version5 {
-		if i := connect.Properties.SessionExpiryInterval; i != nil && *i < opts.SessionExpiry {
+		if i := connect.Properties.SessionExpiryInterval; i == nil {
+			opts.SessionExpiry = 0
+		} else if *i < opts.SessionExpiry {
 			opts.SessionExpiry = *i
 		}
 	}
@@ -777,18 +776,14 @@ func (client *client) write(packets packets.Packet) {
 	}
 }
 
-//Subscribe handler
-// test case:
-// 1. 有request problem info的话，可以返回string和User，否则不返回
 func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 	srv := client.server
 	suback := &packets.Suback{
 		Version:    sub.Version,
 		PacketID:   sub.PacketID,
-		Properties: nil,
+		Properties: &packets.Properties{},
 		Payload:    make([]codes.Code, len(sub.Topics)),
 	}
-	var topics []packets.Topic
 	var subID uint32
 	now := time.Now()
 	if client.version == packets.Version5 {
@@ -801,30 +796,39 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			}
 		}
 	}
-
-	if srv.hooks.OnSubscribe != nil {
-		resp, errDetails := srv.hooks.OnSubscribe(context.Background(), client, sub)
-		topics = resp.Topics
-		if resp.ID != nil {
-			subID = *resp.ID
-		}
-		if errDetails != nil && client.version == packets.Version5 {
-			if client.opts.RequestProblemInfo {
-				suback.Properties = &packets.Properties{
-					ReasonString: errDetails.ReasonString,
-					User:         kvsToProperties(errDetails.UserProperties),
-				}
-			}
-		}
-	} else {
-		topics = sub.Topics
+	subReq := &SubscribeRequest{
+		Subscribe: sub,
+		Subscriptions: make(map[string]*struct {
+			Sub   *gmqtt.Subscription
+			Error error
+		}),
+		ID: subID,
 	}
 
-	for k, v := range topics {
+	for _, v := range sub.Topics {
+		subReq.Subscriptions[v.Name] = &struct {
+			Sub   *gmqtt.Subscription
+			Error error
+		}{Sub: subscription.FromTopic(v, subID), Error: nil}
+	}
+
+	if srv.hooks.OnSubscribe != nil {
+		err := srv.hooks.OnSubscribe(context.Background(), client, subReq)
+		if ce := converError(err); ce != nil {
+			suback.Properties = getErrorProperties(client, &ce.ErrorDetails)
+			for k, _ := range suback.Payload {
+				suback.Payload[k] = ce.Code
+			}
+			client.write(suback)
+			return nil
+		}
+	}
+
+	for k, v := range sub.Topics {
+		sub := subReq.Subscriptions[v.Name].Sub
+		subErr := converError(subReq.Subscriptions[v.Name].Error)
 		var isShared bool
-		var sub *gmqtt.Subscription
-		code := v.Qos
-		sub = subscription.FromTopic(v, subID)
+		code := sub.QoS
 		if client.version == packets.Version5 {
 			if sub.ShareName != "" {
 				isShared = true
@@ -846,16 +850,19 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		}
 
 		var subRs subscription.SubscribeResult
-		var subErr error
+		var err error
+		if subErr != nil {
+			code = subErr.Code
+		}
 		if code < packets.SubscribeFailure {
-			subRs, subErr = srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
-			if subErr != nil {
+			subRs, err = srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
+			if err != nil {
 				zaplog.Error("failed to subscribe topic",
 					zap.String("topic", v.Name),
 					zap.Uint8("qos", v.Qos),
 					zap.String("client_id", client.opts.ClientID),
 					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-					zap.Error(subErr))
+					zap.Error(err))
 				code = packets.SubscribeFailure
 			}
 		}
@@ -1106,23 +1113,53 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	unSuback := &packets.Unsuback{
 		Version:    unSub.Version,
 		PacketID:   unSub.PacketID,
-		Properties: nil,
+		Properties: &packets.Properties{},
 	}
 	cs := make([]codes.Code, len(unSub.Topics))
-	topics := unSub.Topics
-	if srv.hooks.OnUnSubscribe != nil {
-		resp, errDetails := srv.hooks.OnUnSubscribe(context.Background(), client, unSub)
-		if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
-			unSuback.Properties = getErrorProperties(client, errDetails)
+	defer func() {
+		if client.version == packets.Version5 {
+			unSuback.Payload = cs
 		}
-		cs = resp.Code
+		client.write(unSuback)
+	}()
+	req := &UnSubscribeRequest{
+		UnSubscribe: unSub,
+		UnSubs: make(map[string]*struct {
+			TopicName string
+			Error     error
+		}),
 	}
-	for k, topicName := range topics {
-		if cs[k] == codes.Success {
-			err := srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
-			if err != nil {
 
+	for _, v := range unSub.Topics {
+		req.UnSubs[v] = &struct {
+			TopicName string
+			Error     error
+		}{TopicName: v}
+	}
+	if srv.hooks.OnUnSubscribe != nil {
+		err := srv.hooks.OnUnSubscribe(context.Background(), client, req)
+		if ce := converError(err); ce != nil {
+			unSuback.Properties = getErrorProperties(client, &ce.ErrorDetails)
+			for k := range cs {
+				cs[k] = ce.Code
 			}
+			return
+		}
+	}
+	for k, v := range unSub.Topics {
+		code := codes.Success
+		topicName := req.UnSubs[v].TopicName
+		ce := converError(req.UnSubs[v].Error)
+		if ce != nil {
+			code = ce.Code
+		}
+		if code == codes.Success {
+			err := srv.subscriptionsDB.Unsubscribe(client.opts.ClientID, topicName)
+			if ce := converError(err); ce != nil {
+				code = ce.Code
+			}
+		}
+		if code == codes.Success {
 			if srv.hooks.OnUnsubscribed != nil {
 				srv.hooks.OnUnsubscribed(context.Background(), client, topicName)
 			}
@@ -1136,30 +1173,24 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 				zap.String("topic", topicName),
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-				zap.Uint8("code", unSuback.Payload[k]))
+				zap.Uint8("code", code))
 		}
-	}
-	if client.version == packets.Version5 {
-		unSuback.Payload = cs
-	}
-	client.write(unSuback)
+		cs[k] = code
 
+	}
 }
 
 func (client *client) reAuthHandler(auth *packets.Auth) *codes.Error {
 	srv := client.server
 	// default code
 	code := codes.Success
-	var resp *ReAuthResponse
+	var resp *AuthResponse
 	var err error
 	if srv.hooks.OnReAuth != nil {
-		resp, err = srv.hooks.OnReAuth(context.Background(), client, auth.Properties.AuthData)
-		if err != nil {
-			if c, ok := err.(*codes.Error); ok {
-				return c
-			} else {
-				return codes.NewError(codes.UnspecifiedError)
-			}
+		resp, err = srv.hooks.OnReAuth(context.Background(), client, auth)
+		ce := converError(err)
+		if ce != nil {
+			return ce
 		}
 	} else {
 		return codes.ErrProtocol
@@ -1284,7 +1315,7 @@ func (client *client) newPacketIDLimiter(limit uint16) {
 
 func (client *client) pollInflights() (cont bool, err error) {
 	var elems []*queue.Elem
-	elems, err = client.queueStore.ReadInflight(uint(client.opts.ServerReceiveMax))
+	elems, err = client.queueStore.ReadInflight(uint(client.opts.MaxInflight))
 	if err != nil || len(elems) == 0 {
 		return false, err
 	}

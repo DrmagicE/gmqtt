@@ -5,6 +5,7 @@ type HookWrapper struct {
 	OnBasicAuthWrapper         OnBasicAuthWrapper
 	OnEnhancedAuthWrapper      OnEnhancedAuthWrapper
 	OnConnectedWrapper         OnConnectedWrapper
+	OnReAuthWrapper            OnReAuthWrapper
 	OnSessionCreatedWrapper    OnSessionCreatedWrapper
 	OnSessionResumedWrapper    OnSessionResumedWrapper
 	OnSessionTerminatedWrapper OnSessionTerminatedWrapper

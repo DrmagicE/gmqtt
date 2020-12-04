@@ -255,7 +255,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 				expiryInterval = uint32(srv.config.MQTT.SessionExpiry.Seconds())
 			} else if connect.Properties != nil {
 				willDelayInterval = convertUint32(connect.WillProperties.WillDelayInterval, 0)
-				expiryInterval = convertUint32(connect.Properties.SessionExpiryInterval, 0)
+				expiryInterval = client.opts.SessionExpiry
 			}
 			sess = &gmqtt.Session{
 				ClientID:          client.opts.ClientID,
@@ -265,9 +265,9 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 				ExpiryInterval:    expiryInterval,
 			}
 			err = srv.sessionStore.Set(sess)
-
 		}
 		if err == nil {
+			client.session = sess
 			if sessionResume && srv.hooks.OnSessionResumed != nil {
 				srv.hooks.OnSessionResumed(context.Background(), client)
 			} else if srv.hooks.OnSessionCreated != nil {
@@ -478,7 +478,12 @@ func (srv *server) unregisterClient(client *client) {
 	srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 }
 
-func (srv *server) addMsgToQueue(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
+func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
+	if !srv.config.MQTT.QueueQos0Msg {
+		if c := srv.clients[clientID]; c != nil && msg.QoS == packets.Qos0 {
+			return
+		}
+	}
 	if msg.QoS > sub.QoS {
 		msg.QoS = sub.QoS
 	}
@@ -541,7 +546,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 				}{clientID: clientID, sub: sub})
 			} else {
 				if srv.config.MQTT.DeliveryMode == Overlap {
-					srv.addMsgToQueue(now, clientID, msg.Copy(), sub, []uint32{sub.ID}, qs)
+					srv.addMsgToQueueLocked(now, clientID, msg.Copy(), sub, []uint32{sub.ID}, qs)
 				} else {
 					// OnlyOnce
 					if maxQos[clientID] == nil {
@@ -568,7 +573,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 	if srv.config.MQTT.DeliveryMode == OnlyOnce {
 		for clientID, v := range maxQos {
 			if qs := srv.queueStore[clientID]; qs != nil {
-				srv.addMsgToQueue(now, clientID, msg.Copy(), v.sub, v.subIDs, qs)
+				srv.addMsgToQueueLocked(now, clientID, msg.Copy(), v.sub, v.subIDs, qs)
 			}
 		}
 	}
@@ -582,7 +587,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 		// random
 		rs = v[rand.Intn(len(v))]
 		if c, ok := srv.queueStore[rs.clientID]; ok {
-			srv.addMsgToQueue(now, rs.clientID, msg.Copy(), rs.sub, []uint32{rs.sub.ID}, c)
+			srv.addMsgToQueueLocked(now, rs.clientID, msg.Copy(), rs.sub, []uint32{rs.sub.ID}, c)
 		}
 	}
 	return
@@ -837,6 +842,7 @@ func (srv *server) loadPlugins() error {
 		onAcceptWrappers           []OnAcceptWrapper
 		onBasicAuthWrappers        []OnBasicAuthWrapper
 		onEnhancedAuthWrappers     []OnEnhancedAuthWrapper
+		onReAuthWrappers           []OnReAuthWrapper
 		onConnectedWrappers        []OnConnectedWrapper
 		onSessionCreatedWrapper    []OnSessionCreatedWrapper
 		onSessionResumedWrapper    []OnSessionResumedWrapper
@@ -866,6 +872,9 @@ func (srv *server) loadPlugins() error {
 		}
 		if hooks.OnEnhancedAuthWrapper != nil {
 			onEnhancedAuthWrappers = append(onEnhancedAuthWrappers, hooks.OnEnhancedAuthWrapper)
+		}
+		if hooks.OnReAuthWrapper != nil {
+			onReAuthWrappers = append(onReAuthWrappers, hooks.OnReAuthWrapper)
 		}
 		if hooks.OnConnectedWrapper != nil {
 			onConnectedWrappers = append(onConnectedWrappers, hooks.OnConnectedWrapper)
@@ -963,10 +972,8 @@ func (srv *server) loadPlugins() error {
 		srv.hooks.OnSessionTerminated = onSessionTerminated
 	}
 	if onSubscribeWrappers != nil {
-		onSubscribe := func(ctx context.Context, client Client, subscribe *packets.Subscribe) (*SubscribeResponse, *codes.ErrorDetails) {
-			return &SubscribeResponse{
-				Topics: subscribe.Topics,
-			}, nil
+		onSubscribe := func(ctx context.Context, client Client, req *SubscribeRequest) error {
+			return nil
 		}
 		for i := len(onSubscribeWrappers); i > 0; i-- {
 			onSubscribe = onSubscribeWrappers[i-1](onSubscribe)

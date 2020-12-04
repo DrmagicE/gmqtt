@@ -27,6 +27,7 @@ var (
 		WildcardAvailable:          true,
 		RetainAvailable:            true,
 		MaxQueuedMsg:               1000,
+		MaxInflight:                100,
 		MaximumQoS:                 2,
 		QueueQos0Msg:               true,
 		DeliveryMode:               OnlyOnce,
@@ -47,6 +48,7 @@ type MQTT struct {
 	WildcardAvailable          bool          `yaml:"wildcard_subscription_available"`
 	RetainAvailable            bool          `yaml:"retain_available"`
 	MaxQueuedMsg               int           `yaml:"max_queued_messages"`
+	MaxInflight                uint16        `yaml:"max_inflight"`
 	MaximumQoS                 uint8         `yaml:"maximum_qos"`
 	QueueQos0Msg               bool          `yaml:"queue_qos0_messages"`
 	DeliveryMode               string        `yaml:"delivery_mode"`
@@ -65,6 +67,9 @@ func (c MQTT) Validate() error {
 	}
 	if c.MaxPacketSize == 0 {
 		return fmt.Errorf("max_packet_size cannot be 0")
+	}
+	if c.MaxInflight == 0 {
+		return fmt.Errorf("max_inflight cannot be 0")
 	}
 	if c.DeliveryMode != Overlap && c.DeliveryMode != OnlyOnce {
 		return fmt.Errorf("invalid delivery_mode: %s", c.DeliveryMode)

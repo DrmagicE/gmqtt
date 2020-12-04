@@ -130,19 +130,11 @@ func NewStartCmd() *cobra.Command {
 			// subscribe failure test
 			// TODO remove this
 			h := server.Hooks{
-				OnSubscribe: func(ctx context.Context, client server.Client, subscribe *packets.Subscribe) (resp *server.SubscribeResponse, err *codes.ErrorDetails) {
-					if subscribe.Topics[0].Name == "test/nosubscribe" {
-						topics := subscribe.Topics
-						topics[0].Qos = packets.SubscribeFailure
-						return &server.SubscribeResponse{
-							Topics: topics,
-							ID:     nil,
-						}, nil
+				OnSubscribe: func(ctx context.Context, client server.Client, subReq *server.SubscribeRequest) error {
+					if sub := subReq.Subscriptions["test/nosubscribe"]; sub != nil {
+						sub.Error = codes.NewError(packets.SubscribeFailure)
 					}
-					return &server.SubscribeResponse{
-						Topics: subscribe.Topics,
-						ID:     nil,
-					}, nil
+					return nil
 
 				},
 			}

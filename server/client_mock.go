@@ -63,20 +63,6 @@ func (mr *MockClientMockRecorder) Version() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Version", reflect.TypeOf((*MockClient)(nil).Version))
 }
 
-// IsConnected mocks base method
-func (m *MockClient) IsConnected() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsConnected")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsConnected indicates an expected call of IsConnected
-func (mr *MockClientMockRecorder) IsConnected() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsConnected", reflect.TypeOf((*MockClient)(nil).IsConnected))
-}
-
 // ConnectedAt mocks base method
 func (m *MockClient) ConnectedAt() time.Time {
 	m.ctrl.T.Helper()
@@ -89,20 +75,6 @@ func (m *MockClient) ConnectedAt() time.Time {
 func (mr *MockClientMockRecorder) ConnectedAt() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnectedAt", reflect.TypeOf((*MockClient)(nil).ConnectedAt))
-}
-
-// DisconnectedAt mocks base method
-func (m *MockClient) DisconnectedAt() time.Time {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DisconnectedAt")
-	ret0, _ := ret[0].(time.Time)
-	return ret0
-}
-
-// DisconnectedAt indicates an expected call of DisconnectedAt
-func (mr *MockClientMockRecorder) DisconnectedAt() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectedAt", reflect.TypeOf((*MockClient)(nil).DisconnectedAt))
 }
 
 // Connection mocks base method

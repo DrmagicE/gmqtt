@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"container/list"
+	"fmt"
 	"io"
 	"net"
 	"reflect"
@@ -124,7 +125,8 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:    packets.Version5,
+				Properties: &packets.Properties{},
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -155,8 +157,9 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version:  packets.Version311,
-				PacketID: 2,
+				Version:    packets.Version311,
+				Properties: &packets.Properties{},
+				PacketID:   2,
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -196,8 +199,9 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version:  packets.Version5,
-				PacketID: 1,
+				Version:    packets.Version5,
+				Properties: &packets.Properties{},
+				PacketID:   1,
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -303,7 +307,8 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:    packets.Version5,
+				Properties: &packets.Properties{},
 				Payload: []codes.Code{
 					codes.GrantedQoS1, codes.GrantedQoS2,
 				},
@@ -340,7 +345,8 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:    packets.Version5,
+				Properties: &packets.Properties{},
 				Payload: []codes.Code{
 					codes.SharedSubNotSupported, codes.SharedSubNotSupported,
 				},
@@ -452,7 +458,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:  packets.Version5,
+				PacketID: 1,
 				Payload: []codes.Code{
 					codes.GrantedQoS1,
 				},
@@ -496,7 +503,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				PacketID: 1,
+				Version:  packets.Version5,
 				Payload: []codes.Code{
 					codes.GrantedQoS1,
 				},
@@ -526,7 +534,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				PacketID: 1,
+				Version:  packets.Version5,
 				Payload: []codes.Code{
 					codes.GrantedQoS1,
 				},
@@ -556,7 +565,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:  packets.Version5,
+				PacketID: 1,
 				Payload: []codes.Code{
 					codes.GrantedQoS1,
 				},
@@ -586,7 +596,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:  packets.Version5,
+				PacketID: 1,
 				Payload: []codes.Code{
 					codes.GrantedQoS2,
 				},
@@ -628,7 +639,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:  packets.Version5,
+				PacketID: 1,
 				Payload: []codes.Code{
 					codes.GrantedQoS2,
 				},
@@ -670,7 +682,8 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			},
 			err: nil,
 			out: &packets.Suback{
-				Version: packets.Version5,
+				Version:  packets.Version5,
+				PacketID: 1,
 				Payload: []codes.Code{
 					codes.GrantedQoS2,
 				},
@@ -750,9 +763,14 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			case p := <-c.out:
 				suback := p.(*packets.Suback)
 				a.Equal(v.in.PacketID, suback.PacketID)
-				a.Equal(v.out.Payload, suback.Payload)
-				a.Equal(v.out.Version, suback.Version)
-				a.Equal(v.out.Properties, suback.Properties)
+
+				want := &bytes.Buffer{}
+				got := &bytes.Buffer{}
+				fmt.Println(v.out)
+				fmt.Println(suback)
+				a.Nil(v.out.Pack(want))
+				a.Nil(suback.Pack(got))
+				a.Equal(want.Bytes(), got.Bytes())
 			default:
 				t.Fatal("missing output")
 			}
@@ -1192,8 +1210,8 @@ func TestClient_pubrecHandler_ErrorV5(t *testing.T) {
 	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
-	c.opts.ClientReceiveMax = 10
-	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	c.opts.MaxInflight = 10
+	c.newPacketIDLimiter(c.opts.MaxInflight)
 	qs := queue.NewMockStore(ctrl)
 	c.queueStore = qs
 	srv.queueStore = make(map[string]queue.Store)
@@ -1222,8 +1240,8 @@ func TestClient_pubrecHandler(t *testing.T) {
 	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
-	c.opts.ClientReceiveMax = 10
-	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	c.opts.MaxInflight = 10
+	c.newPacketIDLimiter(c.opts.MaxInflight)
 	qs := queue.NewMockStore(ctrl)
 	c.queueStore = qs
 	srv.queueStore = make(map[string]queue.Store)
@@ -1256,8 +1274,8 @@ func TestClient_pubcompHandler(t *testing.T) {
 	a.Nil(er)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
-	c.opts.ClientReceiveMax = 10
-	c.newPacketIDLimiter(c.opts.ClientReceiveMax)
+	c.opts.MaxInflight = 10
+	c.newPacketIDLimiter(c.opts.MaxInflight)
 	qs := queue.NewMockStore(ctrl)
 	c.queueStore = qs
 	srv.queueStore = make(map[string]queue.Store)

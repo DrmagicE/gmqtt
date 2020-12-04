@@ -2,7 +2,6 @@ package queue
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"go.uber.org/zap"
@@ -10,23 +9,6 @@ import (
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
-
-var (
-	ErrClosed                   = errors.New("queue has been closed")
-	ErrDropExceedsMaxPacketSize = errors.New("maximum packet size exceeded")
-	ErrDropQueueFull            = errors.New("the message queue is full")
-	ErrDropExpired              = errors.New("the message is expired")
-)
-
-// InternalError wraps the error of the backend storage.
-type InternalError struct {
-	// Err is the error return by the backend storage.
-	Err error
-}
-
-func (i *InternalError) Error() string {
-	return i.Error()
-}
 
 // OnMsgDropped is same as server.OnMsgDropped. It is used to avoid cycle import.
 type OnMsgDropped = func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
