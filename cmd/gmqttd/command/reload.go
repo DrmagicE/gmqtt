@@ -22,7 +22,7 @@ func NewReloadCommand() *cobra.Command {
 			var err error
 			c, err = config.ParseConfig(ConfigFile)
 			if os.IsNotExist(err) {
-				c = config.DefaultConfig
+				c = config.DefaultConfig()
 			} else {
 				must(err)
 			}

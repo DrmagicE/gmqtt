@@ -2,6 +2,8 @@ package prometheus
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"sync/atomic"
 
@@ -9,17 +11,53 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/server"
 )
 
-const name = "prometheus"
+func init() {
+	server.RegisterPlugin(name, New)
+	config.RegisterDefaultPluginConfig(name, &DefaultConfig)
+}
+
+func New(config config.Config) (server.Plugable, error) {
+	cfg := config.Plugins[name].(*Config)
+	httpServer := &http.Server{
+		Addr: cfg.ListenAddress,
+	}
+	return &Prometheus{
+		httpServer: httpServer,
+		path:       cfg.Path,
+	}, nil
+}
+
+const (
+	name         = "prometheus"
+	metricPrefix = "gmqtt_"
+)
 
 var log *zap.Logger
 
-const metricPrefix = "gmqtt_"
+func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type cfg Config
+	var v = &struct {
+		Prometheus cfg `yaml:"prometheus"`
+	}{
+		Prometheus: cfg(DefaultConfig),
+	}
+	if err := unmarshal(v); err != nil {
+		return err
+	}
+	empty := cfg(Config{})
+	if v.Prometheus == empty {
+		v.Prometheus = cfg(DefaultConfig)
+	}
+	*c = Config(v.Prometheus)
+	return nil
+}
 
-// Config is the configration of prometheus exporter plugin
+// Config is the configuration of prometheus exporter plugin
 type Config struct {
 	// ListenAddress is the address that the exporter will listen on.
 	ListenAddress string `yaml:"listen_address"`
@@ -27,7 +65,15 @@ type Config struct {
 	Path string `yaml:"path"`
 }
 
-// DefaultConfig is the default configration.
+func (c *Config) Validate() error {
+	_, _, err := net.SplitHostPort(c.ListenAddress)
+	if err != nil {
+		return errors.New("invalid listner_address")
+	}
+	return nil
+}
+
+// DefaultConfig is the default configuration.
 var DefaultConfig = Config{
 	ListenAddress: ":8082",
 	Path:          "/metrics",
@@ -38,14 +84,6 @@ type Prometheus struct {
 	statsManager server.StatsManager
 	httpServer   *http.Server
 	path         string
-}
-
-func New(httpSever *http.Server, path string) *Prometheus {
-	p := &Prometheus{
-		httpServer: httpSever,
-		path:       path,
-	}
-	return p
 }
 
 func (p *Prometheus) Load(service server.Server) error {

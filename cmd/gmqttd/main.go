@@ -11,6 +11,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/command"
 	_ "github.com/DrmagicE/gmqtt/persistence"
+	_ "github.com/DrmagicE/gmqtt/plugin/prometheus"
 	_ "github.com/DrmagicE/gmqtt/topicalias/fifo"
 )
 

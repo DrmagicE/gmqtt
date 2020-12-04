@@ -31,8 +31,6 @@ type SessionStatsManager interface {
 type SessionStats struct {
 	// InflightCurrent, the used length of the inflight queue.
 	InflightCurrent uint64
-	// AwaitRelCurrent, the used length of the awaitRel queue.
-	AwaitRelCurrent uint64
 
 	MessageStats
 }
@@ -40,7 +38,6 @@ type SessionStats struct {
 func (s *SessionStats) copy() *SessionStats {
 	return &SessionStats{
 		InflightCurrent: atomic.LoadUint64(&s.InflightCurrent),
-		AwaitRelCurrent: atomic.LoadUint64(&s.AwaitRelCurrent),
 		MessageStats:    *s.MessageStats.copy(),
 	}
 }
@@ -437,14 +434,6 @@ func (s *sessionStatsManager) addInflightCurrent(delta uint64) {
 
 func (s *sessionStatsManager) decInflightCurrent(delta uint64) {
 	atomic.AddUint64(&s.InflightCurrent, ^uint64(delta-1))
-}
-
-func (s *sessionStatsManager) addAwaitCurrent(delta uint64) {
-	atomic.AddUint64(&s.AwaitRelCurrent, delta)
-}
-
-func (s *sessionStatsManager) decAwaitCurrent(delta uint64) {
-	atomic.AddUint64(&s.AwaitRelCurrent, ^uint64(delta-1))
 }
 
 func (s *sessionStatsManager) GetStats() *SessionStats {

@@ -31,13 +31,10 @@ import (
 
 var (
 	// ErrInvalWsMsgType [MQTT-6.0.0-1]
-	ErrInvalWsMsgType = errors.New("invalid websocket message type")
-	statusPanic       = "invalid server status"
-
-	plugins []Plugable
-
+	ErrInvalWsMsgType    = errors.New("invalid websocket message type")
+	statusPanic          = "invalid server status"
+	plugins              = make(map[string]NewPlugin)
 	topicAliasMgrFactory = make(map[string]NewTopicAliasManager)
-
 	persistenceFactories = make(map[string]NewPersistence)
 )
 
@@ -53,6 +50,13 @@ func RegisterTopicAliasMgrFactory(name string, new NewTopicAliasManager) {
 		panic("duplicated topic alias manager factory: " + name)
 	}
 	topicAliasMgrFactory[name] = new
+}
+
+func RegisterPlugin(name string, new NewPlugin) {
+	if _, ok := plugins[name]; ok {
+		panic("duplicated plugin: " + name)
+	}
+	plugins[name] = new
 }
 
 // Server status
@@ -686,7 +690,7 @@ func defaultServer() *server {
 		willMessage:     make(map[string]*willMsg),
 		retainedDB:      retained_trie.NewStore(),
 		subscriptionsDB: subStore,
-		config:          config.DefaultConfig,
+		config:          config.DefaultConfig(),
 		statsManager:    statsMgr,
 		queueStore:      make(map[string]queue.Store),
 		unackStore:      make(map[string]unack.Store),

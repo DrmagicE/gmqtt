@@ -49,7 +49,7 @@ func installSignal(srv server.Server) {
 			c, err = config.ParseConfig(ConfigFile)
 			if os.IsNotExist(err) {
 				// if config file not exist, use default configration.
-				c = config.DefaultConfig
+				c = config.DefaultConfig()
 			} else {
 				logger.Error("reload error", zap.Error(err))
 
@@ -98,7 +98,7 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 
 // NewStartCmd creates a *cobra.Command object for start command.
 func NewStartCmd() *cobra.Command {
-	cfg := &config.DefaultConfig
+	cfg := config.DefaultConfig()
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start gmqtt broker",
@@ -109,7 +109,7 @@ func NewStartCmd() *cobra.Command {
 			var useDefault bool
 			if os.IsNotExist(err) {
 				// if config file not exist, use default configration.
-				c = *cfg
+				c = cfg
 				useDefault = true
 			} else {
 				must(err)

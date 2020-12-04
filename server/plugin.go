@@ -1,5 +1,9 @@
 package server
 
+import (
+	"github.com/DrmagicE/gmqtt/config"
+)
+
 // HookWrapper groups all hook wrappers function
 type HookWrapper struct {
 	OnBasicAuthWrapper         OnBasicAuthWrapper
@@ -19,6 +23,8 @@ type HookWrapper struct {
 	OnAcceptWrapper            OnAcceptWrapper
 	OnStopWrapper              OnStopWrapper
 }
+
+type NewPlugin func(config config.Config) (Plugable, error)
 
 // Plugable is the interface need to be implemented for every plugins.
 type Plugable interface {

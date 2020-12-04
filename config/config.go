@@ -8,21 +8,42 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// DefaultConfig is the default configration. If config file is not provided, gmqttd will start with DefaultConfig.
-// Command-line flags will override the configuration.
-var DefaultConfig = Config{
-	Listeners: DefaultListeners,
-	MQTT:      DefaultMQTTConfig,
-	Log: LogConfig{
-		Level: "info",
-	},
-	PidFile: getDefaultPidFile(),
-	//Plugins: PluginsConfig{
-	//	Prometheus: prometheus.DefaultConfig,
-	//},
-	Persistence:       DefaultPersistenceConfig,
-	TopicAliasManager: DefaultTopicAliasManager,
+var (
+	defaultPluginConfig = make(map[string]Configuration)
+)
+
+type Configuration interface {
+	Validate() error
+	yaml.Unmarshaler
 }
+type Validate func(config Configuration) error
+
+func RegisterDefaultPluginConfig(name string, config Configuration) {
+	defaultPluginConfig[name] = config
+}
+
+// DefaultConfig return the default configuration.
+// If config file is not provided, gmqttd will start with DefaultConfig.
+// Command-line flags will override the configuration.
+func DefaultConfig() Config {
+	c := Config{
+		Listeners: DefaultListeners,
+		MQTT:      DefaultMQTTConfig,
+		Log: LogConfig{
+			Level: "info",
+		},
+		PidFile:           getDefaultPidFile(),
+		Plugins:           make(PluginConfig),
+		Persistence:       DefaultPersistenceConfig,
+		TopicAliasManager: DefaultTopicAliasManager,
+	}
+
+	for name, v := range defaultPluginConfig {
+		c.Plugins[name] = v
+	}
+	return c
+}
+
 var DefaultListeners = []*ListenerConfig{
 	{
 		Address:    "0.0.0.0:1883",
@@ -36,20 +57,29 @@ type LogConfig struct {
 	Level string
 }
 
+type PluginConfig map[string]Configuration
+
+func (p PluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	for _, v := range p {
+		err := unmarshal(v)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Config is the configration for gmqttd.
 type Config struct {
-	Listeners []*ListenerConfig `yaml:"listeners"`
-	MQTT      MQTT              `yaml:"mqtt"`
-	Log       LogConfig         `yaml:"log"`
-	PidFile   string            `yaml:"pid_file"`
-	//Plugins     PluginsConfig     `yaml:"plugins"`
+	Listeners         []*ListenerConfig `yaml:"listeners"`
+	MQTT              MQTT              `yaml:"mqtt,omitempty"`
+	Log               LogConfig         `yaml:"log"`
+	PidFile           string            `yaml:"pid_file"`
+	Plugins           PluginConfig      `yaml:"plugins"`
 	Persistence       Persistence       `yaml:"persistence"`
 	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
 }
 
-//type PluginsConfig struct {
-//	Prometheus prometheus.Config `yaml:"prometheus"`
-//}
 type TLSOptions struct {
 	CertFile string `yaml:"cert_file" validate:"required"`
 	KeyFile  string `yaml:"key_file" validate:"required"`
@@ -66,9 +96,25 @@ type WebsocketOptions struct {
 
 func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type config Config
-	raw := config(DefaultConfig)
+	raw := config(DefaultConfig())
 	if err := unmarshal(&raw); err != nil {
 		return err
+	}
+	emptyMQTT := MQTT{}
+	if raw.MQTT == emptyMQTT {
+		raw.MQTT = DefaultMQTTConfig
+	}
+	if len(raw.Plugins) == 0 {
+		raw.Plugins = make(PluginConfig)
+		for name, v := range defaultPluginConfig {
+			raw.Plugins[name] = v
+		}
+	} else {
+		for name, v := range raw.Plugins {
+			if v == nil {
+				raw.Plugins[name] = defaultPluginConfig[name]
+			}
+		}
 	}
 	*c = Config(raw)
 	return nil
@@ -79,17 +125,28 @@ func (c Config) Validate() error {
 	if err != nil {
 		return err
 	}
-	return c.Persistence.Validate()
+	err = c.Persistence.Validate()
+	if err != nil {
+		return err
+	}
+	for _, conf := range c.Plugins {
+		err := conf.Validate()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ParseConfig(filePath string) (c Config, err error) {
 	if filePath == "" {
-		return DefaultConfig, nil
+		return DefaultConfig(), nil
 	}
 	b, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return c, err
 	}
+	c = DefaultConfig()
 	err = yaml.Unmarshal(b, &c)
 	if err != nil {
 		return c, err
