@@ -21,8 +21,9 @@ import (
 )
 
 var (
-	ConfigFile string
-	logger     *zap.Logger
+	DefaultConfigFile string
+	ConfigFile        string
+	logger            *zap.Logger
 )
 
 func must(err error) {
@@ -47,12 +48,9 @@ func installSignal(srv server.Server) {
 			var c config.Config
 			var err error
 			c, err = config.ParseConfig(ConfigFile)
-			if os.IsNotExist(err) {
-				// if config file not exist, use default configration.
-				c = config.DefaultConfig()
-			} else {
+			if err != nil {
 				logger.Error("reload error", zap.Error(err))
-
+				return
 			}
 			srv.ApplyConfig(c)
 			logger.Info("gmqtt reloaded")
@@ -108,6 +106,10 @@ func NewStartCmd() *cobra.Command {
 			c, err := config.ParseConfig(ConfigFile)
 			var useDefault bool
 			if os.IsNotExist(err) {
+				if DefaultConfigFile != ConfigFile {
+					fmt.Println(err)
+					return
+				}
 				// if config file not exist, use default configration.
 				c = cfg
 				useDefault = true

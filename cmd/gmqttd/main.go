@@ -33,7 +33,8 @@ func must(err error) {
 func init() {
 	d, err := homedir.Dir()
 	must(err)
-	rootCmd.PersistentFlags().StringVarP(&command.ConfigFile, "config", "c", d+"/gmqtt.yml", "The configration file path")
+	command.DefaultConfigFile = d + "/gmqtt.yml"
+	rootCmd.PersistentFlags().StringVarP(&command.ConfigFile, "config", "c", command.DefaultConfigFile, "The configration file path")
 
 	rootCmd.AddCommand(command.NewStartCmd())
 	rootCmd.AddCommand(command.NewReloadCommand())
