@@ -142,13 +142,13 @@ func NewStartCmd() *cobra.Command {
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
 				server.WithWebsocketServer(websockets...),
-				//gmqtt.WithPlugin(management.New(":8081", nil)),
-				//server.WithPlugin(prometheus.New(&http.Server{
-				//	Addr: c.Plugins.Prometheus.ListenAddress,
-				//}, c.Plugins.Prometheus.Path)),
 				server.WithLogger(l),
 				server.WithHook(h),
 			)
+			err = s.Init()
+			if err != nil {
+				return
+			}
 			err = s.Run()
 			if err != nil {
 				fmt.Println(err)

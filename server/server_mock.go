@@ -6,10 +6,7 @@ package server
 
 import (
 	context "context"
-	gmqtt "github.com/DrmagicE/gmqtt"
 	config "github.com/DrmagicE/gmqtt/config"
-	subscription "github.com/DrmagicE/gmqtt/persistence/subscription"
-	retained "github.com/DrmagicE/gmqtt/retained"
 	gomock "github.com/golang/mock/gomock"
 	reflect "reflect"
 )
@@ -37,60 +34,18 @@ func (m *MockServer) EXPECT() *MockServerMockRecorder {
 	return m.recorder
 }
 
-// SubscriptionStore mocks base method
-func (m *MockServer) SubscriptionStore() subscription.Store {
+// Publisher mocks base method
+func (m *MockServer) Publisher() Publisher {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubscriptionStore")
-	ret0, _ := ret[0].(subscription.Store)
+	ret := m.ctrl.Call(m, "Publisher")
+	ret0, _ := ret[0].(Publisher)
 	return ret0
 }
 
-// SubscriptionStore indicates an expected call of SubscriptionStore
-func (mr *MockServerMockRecorder) SubscriptionStore() *gomock.Call {
+// Publisher indicates an expected call of Publisher
+func (mr *MockServerMockRecorder) Publisher() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscriptionStore", reflect.TypeOf((*MockServer)(nil).SubscriptionStore))
-}
-
-// RetainedStore mocks base method
-func (m *MockServer) RetainedStore() retained.Store {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RetainedStore")
-	ret0, _ := ret[0].(retained.Store)
-	return ret0
-}
-
-// RetainedStore indicates an expected call of RetainedStore
-func (mr *MockServerMockRecorder) RetainedStore() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetainedStore", reflect.TypeOf((*MockServer)(nil).RetainedStore))
-}
-
-// PublishService mocks base method
-func (m *MockServer) PublishService() PublishService {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishService")
-	ret0, _ := ret[0].(PublishService)
-	return ret0
-}
-
-// PublishService indicates an expected call of PublishService
-func (mr *MockServerMockRecorder) PublishService() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishService", reflect.TypeOf((*MockServer)(nil).PublishService))
-}
-
-// Client mocks base method
-func (m *MockServer) Client(clientID string) Client {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Client", clientID)
-	ret0, _ := ret[0].(Client)
-	return ret0
-}
-
-// Client indicates an expected call of Client
-func (mr *MockServerMockRecorder) Client(clientID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Client", reflect.TypeOf((*MockServer)(nil).Client), clientID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publisher", reflect.TypeOf((*MockServer)(nil).Publisher))
 }
 
 // GetConfig mocks base method
@@ -107,18 +62,18 @@ func (mr *MockServerMockRecorder) GetConfig() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockServer)(nil).GetConfig))
 }
 
-// GetStatsManager mocks base method
-func (m *MockServer) GetStatsManager() StatsManager {
+// StatsManager mocks base method
+func (m *MockServer) StatsManager() StatsReader {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStatsManager")
-	ret0, _ := ret[0].(StatsManager)
+	ret := m.ctrl.Call(m, "StatsManager")
+	ret0, _ := ret[0].(StatsReader)
 	return ret0
 }
 
-// GetStatsManager indicates an expected call of GetStatsManager
-func (mr *MockServerMockRecorder) GetStatsManager() *gomock.Call {
+// StatsManager indicates an expected call of StatsManager
+func (mr *MockServerMockRecorder) StatsManager() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatsManager", reflect.TypeOf((*MockServer)(nil).GetStatsManager))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StatsManager", reflect.TypeOf((*MockServer)(nil).StatsManager))
 }
 
 // Stop mocks base method
@@ -147,49 +102,44 @@ func (mr *MockServerMockRecorder) ApplyConfig(config interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyConfig", reflect.TypeOf((*MockServer)(nil).ApplyConfig), config)
 }
 
-// MockPublishService is a mock of PublishService interface
-type MockPublishService struct {
-	ctrl     *gomock.Controller
-	recorder *MockPublishServiceMockRecorder
-}
-
-// MockPublishServiceMockRecorder is the mock recorder for MockPublishService
-type MockPublishServiceMockRecorder struct {
-	mock *MockPublishService
-}
-
-// NewMockPublishService creates a new mock instance
-func NewMockPublishService(ctrl *gomock.Controller) *MockPublishService {
-	mock := &MockPublishService{ctrl: ctrl}
-	mock.recorder = &MockPublishServiceMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use
-func (m *MockPublishService) EXPECT() *MockPublishServiceMockRecorder {
-	return m.recorder
-}
-
-// Publish mocks base method
-func (m *MockPublishService) Publish(message *gmqtt.Message) {
+// ClientService mocks base method
+func (m *MockServer) ClientService() ClientService {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Publish", message)
+	ret := m.ctrl.Call(m, "ClientService")
+	ret0, _ := ret[0].(ClientService)
+	return ret0
 }
 
-// Publish indicates an expected call of Publish
-func (mr *MockPublishServiceMockRecorder) Publish(message interface{}) *gomock.Call {
+// ClientService indicates an expected call of ClientService
+func (mr *MockServerMockRecorder) ClientService() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublishService)(nil).Publish), message)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClientService", reflect.TypeOf((*MockServer)(nil).ClientService))
 }
 
-// PublishToClient mocks base method
-func (m *MockPublishService) PublishToClient(clientID string, message *gmqtt.Message) {
+// SubscriptionService mocks base method
+func (m *MockServer) SubscriptionService() SubscriptionService {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "PublishToClient", clientID, message)
+	ret := m.ctrl.Call(m, "SubscriptionService")
+	ret0, _ := ret[0].(SubscriptionService)
+	return ret0
 }
 
-// PublishToClient indicates an expected call of PublishToClient
-func (mr *MockPublishServiceMockRecorder) PublishToClient(clientID, message interface{}) *gomock.Call {
+// SubscriptionService indicates an expected call of SubscriptionService
+func (mr *MockServerMockRecorder) SubscriptionService() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishToClient", reflect.TypeOf((*MockPublishService)(nil).PublishToClient), clientID, message)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscriptionService", reflect.TypeOf((*MockServer)(nil).SubscriptionService))
+}
+
+// RetainedService mocks base method
+func (m *MockServer) RetainedService() RetainedService {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetainedService")
+	ret0, _ := ret[0].(RetainedService)
+	return ret0
+}
+
+// RetainedService indicates an expected call of RetainedService
+func (mr *MockServerMockRecorder) RetainedService() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetainedService", reflect.TypeOf((*MockServer)(nil).RetainedService))
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
+	_ "github.com/DrmagicE/gmqtt/persistence"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
@@ -19,33 +22,47 @@ import (
 )
 
 func main() {
+	go func() {
+		http.ListenAndServe(":6060", nil)
+	}()
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
-	l, _ := zap.NewDevelopment()
+	cfg := zap.NewDevelopmentConfig()
+	cfg.Level.SetLevel(zap.InfoLevel)
+	l, _ := cfg.Build()
 	srv := server.New(
 		server.WithTCPListener(ln),
 		server.WithLogger(l),
 	)
 
-	// subscription store
-	subStore := srv.SubscriptionStore()
-	srv.Init(server.WithHook(server.Hooks{
+	var subService server.SubscriptionService
+	err = srv.Init(server.WithHook(server.Hooks{
 		OnConnected: func(ctx context.Context, client server.Client) {
 			// add subscription for a client when it is connected
-			subStore.Subscribe(client.ClientOptions().ClientID, &gmqtt.Subscription{
+			subService = srv.SubscriptionService()
+			subService.Subscribe(client.ClientOptions().ClientID, &gmqtt.Subscription{
 				TopicFilter: "topic",
 				QoS:         packets.Qos0,
 			})
 		},
 	}))
 
-	// retained store
-	retainedStore := srv.RetainedStore()
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	// retained service
+	retainedService := srv.RetainedService()
+
+	// publish service
+	pub := srv.Publisher()
+
 	// add a retained message
-	retainedStore.AddOrReplace(&gmqtt.Message{
+	retainedService.AddOrReplace(&gmqtt.Message{
 		QoS:      packets.Qos1,
 		Retained: true,
 		Topic:    "a/b/c",
@@ -53,7 +70,6 @@ func main() {
 	})
 
 	// publish service
-	pub := srv.PublishService()
 
 	srv.Run()
 
@@ -61,18 +77,19 @@ func main() {
 		for {
 			<-time.NewTimer(5 * time.Second).C
 			// iterate all topics
-			subStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
-				fmt.Printf("client id: %s, subscription: %v \n", clientID, sub)
+			subService.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+				fmt.Printf("client id: %s, topic: %v \n", clientID, sub.TopicFilter)
 				return true
 			}, subscription.IterationOptions{
 				Type: subscription.TypeAll,
 			})
 			// publish a message to the broker
 			pub.Publish(&gmqtt.Message{
-				QoS:     packets.Qos1,
 				Topic:   "topic",
 				Payload: []byte("abc"),
+				QoS:     packets.Qos1,
 			})
+
 		}
 
 	}()

@@ -39,7 +39,7 @@ plugins:
     listen_address: ":8082"
 
 log:
-  level: info # debug | info | warn | error
+  level: error # debug | info | warn | error
 
 
 

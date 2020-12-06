@@ -198,7 +198,7 @@ type SessionTerminatedReason byte
 
 const (
 	NormalTermination SessionTerminatedReason = iota
-	ConflictTermination
+	TakenOverTermination
 	ExpiredTermination
 )
 

@@ -39,7 +39,6 @@ var (
 const (
 	Connecting = iota
 	Connected
-	Switiching
 )
 const (
 	readBufferSize  = 4096
@@ -134,7 +133,7 @@ type ClientOptions struct {
 // Client represent a mqtt client.
 type Client interface {
 	// ClientOptions return a reference of ClientOptions. Do not edit.
-	// This is mainly used in callback functions.
+	// This is mainly used in hooks.
 	ClientOptions() *ClientOptions
 	// SessionInfo return a reference of session information of the client. Do not edit.
 	// Session info will be available after the client has passed OnSessionCreated or OnSessionResume.
@@ -145,27 +144,26 @@ type Client interface {
 	ConnectedAt() time.Time
 	// Connection returns the raw net.Conn
 	Connection() net.Conn
-	// Close closes the client connection. The returned channel will be closed after unregister process has been done
-	Close() <-chan struct{}
+	// Close closes the client connection.
+	Close()
+	// Disconnect sends a disconnect packet to client, it is use to close v5 client.
 	Disconnect(disconnect *packets.Disconnect)
-
-	GetSessionStatsManager() SessionStatsManager
 }
 
 // Client represents a MQTT client and implements the Client interface
 type client struct {
-	server        *server
-	wg            sync.WaitGroup
-	rwc           net.Conn //raw tcp connection
-	bufr          *bufio.Reader
-	bufw          *bufio.Writer
-	packetReader  *packets.Reader
-	packetWriter  *packets.Writer
-	in            chan packets.Packet
-	out           chan packets.Packet
-	close         chan struct{} //关闭chan
-	closeComplete chan struct{} //连接关闭
-	status        int32         //client状态
+	server       *server
+	wg           sync.WaitGroup
+	rwc          net.Conn //raw tcp connection
+	bufr         *bufio.Reader
+	bufw         *bufio.Writer
+	packetReader *packets.Reader
+	packetWriter *packets.Writer
+	in           chan packets.Packet
+	out          chan packets.Packet
+	close        chan struct{}
+	connected    chan struct{}
+	status       int32
 
 	error   chan error //错误
 	errOnce sync.Once
@@ -175,12 +173,11 @@ type client struct {
 	session *gmqtt.Session
 
 	cleanWillFlag bool //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
-	disconnect    *packets.Disconnect
+	// if 1, when client close, the session expiry interval will be ignored and the session will be removed.
+	forceRemoveSession int32
+	disconnect         *packets.Disconnect
 
-	connectedAt    int64
-	disconnectedAt int64
-
-	statsManager      SessionStatsManager
+	connectedAt       int64
 	topicAliasManager TopicAliasManager
 	version           packets.Version
 	aliasMapper       [][]byte
@@ -212,14 +209,6 @@ type aliasMapper struct {
 	server [][]byte
 }
 
-func (client *client) GetSessionStatsManager() SessionStatsManager {
-	return client.statsManager
-}
-
-func (client *client) setDisconnectedAt(time time.Time) {
-	atomic.StoreInt64(&client.disconnectedAt, time.Unix())
-}
-
 // ConnectedAt
 func (client *client) ConnectedAt() time.Time {
 	return time.Unix(atomic.LoadInt64(&client.connectedAt), 0)
@@ -232,10 +221,6 @@ func (client *client) Connection() net.Conn {
 
 func (client *client) setConnecting() {
 	atomic.StoreInt32(&client.status, Connecting)
-}
-
-func (client *client) setSwitching() {
-	atomic.StoreInt32(&client.status, Switiching)
 }
 
 func (client *client) setConnected(time time.Time) {
@@ -255,18 +240,10 @@ func (client *client) IsConnected() bool {
 
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
-		if client.queueStore != nil {
-			qerr := client.queueStore.Close()
-			if qerr != nil {
-				zaplog.Error("fail to close message queue", zap.String("client_id", client.opts.ClientID), zap.Error(qerr))
-			}
-		}
-		if client.pl != nil {
-			client.pl.close()
-		}
-
 		if err != nil && err != io.EOF {
-			zaplog.Error("connection lost", zap.Error(err))
+			zaplog.Error("connection lost",
+				zap.String("client_id", client.opts.ClientID),
+				zap.Error(err))
 			client.err = err
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
@@ -289,12 +266,12 @@ func (client *client) setError(err error) {
 
 func (client *client) writeLoop() {
 	var err error
+	srv := client.server
 	defer func() {
 		if re := recover(); re != nil {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		client.wg.Done()
 	}()
 	for {
 		select {
@@ -303,9 +280,6 @@ func (client *client) writeLoop() {
 		case packet := <-client.out:
 			switch p := packet.(type) {
 			case *packets.Publish:
-				client.server.statsManager.messageSent(p.Qos)
-				client.statsManager.messageSent(p.Qos)
-
 				if client.version == packets.Version5 {
 					if client.opts.ClientTopicAliasMax > 0 {
 						// use alias if exist
@@ -321,9 +295,10 @@ func (client *client) writeLoop() {
 					}
 				}
 				// onDeliver hook
-				if client.server.hooks.OnDeliver != nil {
-					client.server.hooks.OnDeliver(context.Background(), client, gmqtt.MessageFromPublish(p))
+				if srv.hooks.OnDeliver != nil {
+					srv.hooks.OnDeliver(context.Background(), client, gmqtt.MessageFromPublish(p))
 				}
+				srv.statsManager.messageSent(p.Qos, client.opts.ClientID)
 			case *packets.Puback, *packets.Pubcomp:
 				if client.version == packets.Version5 {
 					client.addServerQuota()
@@ -337,7 +312,7 @@ func (client *client) writeLoop() {
 			if err != nil {
 				return
 			}
-			client.server.statsManager.packetSent(packet)
+			srv.statsManager.packetSent(packet, client.opts.ClientID)
 			if _, ok := packet.(*packets.Disconnect); ok {
 				client.rwc.Close()
 				return
@@ -379,18 +354,19 @@ func (client *client) tryDecServerQuota() error {
 	return nil
 }
 
+var mu sync.Mutex
+
 func (client *client) readLoop() {
 	var err error
+	srv := client.server
 	defer func() {
 		if re := recover(); re != nil {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		client.wg.Done()
 		close(client.in)
 	}()
 	for {
-
 		var packet packets.Packet
 		if client.IsConnected() {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
@@ -401,6 +377,7 @@ func (client *client) readLoop() {
 		if err != nil {
 			return
 		}
+
 		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
 			ce.Write(
 				zap.String("packet", packet.String()),
@@ -408,9 +385,8 @@ func (client *client) readLoop() {
 				zap.String("client_id", client.opts.ClientID),
 			)
 		}
-		client.server.statsManager.packetReceived(packet)
 		if pub, ok := packet.(*packets.Publish); ok {
-			client.server.statsManager.messageReceived(pub.Qos)
+			srv.statsManager.messageReceived(pub.Qos, client.opts.ClientID)
 			if client.version == packets.Version5 && pub.Qos > packets.Qos0 {
 				err = client.tryDecServerQuota()
 				if err != nil {
@@ -419,13 +395,14 @@ func (client *client) readLoop() {
 			}
 		}
 		client.in <- packet
+		<-client.connected
+		srv.statsManager.packetReceived(packet, client.opts.ClientID)
 	}
 }
 
 // Close closes the client connection. The returned channel will be closed after unregisterClient process has been done
-func (client *client) Close() <-chan struct{} {
+func (client *client) Close() {
 	client.rwc.Close()
-	return client.closeComplete
 }
 
 var pid = os.Getpid()
@@ -509,6 +486,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 		} else {
 			ok = true
 		}
+		close(client.connected)
 	}()
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
@@ -744,10 +722,8 @@ func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions 
 }
 
 func (client *client) internalClose() {
-	defer close(client.closeComplete)
-	if client.Status() != Switiching {
-		client.server.unregisterClient(client)
-	}
+	client.server.unregisterClient(client)
+
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
 
@@ -755,9 +731,7 @@ func (client *client) internalClose() {
 	if client.server.hooks.OnClose != nil {
 		client.server.hooks.OnClose(context.Background(), client, client.err)
 	}
-	client.setDisconnectedAt(time.Now())
-	client.server.statsManager.addClientDisconnected()
-	client.server.statsManager.decSessionActive()
+	client.server.statsManager.clientDisconnected(client.opts.ClientID)
 }
 
 func (client *client) checkMaxPacketSize(msg *gmqtt.Message) (valid bool) {
@@ -871,7 +845,6 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 			if srv.hooks.OnSubscribed != nil {
 				srv.hooks.OnSubscribed(context.Background(), client, sub)
 			}
-
 			zaplog.Info("subscribe succeeded",
 				zap.String("topic", sub.TopicFilter),
 				zap.Uint8("qos", sub.QoS),
@@ -1057,7 +1030,6 @@ func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
 		return converError(err)
 	}
 	client.pl.release(puback.PacketID)
-	client.statsManager.decInflightCurrent(1)
 	if ce := zaplog.Check(zapcore.DebugLevel, "unset inflight"); ce != nil {
 		ce.Write(zap.String("clientID", client.opts.ClientID),
 			zap.Uint16("pid", puback.PacketID),
@@ -1248,7 +1220,6 @@ func (client *client) readHandle() {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		client.wg.Done()
 		close(client.close)
 	}()
 	for packet := range client.in {
@@ -1369,7 +1340,6 @@ func (client *client) pollMessageHandler() {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		client.wg.Done()
 	}()
 	// drain all inflight messages
 	cont := true
@@ -1382,7 +1352,7 @@ func (client *client) pollMessageHandler() {
 	var ids []packets.PacketID
 	for {
 		//TODO config
-		ids = client.pl.pollPacketIDs(100)
+		ids = client.pl.pollPacketIDs(client.opts.MaxInflight)
 		if ids == nil {
 			return
 		}
@@ -1397,13 +1367,42 @@ func (client *client) pollMessageHandler() {
 //server goroutine结束的条件:1客户端断开连接 或 2发生错误
 func (client *client) serve() {
 	defer client.internalClose()
-	client.wg.Add(2)
-	go client.readLoop()                       //read
-	go client.writeLoop()                      //write
-	if ok := client.connectWithTimeOut(); ok { //链接成功,建立session
+	readWg := &sync.WaitGroup{}
+
+	readWg.Add(1)
+	go func() { //read
+		client.readLoop()
+		readWg.Done()
+	}()
+
+	client.wg.Add(1)
+	go func() { //write
+		client.writeLoop()
+		client.wg.Done()
+	}()
+
+	if ok := client.connectWithTimeOut(); ok {
 		client.wg.Add(2)
-		go client.pollMessageHandler()
-		go client.readHandle()
+		go func() {
+			client.pollMessageHandler()
+			client.wg.Done()
+		}()
+		go func() {
+			client.readHandle()
+			client.wg.Done()
+		}()
+
+	}
+	readWg.Wait()
+
+	if client.queueStore != nil {
+		qerr := client.queueStore.Close()
+		if qerr != nil {
+			zaplog.Error("fail to close message queue", zap.String("client_id", client.opts.ClientID), zap.Error(qerr))
+		}
+	}
+	if client.pl != nil {
+		client.pl.close()
 	}
 	client.wg.Wait()
 	client.rwc.Close()

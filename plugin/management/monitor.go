@@ -236,7 +236,7 @@ func newClientInfo(client server.Client) *ClientInfo {
 }
 func (m *monitor) newSessionInfo(client server.Client, c server.Config) *SessionInfo {
 	clientOptions := client.ClientOptions()
-	stats := client.GetSessionStatsManager().GetStats()
+	stats := client.GetStats().GetStats()
 	subStats, _ := m.subStatsReader.GetClientStats(clientOptions.ClientID)
 	rs := &SessionInfo{
 		ClientID:              clientOptions.ClientID,

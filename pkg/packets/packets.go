@@ -172,7 +172,6 @@ func NewWriter(w io.Writer) *Writer {
 // ReadPacket reads data from Reader and returns a  Packet instance.
 // If any errors occurs, returns nil, error
 func (r *Reader) ReadPacket() (Packet, error) {
-
 	first, err := r.bufr.ReadByte()
 	if err != nil {
 		return nil, err

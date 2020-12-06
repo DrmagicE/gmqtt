@@ -5,6 +5,7 @@
 package server
 
 import (
+	gmqtt "github.com/DrmagicE/gmqtt"
 	packets "github.com/DrmagicE/gmqtt/pkg/packets"
 	gomock "github.com/golang/mock/gomock"
 	net "net"
@@ -47,6 +48,20 @@ func (m *MockClient) ClientOptions() *ClientOptions {
 func (mr *MockClientMockRecorder) ClientOptions() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClientOptions", reflect.TypeOf((*MockClient)(nil).ClientOptions))
+}
+
+// SessionInfo mocks base method
+func (m *MockClient) SessionInfo() *gmqtt.Session {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SessionInfo")
+	ret0, _ := ret[0].(*gmqtt.Session)
+	return ret0
+}
+
+// SessionInfo indicates an expected call of SessionInfo
+func (mr *MockClientMockRecorder) SessionInfo() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SessionInfo", reflect.TypeOf((*MockClient)(nil).SessionInfo))
 }
 
 // Version mocks base method
@@ -92,11 +107,9 @@ func (mr *MockClientMockRecorder) Connection() *gomock.Call {
 }
 
 // Close mocks base method
-func (m *MockClient) Close() <-chan struct{} {
+func (m *MockClient) Close() {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close")
-	ret0, _ := ret[0].(<-chan struct{})
-	return ret0
+	m.ctrl.Call(m, "Close")
 }
 
 // Close indicates an expected call of Close
@@ -115,18 +128,4 @@ func (m *MockClient) Disconnect(disconnect *packets.Disconnect) {
 func (mr *MockClientMockRecorder) Disconnect(disconnect interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockClient)(nil).Disconnect), disconnect)
-}
-
-// GetSessionStatsManager mocks base method
-func (m *MockClient) GetSessionStatsManager() SessionStatsManager {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSessionStatsManager")
-	ret0, _ := ret[0].(SessionStatsManager)
-	return ret0
-}
-
-// GetSessionStatsManager indicates an expected call of GetSessionStatsManager
-func (mr *MockClientMockRecorder) GetSessionStatsManager() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionStatsManager", reflect.TypeOf((*MockClient)(nil).GetSessionStatsManager))
 }

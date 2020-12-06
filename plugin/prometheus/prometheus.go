@@ -17,12 +17,12 @@ import (
 )
 
 func init() {
-	server.RegisterPlugin(name, New)
-	config.RegisterDefaultPluginConfig(name, &DefaultConfig)
+	server.RegisterPlugin(Name, New)
+	config.RegisterDefaultPluginConfig(Name, &DefaultConfig)
 }
 
 func New(config config.Config) (server.Plugable, error) {
-	cfg := config.Plugins[name].(*Config)
+	cfg := config.Plugins[Name].(*Config)
 	httpServer := &http.Server{
 		Addr: cfg.ListenAddress,
 	}
@@ -33,7 +33,7 @@ func New(config config.Config) (server.Plugable, error) {
 }
 
 const (
-	name         = "prometheus"
+	Name         = "prometheus"
 	metricPrefix = "gmqtt_"
 )
 
@@ -81,14 +81,14 @@ var DefaultConfig = Config{
 
 // Prometheus served as a prometheus exporter that exposes gmqtt metrics.
 type Prometheus struct {
-	statsManager server.StatsManager
+	statsManager server.StatsReader
 	httpServer   *http.Server
 	path         string
 }
 
 func (p *Prometheus) Load(service server.Server) error {
-	log = server.LoggerWithField(zap.String("plugin", name))
-	p.statsManager = service.GetStatsManager()
+	log = server.LoggerWithField(zap.String("plugin", Name))
+	p.statsManager = service.StatsManager()
 	r := prometheus.DefaultRegisterer
 	r.MustRegister(p)
 	mu := http.NewServeMux()
@@ -109,7 +109,7 @@ func (p *Prometheus) HookWrapper() server.HookWrapper {
 	return server.HookWrapper{}
 }
 func (p *Prometheus) Name() string {
-	return name
+	return Name
 }
 
 func (p *Prometheus) Describe(desc chan<- *prometheus.Desc) {
@@ -118,11 +118,11 @@ func (p *Prometheus) Describe(desc chan<- *prometheus.Desc) {
 
 func (p *Prometheus) Collect(m chan<- prometheus.Metric) {
 	log.Debug("metrics collected")
-	st := p.statsManager.GetStats()
-	collectPacketsStats(st.PacketStats, m)
-	collectClientStats(st.ClientStats, m)
-	collectSubscriptionStats(st.SubscriptionStats, m)
-	collectMessageStats(st.MessageStats, m)
+	st := p.statsManager.GetGlobalStats()
+	collectPacketsStats(&st.PacketStats, m)
+	collectClientStats(&st.ConnectionStats, m)
+	collectSubscriptionStats(&st.SubscriptionStats, m)
+	collectMessageStats(&st.MessageStats, m)
 }
 
 func collectPacketsStats(ps *server.PacketStats, m chan<- prometheus.Metric) {
@@ -131,11 +131,11 @@ func collectPacketsStats(ps *server.PacketStats, m chan<- prometheus.Metric) {
 	bytesSentMetricName := metricPrefix + "packets_sent_bytes_total"
 	sentCounterMetricName := metricPrefix + "packets_sent_total"
 
-	collectPacketsStatsBytes(bytesReceivedMetricName, ps.BytesReceived, m)
-	collectPacketsStatsBytes(bytesSentMetricName, ps.BytesSent, m)
+	collectPacketsStatsBytes(bytesReceivedMetricName, &ps.BytesReceived, m)
+	collectPacketsStatsBytes(bytesSentMetricName, &ps.BytesSent, m)
 
-	collectPacketsStatsCounter(ReceivedCounterMetricName, ps.ReceivedTotal, m)
-	collectPacketsStatsCounter(sentCounterMetricName, ps.SentTotal, m)
+	collectPacketsStatsCounter(ReceivedCounterMetricName, &ps.ReceivedTotal, m)
+	collectPacketsStatsCounter(sentCounterMetricName, &ps.SentTotal, m)
 }
 func collectPacketsStatsBytes(metricName string, pb *server.PacketBytes, m chan<- prometheus.Metric) {
 	m <- prometheus.MustNewConstMetric(
@@ -310,7 +310,7 @@ func collectPacketsStatsCounter(metricName string, pc *server.PacketCount, m cha
 	)
 }
 
-func collectClientStats(c *server.ClientStats, m chan<- prometheus.Metric) {
+func collectClientStats(c *server.ConnectionStats, m chan<- prometheus.Metric) {
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"clients_connected_total", "", nil, nil),
 		prometheus.CounterValue,
@@ -331,11 +331,11 @@ func collectClientStats(c *server.ClientStats, m chan<- prometheus.Metric) {
 		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.DisconnectedTotal)),
 	)
-	m <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(metricPrefix+"sessions_expired_total", "", nil, nil),
-		prometheus.CounterValue,
-		float64(atomic.LoadUint64(&c.ExpiredTotal)),
-	)
+	//m <- prometheus.MustNewConstMetric(
+	//	prometheus.NewDesc(metricPrefix+"sessions_expired_total", "", nil, nil),
+	//	prometheus.CounterValue,
+	//	float64(atomic.LoadUint64(&c.ExpiredTotal)),
+	//)
 }
 func collectMessageStats(ms *server.MessageStats, m chan<- prometheus.Metric) {
 	collectMessageStatsDropped(ms, m)
@@ -343,23 +343,37 @@ func collectMessageStats(ms *server.MessageStats, m chan<- prometheus.Metric) {
 	collectMessageStatsReceived(ms, m)
 	collectMessageStatsSent(ms, m)
 }
+
+func collectQoSDropped(metricName string, qos string, stats *server.MessageQosStats, m chan<- prometheus.Metric) {
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricName, "", []string{"qos", "type"}, nil),
+		prometheus.CounterValue,
+		float64(atomic.LoadUint64(&stats.DroppedTotal.Internal)), qos, "internal",
+	)
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricName, "", []string{"qos", "type"}, nil),
+		prometheus.CounterValue,
+		float64(atomic.LoadUint64(&stats.DroppedTotal.Expired)), qos, "expired",
+	)
+
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricName, "", []string{"qos", "type"}, nil),
+		prometheus.CounterValue,
+		float64(atomic.LoadUint64(&stats.DroppedTotal.QueueFull)), qos, "queue_full",
+	)
+
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricName, "", []string{"qos", "type"}, nil),
+		prometheus.CounterValue,
+		float64(atomic.LoadUint64(&stats.DroppedTotal.ExceedsMaxPacketSize)), qos, "exceeds_max_size",
+	)
+}
+
 func collectMessageStatsDropped(ms *server.MessageStats, m chan<- prometheus.Metric) {
 	metricName := metricPrefix + "messages_dropped_total"
-	m <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(metricName, "", []string{"qos"}, nil),
-		prometheus.CounterValue,
-		float64(atomic.LoadUint64(&ms.Qos0.DroppedTotal)), "0",
-	)
-	m <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(metricName, "", []string{"qos"}, nil),
-		prometheus.CounterValue,
-		float64(atomic.LoadUint64(&ms.Qos1.DroppedTotal)), "1",
-	)
-	m <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(metricName, "", []string{"qos"}, nil),
-		prometheus.CounterValue,
-		float64(atomic.LoadUint64(&ms.Qos2.DroppedTotal)), "2",
-	)
+	collectQoSDropped(metricName, "0", &ms.Qos0, m)
+	collectQoSDropped(metricName, "1", &ms.Qos1, m)
+	collectQoSDropped(metricName, "2", &ms.Qos2, m)
 }
 
 func collectMessageStatsQueued(ms *server.MessageStats, m chan<- prometheus.Metric) {

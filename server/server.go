@@ -19,7 +19,6 @@ import (
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/session"
-	subscription_trie "github.com/DrmagicE/gmqtt/persistence/subscription/mem"
 	"github.com/DrmagicE/gmqtt/persistence/unack"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	retained_trie "github.com/DrmagicE/gmqtt/retained/trie"
@@ -34,6 +33,7 @@ var (
 	ErrInvalWsMsgType    = errors.New("invalid websocket message type")
 	statusPanic          = "invalid server status"
 	plugins              = make(map[string]NewPlugin)
+	pluginOrder          []string
 	topicAliasMgrFactory = make(map[string]NewTopicAliasManager)
 	persistenceFactories = make(map[string]NewPersistence)
 )
@@ -59,6 +59,10 @@ func RegisterPlugin(name string, new NewPlugin) {
 	plugins[name] = new
 }
 
+func SetPluginOrder(order []string) {
+	pluginOrder = order
+}
+
 // Server status
 const (
 	serverStatusInit = iota
@@ -79,33 +83,58 @@ func LoggerWithField(fields ...zap.Field) *zap.Logger {
 
 // Server interface represents a mqtt server instance.
 type Server interface {
-	// SubscriptionStore returns the subscription.Store.
-	SubscriptionStore() subscription.Store
-	// RetainedStore returns the retained.Store.
-	RetainedStore() retained.Store
-	// PublishService returns the PublishService
-	PublishService() PublishService
-	// Client return the client specified by clientID.
-	Client(clientID string) Client
+	// Publisher returns the Publisher
+	Publisher() Publisher
 	// GetConfig returns the config of the server
 	GetConfig() config.Config
-	// GetStatsManager returns StatsManager
-	GetStatsManager() StatsManager
+	// StatsManager returns StatsReader
+	StatsManager() StatsReader
 	// Stop stop the server gracefully
 	Stop(ctx context.Context) error
 	// ApplyConfig will replace the config of the server
 	ApplyConfig(config config.Config)
+
+	ClientService() ClientService
+
+	SubscriptionService() SubscriptionService
+
+	RetainedService() RetainedService
 }
 
-// PublishService provides the ability to Publish messages to the broker.
-type PublishService interface {
-	// Publish Publish a message to broker.
-	// Calling this method will not trigger OnMsgArrived hook.
-	Publish(message *gmqtt.Message)
-	// PublishToClient Publish a message to a specific client.
-	// The message will send to the client only if the client is subscribed to a topic that matches the message.
-	// Calling this method will not trigger OnMsgArrived hook.
-	PublishToClient(clientID string, message *gmqtt.Message)
+type clientService struct {
+	srv          *server
+	sessionStore session.Store
+}
+
+func (c *clientService) IterateSession(fn session.IterateFn) error {
+	return c.sessionStore.Iterate(fn)
+}
+
+func (c *clientService) GetSession(clientID string) (*gmqtt.Session, error) {
+	return c.sessionStore.Get(clientID)
+}
+
+func (c *clientService) CloseClient(clientID string) {
+	c.srv.mu.Lock()
+	defer c.srv.mu.Unlock()
+	if cli, ok := c.srv.clients[clientID]; ok {
+		cli.Close()
+	}
+}
+
+func (c *clientService) TerminateSession(clientID string) {
+	c.srv.mu.Lock()
+	defer c.srv.mu.Unlock()
+	if cli, ok := c.srv.clients[clientID]; ok {
+		atomic.StoreInt32(&cli.forceRemoveSession, 1)
+		cli.Close()
+		return
+	}
+	err := c.srv.sessionTerminatedLocked(clientID, NormalTermination)
+	if err != nil {
+		err = fmt.Errorf("session terminated fail: %w", err)
+		zaplog.Error("session terminated fail", zap.Error(err))
+	}
 }
 
 // server represents a mqtt server instance.
@@ -127,8 +156,7 @@ type server struct {
 	retainedDB      retained.Store
 	subscriptionsDB subscription.Store //store subscriptions
 
-	persistence Persistence
-	//
+	persistence  Persistence
 	queueStore   map[string]queue.Store
 	unackStore   map[string]unack.Store
 	sessionStore session.Store
@@ -139,12 +167,22 @@ type server struct {
 	hooks    Hooks
 	plugins  []Plugable
 
-	statsManager   StatsManager
-	publishService PublishService
+	statsManager   *statsManager
+	publishService Publisher
 
 	newTopicAliasManager NewTopicAliasManager
 	// for testing
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
+
+	clientService *clientService
+}
+
+func (srv *server) RetainedService() RetainedService {
+	return srv.retainedDB
+}
+
+func (srv *server) ClientService() ClientService {
+	return srv.clientService
 }
 
 func (srv *server) ApplyConfig(config config.Config) {
@@ -154,7 +192,7 @@ func (srv *server) ApplyConfig(config config.Config) {
 
 }
 
-func (srv *server) SubscriptionStore() subscription.Store {
+func (srv *server) SubscriptionService() SubscriptionService {
 	return srv.subscriptionsDB
 }
 
@@ -162,7 +200,7 @@ func (srv *server) RetainedStore() retained.Store {
 	return srv.retainedDB
 }
 
-func (srv *server) PublishService() PublishService {
+func (srv *server) Publisher() Publisher {
 	return srv.publishService
 }
 
@@ -184,8 +222,8 @@ func (srv *server) GetConfig() config.Config {
 	return srv.config
 }
 
-// GetStatsManager returns StatsManager
-func (srv *server) GetStatsManager() StatsManager {
+// StatsManager returns StatsReader
+func (srv *server) StatsManager() StatsReader {
 	return srv.statsManager
 }
 
@@ -199,6 +237,7 @@ func (srv *server) sessionTerminatedLocked(clientID string, reason SessionTermin
 	if srv.hooks.OnSessionTerminated != nil {
 		srv.hooks.OnSessionTerminated(context.Background(), clientID, reason)
 	}
+	srv.statsManager.sessionTerminated(reason)
 	return err
 }
 
@@ -233,14 +272,52 @@ func setWillProperties(willPpt *packets.Properties, msg *gmqtt.Message) {
 	}
 }
 
+func (srv *server) lockDuplicatedID(c *client) (oldSession *gmqtt.Session, err error) {
+	for {
+		srv.mu.Lock()
+		oldSession, err = srv.sessionStore.Get(c.opts.ClientID)
+		if err != nil {
+			srv.mu.Unlock()
+			zaplog.Error("fail to get session",
+				zap.String("remote_addr", c.rwc.RemoteAddr().String()),
+				zap.String("client_id", c.opts.ClientID))
+			return
+		}
+		if oldSession != nil {
+			var oldClient *client
+			oldClient = srv.clients[oldSession.ClientID]
+			srv.mu.Unlock()
+			if oldClient == nil {
+				srv.mu.Lock()
+				break
+			}
+			// if there is a duplicated online client, close if first.
+			zaplog.Info("logging with duplicate ClientID",
+				zap.String("remote", c.rwc.RemoteAddr().String()),
+				zap.String("client_id", oldSession.ClientID),
+			)
+			oldClient.setError(codes.NewError(codes.SessionTakenOver))
+			oldClient.Close()
+			oldClient.wg.Wait()
+			continue
+		}
+		break
+	}
+	return
+}
+
 // 已经判断是成功了，注册
 func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.Properties, client *client) (err error) {
 	var sessionResume bool
 	var qs queue.Store
 	var ua unack.Store
 	var sess *gmqtt.Session
+	var oldSession *gmqtt.Session
 	now := time.Now()
-	srv.mu.Lock()
+	oldSession, err = srv.lockDuplicatedID(client)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		var connack *packets.Connack
 		if err == nil {
@@ -272,10 +349,16 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		}
 		if err == nil {
 			client.session = sess
-			if sessionResume && srv.hooks.OnSessionResumed != nil {
-				srv.hooks.OnSessionResumed(context.Background(), client)
-			} else if srv.hooks.OnSessionCreated != nil {
-				srv.hooks.OnSessionCreated(context.Background(), client)
+			if sessionResume {
+				if srv.hooks.OnSessionResumed != nil {
+					srv.hooks.OnSessionResumed(context.Background(), client)
+				}
+				srv.statsManager.sessionActive(false)
+			} else {
+				if srv.hooks.OnSessionResumed != nil {
+					srv.hooks.OnSessionCreated(context.Background(), client)
+				}
+				srv.statsManager.sessionActive(true)
 			}
 			srv.clients[client.opts.ClientID] = client
 			srv.unackStore[client.opts.ClientID] = ua
@@ -295,49 +378,19 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 
 	}()
 
-	srv.statsManager.addClientConnected()
-	srv.statsManager.addSessionActive()
 	client.setConnected(time.Now())
 	if srv.hooks.OnConnected != nil {
 		srv.hooks.OnConnected(context.Background(), client)
 	}
-	var oldSession *gmqtt.Session
-	oldSession, err = srv.sessionStore.Get(client.opts.ClientID)
-	if err != nil {
-		zaplog.Error("fail to get session",
-			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.ClientID))
-		return
-	}
+	srv.statsManager.clientConnected(client.opts.ClientID)
+
 	if oldSession != nil {
 		if !oldSession.IsExpired(now) && !connect.CleanStart {
 			sessionResume = true
 		}
-		// session still active, close it first
-		if c := srv.clients[oldSession.ClientID]; c != nil {
-			zaplog.Info("logging with duplicate ClientID",
-				zap.String("remote", client.rwc.RemoteAddr().String()),
-			)
-			c.setSwitching()
-			c.setError(codes.NewError(codes.SessionTakenOver))
-			<-c.Close()
-		}
-
-		if will := oldSession.Will; will != nil {
-			// send will message because session ends
-			if !sessionResume {
-				srv.deliverMessageHandler(oldSession.ClientID, will.Copy())
-			} else if oldSession.WillDelayInterval == 0 {
-				// send will message because connection ends with will interval == 0
-				srv.deliverMessageHandler(oldSession.ClientID, will.Copy())
-			} else if m, ok := srv.willMessage[client.opts.ClientID]; ok {
-				close(m.cancel)
-				delete(srv.willMessage, client.opts.ClientID)
-			}
-		}
 		// clean old session
 		if !sessionResume {
-			err = srv.sessionTerminatedLocked(oldSession.ClientID, ConflictTermination)
+			err = srv.sessionTerminatedLocked(oldSession.ClientID, TakenOverTermination)
 			if err != nil {
 				err = fmt.Errorf("session terminated fail: %w", err)
 				zaplog.Error("session terminated fail", zap.Error(err))
@@ -420,14 +473,16 @@ func (srv *server) unregisterClient(client *client) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	now := time.Now()
-
 	var storeSession bool
 	if sess, err := srv.sessionStore.Get(client.opts.ClientID); sess != nil {
-		if client.version == packets.Version5 && client.disconnect != nil {
-			sess.ExpiryInterval = convertUint32(client.disconnect.Properties.SessionExpiryInterval, sess.ExpiryInterval)
-		}
-		if sess.ExpiryInterval != 0 {
-			storeSession = true
+		forceRemove := atomic.LoadInt32(&client.forceRemoveSession)
+		if forceRemove != 1 {
+			if client.version == packets.Version5 && client.disconnect != nil {
+				sess.ExpiryInterval = convertUint32(client.disconnect.Properties.SessionExpiryInterval, sess.ExpiryInterval)
+			}
+			if sess.ExpiryInterval != 0 {
+				storeSession = true
+			}
 		}
 		if !client.cleanWillFlag && sess.Will != nil {
 			willDelayInterval := sess.WillDelayInterval
@@ -465,7 +520,7 @@ func (srv *server) unregisterClient(client *client) {
 				zap.String("client_id", client.opts.ClientID),
 				zap.Time("expired_at", expiredTime),
 			)
-			srv.statsManager.addSessionInactive()
+			//TODO srv.statsManager.addSessionInactive()
 			return
 		}
 	} else {
@@ -479,7 +534,7 @@ func (srv *server) unregisterClient(client *client) {
 		zap.String("client_id", client.opts.ClientID),
 	)
 	_ = srv.sessionTerminatedLocked(client.opts.ClientID, NormalTermination)
-	srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
+	//TODO srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 }
 
 func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
@@ -516,11 +571,6 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 	}
 
 }
-
-var (
-	mu sync.Mutex
-	i  int
-)
 
 // deliverMessage send msg to matched client, must call under srv.Lock
 func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
@@ -645,8 +695,9 @@ func (srv *server) sessionExpireCheck() {
 		if now.After(expiredTime) {
 			zaplog.Info("session expired", zap.String("client_id", cid))
 			_ = srv.sessionTerminatedLocked(cid, ExpiredTermination)
-			srv.statsManager.addSessionExpired()
-			srv.statsManager.decSessionInactive()
+			//TODO
+			//srv.statsManager.addSessionExpired()
+			//srv.statsManager.decSessionInactive()
 
 		}
 	}
@@ -680,20 +731,16 @@ type WsServer struct {
 }
 
 func defaultServer() *server {
-	subStore := subscription_trie.NewStore()
-	statsMgr := newStatsManager(subStore)
 	srv := &server{
-		status:          serverStatusInit,
-		exitChan:        make(chan struct{}),
-		clients:         make(map[string]*client),
-		offlineClients:  make(map[string]time.Time),
-		willMessage:     make(map[string]*willMsg),
-		retainedDB:      retained_trie.NewStore(),
-		subscriptionsDB: subStore,
-		config:          config.DefaultConfig(),
-		statsManager:    statsMgr,
-		queueStore:      make(map[string]queue.Store),
-		unackStore:      make(map[string]unack.Store),
+		status:         serverStatusInit,
+		exitChan:       make(chan struct{}),
+		clients:        make(map[string]*client),
+		offlineClients: make(map[string]time.Time),
+		willMessage:    make(map[string]*willMsg),
+		retainedDB:     retained_trie.NewStore(),
+		config:         config.DefaultConfig(),
+		queueStore:     make(map[string]queue.Store),
+		unackStore:     make(map[string]unack.Store),
 	}
 
 	srv.deliverMessageHandler = srv.deliverMessage
@@ -712,10 +759,90 @@ func New(opts ...Options) *server {
 }
 
 // Init initialises the options.
-func (srv *server) Init(opts ...Options) {
+func (srv *server) Init(opts ...Options) (err error) {
 	for _, fn := range opts {
 		fn(srv)
 	}
+	err = srv.initPluginHooks()
+	if err != nil {
+		return err
+	}
+	var pe Persistence
+	peType := srv.config.Persistence.Type
+	if newFn := persistenceFactories[peType]; newFn != nil {
+		pe, err = newFn(srv.config, srv.hooks)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("persistence factory: %s not found", peType)
+	}
+	err = pe.Open()
+	if err != nil {
+		return err
+	}
+	zaplog.Info("open persistence succeeded", zap.String("type", peType))
+	srv.persistence = pe
+
+	srv.subscriptionsDB, err = srv.persistence.NewSubscriptionStore(srv.config)
+	if err != nil {
+		return err
+	}
+	st, err := srv.persistence.NewSessionStore(srv.config)
+	if err != nil {
+		return err
+	}
+	srv.sessionStore = st
+	var sts []*gmqtt.Session
+	var cids []string
+
+	err = st.Iterate(func(session *gmqtt.Session) bool {
+		sts = append(sts, session)
+		cids = append(cids, session.ClientID)
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	zaplog.Info("init session store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
+
+	// init queue store & unack store from persistence
+	for _, v := range sts {
+		q, err := srv.persistence.NewQueueStore(srv.config, v.ClientID)
+		if err != nil {
+			return err
+		}
+		srv.queueStore[v.ClientID] = q
+		srv.offlineClients[v.ClientID] = time.Now().Add(time.Duration(v.ExpiryInterval) * time.Second)
+
+		ua, err := srv.persistence.NewUnackStore(srv.config, v.ClientID)
+		if err != nil {
+			return err
+		}
+		srv.unackStore[v.ClientID] = ua
+	}
+	zaplog.Info("init queue store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
+	zaplog.Info("init subscription store succeeded", zap.String("type", peType), zap.Int("client_total", len(cids)))
+	err = srv.subscriptionsDB.Init(cids)
+	if err != nil {
+		return err
+	}
+
+	srv.statsManager = newStatsManager(srv.subscriptionsDB)
+	srv.clientService = &clientService{
+		srv:          srv,
+		sessionStore: srv.sessionStore,
+	}
+
+	topicAliasMgrFactory := topicAliasMgrFactory[srv.config.TopicAliasManager.Type]
+	if topicAliasMgrFactory != nil {
+		srv.newTopicAliasManager = topicAliasMgrFactory
+	} else {
+		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
+	}
+
+	err = srv.loadPlugins()
+	return nil
 }
 
 // Client returns the client for given clientID
@@ -823,14 +950,13 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 		bufr:          newBufioReaderSize(c, readBufferSize),
 		bufw:          newBufioWriterSize(c, writeBufferSize),
 		close:         make(chan struct{}),
-		closeComplete: make(chan struct{}),
+		connected:     make(chan struct{}),
 		error:         make(chan error, 1),
 		in:            make(chan packets.Packet, readBufferSize),
 		out:           make(chan packets.Packet, writeBufferSize),
 		status:        Connecting,
 		opts:          &ClientOptions{},
 		cleanWillFlag: false,
-		statsManager:  newSessionStatsManager(),
 		config:        cfg,
 	}
 	client.packetReader = packets.NewReader(client.bufr)
@@ -840,8 +966,7 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 	return client, nil
 }
 
-func (srv *server) loadPlugins() error {
-
+func (srv *server) initPluginHooks() error {
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
 		onBasicAuthWrappers        []OnBasicAuthWrapper
@@ -860,12 +985,21 @@ func (srv *server) loadPlugins() error {
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
-	for _, p := range srv.plugins {
-		zaplog.Info("loading plugin", zap.String("name", p.Name()))
-		err := p.Load(srv)
+	for _, v := range pluginOrder {
+		plg, err := plugins[v](srv.config)
 		if err != nil {
 			return err
 		}
+		srv.plugins = append(srv.plugins, plg)
+	}
+	onMsgDroppedWrappers = append(onMsgDroppedWrappers, func(onMsgDropped OnMsgDropped) OnMsgDropped {
+		return func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {
+			srv.statsManager.messageDropped(msg.QoS, clientID, err)
+		}
+	})
+
+	for _, p := range srv.plugins {
+		zaplog.Info("init plugin hook wrappers")
 		hooks := p.HookWrapper()
 		// init all hook wrappers
 		if hooks.OnAcceptWrapper != nil {
@@ -1038,6 +1172,17 @@ func (srv *server) loadPlugins() error {
 	return nil
 }
 
+func (srv *server) loadPlugins() error {
+	for _, p := range srv.plugins {
+		zaplog.Info("loading plugin", zap.String("name", p.Name()))
+		err := p.Load(srv)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (srv *server) wsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := defaultUpgrader.Upgrade(w, r, nil)
@@ -1059,74 +1204,6 @@ func (srv *server) wsHandler() http.HandlerFunc {
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() (err error) {
 
-	var pe Persistence
-	peType := srv.config.Persistence.Type
-	if newFn := persistenceFactories[peType]; newFn != nil {
-		pe, err = newFn(srv.config, srv.hooks)
-		if err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("persistence factory: %s not found", peType)
-	}
-	err = pe.Open()
-	if err != nil {
-		return err
-	}
-	zaplog.Info("open persistence succeeded", zap.String("type", peType))
-	srv.persistence = pe
-
-	srv.subscriptionsDB, err = srv.persistence.NewSubscriptionStore(srv.config)
-	if err != nil {
-		return err
-	}
-	st, err := srv.persistence.NewSessionStore(srv.config)
-	if err != nil {
-		return err
-	}
-	srv.sessionStore = st
-	var sts []*gmqtt.Session
-	var cids []string
-
-	err = st.Iterate(func(session *gmqtt.Session) bool {
-		sts = append(sts, session)
-		cids = append(cids, session.ClientID)
-		return true
-	})
-	if err != nil {
-		return err
-	}
-	zaplog.Info("init session store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
-
-	// init queue store & unack store from persistence
-	for _, v := range sts {
-		q, err := srv.persistence.NewQueueStore(srv.config, v.ClientID)
-		if err != nil {
-			return err
-		}
-		srv.queueStore[v.ClientID] = q
-		srv.offlineClients[v.ClientID] = time.Now().Add(time.Duration(v.ExpiryInterval) * time.Second)
-
-		ua, err := srv.persistence.NewUnackStore(srv.config, v.ClientID)
-		if err != nil {
-			return err
-		}
-		srv.unackStore[v.ClientID] = ua
-	}
-	zaplog.Info("init queue store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
-	zaplog.Info("init subscription store succeeded", zap.String("type", peType), zap.Int("client_total", len(cids)))
-	err = srv.subscriptionsDB.Init(cids)
-	if err != nil {
-		return err
-	}
-
-	topicAliasMgrFactory := topicAliasMgrFactory[srv.config.TopicAliasManager.Type]
-	if topicAliasMgrFactory != nil {
-		srv.newTopicAliasManager = topicAliasMgrFactory
-	} else {
-		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
-	}
-
 	var tcps []string
 	var ws []string
 	for _, v := range srv.tcpListener {
@@ -1137,10 +1214,6 @@ func (srv *server) Run() (err error) {
 	}
 	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
 
-	err = srv.loadPlugins()
-	if err != nil {
-		return err
-	}
 	srv.status = serverStatusStarted
 	srv.wg.Add(1)
 	go srv.eventLoop()
@@ -1184,19 +1257,19 @@ func (srv *server) Stop(ctx context.Context) error {
 	//关闭所有的client
 	//closing all idle clients
 	srv.mu.Lock()
-	closeCompleteSet := make([]<-chan struct{}, len(srv.clients))
+	wgs := make([]sync.WaitGroup, len(srv.clients))
 	i := 0
 	for _, c := range srv.clients {
-		closeCompleteSet[i] = c.Close()
+		wgs[i] = c.wg
 		i++
+		c.Close()
 	}
 	srv.mu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
-		for _, v := range closeCompleteSet {
-			//等所有的session退出完毕
-			//waiting for all sessions to unregister
-			<-v
+		for _, v := range wgs {
+			v.Wait()
 		}
 		close(done)
 	}()

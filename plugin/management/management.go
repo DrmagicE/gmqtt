@@ -311,7 +311,7 @@ func (m *Management) Publish(c *gin.Context) {
 		QoS:      uint8(qos),
 		Retained: retain,
 	}
-	m.server.PublishService().Publish(msg)
+	m.server.Publisher().Publish(msg)
 	c.JSON(http.StatusOK, newResponse(struct{}{}, nil, nil))
 }
 

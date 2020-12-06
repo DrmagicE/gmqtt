@@ -218,7 +218,7 @@ func TestClient_subscribeHandler_common(t *testing.T) {
 			retainedDB := retained.NewMockStore(ctrl)
 
 			srv := &server{
-				config:          config.DefaultConfig,
+				config:          config.DefaultConfig(),
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
@@ -363,7 +363,7 @@ func TestClient_subscribeHandler_shareSubscription(t *testing.T) {
 			subDB := subscription.NewMockStore(ctrl)
 			retainedDB := retained.NewMockStore(ctrl)
 			srv := &server{
-				config:          config.DefaultConfig,
+				config:          config.DefaultConfig(),
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
@@ -712,7 +712,7 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 			retainedDB := retained.NewMockStore(ctrl)
 			qs := queue.NewMockStore(ctrl)
 			srv := &server{
-				config:          config.DefaultConfig,
+				config:          config.DefaultConfig(),
 				subscriptionsDB: subDB,
 				retainedDB:      retainedDB,
 			}
@@ -847,7 +847,7 @@ func TestClient_publishHandler_common(t *testing.T) {
 			retainedDB := retained.NewMockStore(ctrl)
 			subscriptionDB := subscription.NewMockStore(ctrl)
 			srv := &server{
-				config:          config.DefaultConfig,
+				config:          config.DefaultConfig(),
 				retainedDB:      retainedDB,
 				subscriptionsDB: subscriptionDB,
 			}
@@ -972,7 +972,7 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 
 			retainedDB := retained.NewMockStore(ctrl)
 			srv := &server{
-				config:     config.DefaultConfig,
+				config:     config.DefaultConfig(),
 				retainedDB: retainedDB,
 			}
 			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
@@ -1079,7 +1079,7 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			defer ctrl.Finish()
 
 			srv := &server{
-				config: config.DefaultConfig,
+				config: config.DefaultConfig(),
 			}
 			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
@@ -1141,7 +1141,7 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 	defer ctrl.Finish()
 
 	srv := &server{
-		config: config.DefaultConfig,
+		config: config.DefaultConfig(),
 	}
 	var deliveredMsg []*gmqtt.Message
 	srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
