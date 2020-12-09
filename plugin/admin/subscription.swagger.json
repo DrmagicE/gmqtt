@@ -1,0 +1,322 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "subscription.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/filter_subscriptions": {
+      "get": {
+        "summary": "filter subscriptions, paging is not supported in this api.",
+        "operationId": "Filter",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiFilterSubscriptionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "filter_type",
+            "description": "filter_type indicates what kinds of topics are going to filter.\nIf there are multiple types, use ',' to separate. e.g : 1,2\nThere are 3 kinds of topic can be filtered, defined by SubFilterType:\n1 = System Topic(begin with '$')\n2 = NonShared Topic\n3 = Shared Topic.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "match_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SUB_MATCH_TYPE_MATCH_UNSPECIFIED",
+              "SUB_MATCH_TYPE_MATCH_NAME",
+              "SUB_MATCH_TYPE_MATCH_FILTER"
+            ],
+            "default": "SUB_MATCH_TYPE_MATCH_UNSPECIFIED"
+          },
+          {
+            "name": "topic_name",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "SubscriptionService"
+        ]
+      }
+    },
+    "/v1/subscribe": {
+      "post": {
+        "summary": "subscribe topics for the client.",
+        "operationId": "Subscribe",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiSubscribeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiSubscribeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "SubscriptionService"
+        ]
+      }
+    },
+    "/v1/subscriptions": {
+      "get": {
+        "summary": "list subscriptions.",
+        "operationId": "List",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiListSubscriptionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "SubscriptionService"
+        ]
+      }
+    },
+    "/v1/unsubscribe": {
+      "post": {
+        "summary": "unsubscribe topics for the client.",
+        "operationId": "Unsubscribe",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiUnsubscribeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "SubscriptionService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "apiFilterSubscriptionResponse": {
+      "type": "object",
+      "properties": {
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiSubscription"
+          }
+        }
+      }
+    },
+    "apiListSubscriptionResponse": {
+      "type": "object",
+      "properties": {
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiSubscription"
+          }
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "apiSubMatchType": {
+      "type": "string",
+      "enum": [
+        "SUB_MATCH_TYPE_MATCH_UNSPECIFIED",
+        "SUB_MATCH_TYPE_MATCH_NAME",
+        "SUB_MATCH_TYPE_MATCH_FILTER"
+      ],
+      "default": "SUB_MATCH_TYPE_MATCH_UNSPECIFIED"
+    },
+    "apiSubscribeRequest": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiSubscription"
+          }
+        }
+      }
+    },
+    "apiSubscribeResponse": {
+      "type": "object",
+      "properties": {
+        "new": {
+          "type": "array",
+          "items": {
+            "type": "boolean",
+            "format": "boolean"
+          },
+          "description": "indicates whether it is a new subscription or the subscription is already existed."
+        }
+      }
+    },
+    "apiSubscription": {
+      "type": "object",
+      "properties": {
+        "topic_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "qos": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "no_local": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "retain_as_published": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "retain_handling": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "apiUnsubscribeRequest": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

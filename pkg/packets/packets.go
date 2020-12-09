@@ -476,8 +476,8 @@ func ValidTopicName(mustUTF8 bool, p []byte) bool {
 	return true
 }
 
-// ValidV5TopicFilter returns whether the bytes is a valid non-shared topic filter and shared topic filter
-func ValidV5TopicFilter(p []byte) bool {
+// ValidV5Topic returns whether the given bytes is a valid MQTT V5 topic
+func ValidV5Topic(p []byte) bool {
 	if len(p) == 0 {
 		return false
 	}

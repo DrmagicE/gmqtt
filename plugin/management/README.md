@@ -222,7 +222,7 @@ Response:
 }
 ```
 
-### UnSubscribe
+### Unsubscribe
 
 Request:
 ```

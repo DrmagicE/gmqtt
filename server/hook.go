@@ -13,7 +13,7 @@ type Hooks struct {
 	OnStop
 	OnSubscribe
 	OnSubscribed
-	OnUnSubscribe
+	OnUnsubscribe
 	OnUnsubscribed
 	OnMsgArrived
 	OnBasicAuth
@@ -77,12 +77,12 @@ type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
 
 type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
-type UnSubscribeRequest struct {
-	// UnSubscribe is the UNSUBSCRIBE packet. It is immutable, do not edit.
-	UnSubscribe *packets.Unsubscribe
-	// UnSubs wraps all unsubscribe topic by the full topic name.
+type UnsubscribeRequest struct {
+	// Unsubscribe is the UNSUBSCRIBE packet. It is immutable, do not edit.
+	Unsubscribe *packets.Unsubscribe
+	// Unsubs wraps all unsubscribe topic by the full topic name.
 	// You can modify the value of the map to edit the unsubscribe topic. But you cannot change the length of the map.
-	UnSubs map[string]*struct {
+	Unsubs map[string]*struct {
 		// TopicName is the topic that is going to unsubscribe.
 		TopicName string
 		// Error indicates whether to allow the unsubscription.
@@ -94,10 +94,10 @@ type UnSubscribeRequest struct {
 	}
 }
 
-// OnUnSubscribe will be called when receive a UNSUBSCRIBE packet.
+// OnUnsubscribe will be called when receive a UNSUBSCRIBE packet.
 // User can use this function to modify and authorize unsubscription.
-// If return an error, the returned error will override the error set in UnSubscribeRequest.
-type OnUnSubscribe func(ctx context.Context, client Client, req *UnSubscribeRequest) error
+// If return an error, the returned error will override the error set in UnsubscribeRequest.
+type OnUnsubscribe func(ctx context.Context, client Client, req *UnsubscribeRequest) error
 
 // OnMsgArrived will be called when receive a Publish packets.
 // The returned message will be passed to topic match process and deliver to those matched clients.

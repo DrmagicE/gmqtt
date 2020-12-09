@@ -99,6 +99,8 @@ type Server interface {
 	SubscriptionService() SubscriptionService
 
 	RetainedService() RetainedService
+
+	//Plugin(name string) (Plugable, error)
 }
 
 type clientService struct {
@@ -237,7 +239,7 @@ func (srv *server) sessionTerminatedLocked(clientID string, reason SessionTermin
 	if srv.hooks.OnSessionTerminated != nil {
 		srv.hooks.OnSessionTerminated(context.Background(), clientID, reason)
 	}
-	srv.statsManager.sessionTerminated(reason)
+	srv.statsManager.sessionTerminated(clientID, reason)
 	return err
 }
 
@@ -347,6 +349,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			}
 			err = srv.sessionStore.Set(sess)
 		}
+
 		if err == nil {
 			client.session = sess
 			if sessionResume {
@@ -355,7 +358,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 				}
 				srv.statsManager.sessionActive(false)
 			} else {
-				if srv.hooks.OnSessionResumed != nil {
+				if srv.hooks.OnSessionCreated != nil {
 					srv.hooks.OnSessionCreated(context.Background(), client)
 				}
 				srv.statsManager.sessionActive(true)
@@ -520,7 +523,6 @@ func (srv *server) unregisterClient(client *client) {
 				zap.String("client_id", client.opts.ClientID),
 				zap.Time("expired_at", expiredTime),
 			)
-			//TODO srv.statsManager.addSessionInactive()
 			return
 		}
 	} else {
@@ -534,7 +536,6 @@ func (srv *server) unregisterClient(client *client) {
 		zap.String("client_id", client.opts.ClientID),
 	)
 	_ = srv.sessionTerminatedLocked(client.opts.ClientID, NormalTermination)
-	//TODO srv.statsManager.messageDequeue(client.statsManager.GetStats().MessageStats.QueuedCurrent)
 }
 
 func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
@@ -1257,22 +1258,27 @@ func (srv *server) Stop(ctx context.Context) error {
 	//关闭所有的client
 	//closing all idle clients
 	srv.mu.Lock()
-	wgs := make([]sync.WaitGroup, len(srv.clients))
+	wgs := make([]*sync.WaitGroup, len(srv.clients))
 	i := 0
 	for _, c := range srv.clients {
-		wgs[i] = c.wg
+		wgs[i] = &c.wg
 		i++
 		c.Close()
 	}
 	srv.mu.Unlock()
 
 	done := make(chan struct{})
-	go func() {
-		for _, v := range wgs {
-			v.Wait()
-		}
+	if len(wgs) != 0 {
+		go func() {
+			for _, v := range wgs {
+				v.Wait()
+			}
+			close(done)
+		}()
+	} else {
 		close(done)
-	}()
+	}
+
 	select {
 	case <-ctx.Done():
 		zaplog.Warn("server stop timeout, forced exit", zap.String("error", ctx.Err().Error()))

@@ -1,6 +1,8 @@
 package gmqtt
 
 import (
+	"errors"
+
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -24,4 +26,40 @@ type Subscription struct {
 	RetainAsPublished bool
 	// RetainHandling the Retain Handling option.
 	RetainHandling byte
+}
+
+// GetFullTopicName returns the full topic name of the subscription.
+func (s *Subscription) GetFullTopicName() string {
+	if s.ShareName != "" {
+		return "$share/" + s.ShareName + "/" + s.TopicFilter
+	}
+	return s.TopicFilter
+}
+
+// Copy make a copy of subscription.
+func (s *Subscription) Copy() *Subscription {
+	return &Subscription{
+		ShareName:         s.ShareName,
+		TopicFilter:       s.TopicFilter,
+		ID:                s.ID,
+		QoS:               s.QoS,
+		NoLocal:           s.NoLocal,
+		RetainAsPublished: s.RetainAsPublished,
+		RetainHandling:    s.RetainHandling,
+	}
+}
+
+// Validate returns whether the subscription is valid.
+// If you can unsure the subscription is valid then just skip the validation.
+func (s *Subscription) Validate() error {
+	if !packets.ValidV5Topic([]byte(s.GetFullTopicName())) {
+		return errors.New("invalid topic name")
+	}
+	if s.QoS > 2 {
+		return errors.New("invalid qos")
+	}
+	if s.RetainHandling != 0 && s.RetainHandling != 1 && s.RetainHandling != 2 {
+		return errors.New("invalid retain handling")
+	}
+	return nil
 }

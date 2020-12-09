@@ -217,7 +217,7 @@ func TestValidTopicFilter(t *testing.T) {
 //Subscribable Topic Filter
 func TestValidV5TopicFilter(t *testing.T) {
 	for _, v := range sharedTopicFilterTest {
-		if valid := ValidV5TopicFilter([]byte(v.input)); valid != v.want {
+		if valid := ValidV5Topic([]byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}

@@ -1,0 +1,83 @@
+// protoc -Iprotos \
+//-I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway \
+//-I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
+//--go-grpc_out=. \
+//--go_out=. \
+//--grpc-gateway_out=. \
+//--swagger_out=. \
+//client.proto
+syntax = "proto3";
+
+package gmqtt.admin.api;
+option go_package = ".;admin";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+message ListClientRequest {
+    uint32 page_size = 1;
+    uint32 page = 2;
+}
+
+message ListClientResponse {
+    repeated Client clients = 1;
+    uint32 total_count = 2;
+}
+
+message GetClientRequest {
+    string client_id = 1;
+}
+
+message GetClientResponse {
+
+}
+
+
+message DeleteClientRequest {
+    string client_id = 1;
+    bool force_clean = 2;
+}
+
+message Client {
+    string client_id =1;
+    string username = 2;
+    int32 keep_alive = 3;
+    int32 version = 4;
+    string remote_addr=5;
+    string local_addr=6;
+    google.protobuf.Timestamp connected_at = 7;
+    google.protobuf.Timestamp disconnected_at = 8;
+    uint32 session_expiry = 9;
+    int32 topic_alias_max = 10;
+    int32 max_inflight = 11;
+    int32 inflight_len = 12;
+    int32 max_queue=13;
+    int32 queue_len=14;
+    int32 subscriptions_current = 15;
+    int32 subscriptions_total = 16;
+    uint64 packets_received_bytes = 17;
+    uint64 packets_received_nums = 18;
+    uint64 packets_send_bytes = 19;
+    uint64 packets_send_nums = 20;
+    uint64 message_dropped = 21;
+}
+
+
+service ClientService {
+    rpc List (ListClientRequest) returns (ListClientResponse){
+        option (google.api.http) = {
+            get: "/v1/clients"
+        };
+    }
+    rpc Get (GetClientRequest) returns (ListClientResponse){
+        option (google.api.http) = {
+            get: "/v1/clients/{client_id}"
+        };
+    }
+    rpc Delete (DeleteClientRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            delete: "/v1/clients/{client_id}"
+        };
+    }
+}

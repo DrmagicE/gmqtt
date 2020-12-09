@@ -96,7 +96,7 @@ func (p *Prometheus) Load(service server.Server) error {
 	p.httpServer.Handler = mu
 	go func() {
 		err := p.httpServer.ListenAndServe()
-		if err != http.ErrServerClosed {
+		if err != nil && err != http.ErrServerClosed {
 			panic(err.Error())
 		}
 	}()

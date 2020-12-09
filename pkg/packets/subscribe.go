@@ -116,7 +116,7 @@ func (p *Subscribe) Unpack(r io.Reader) (err error) {
 		}
 		if p.Version == Version5 {
 			// check shared subscription syntax
-			if !ValidV5TopicFilter(topicFilter) {
+			if !ValidV5Topic(topicFilter) {
 				return codes.ErrMalformed
 			}
 		} else {

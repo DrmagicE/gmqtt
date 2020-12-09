@@ -354,8 +354,6 @@ func (client *client) tryDecServerQuota() error {
 	return nil
 }
 
-var mu sync.Mutex
-
 func (client *client) readLoop() {
 	var err error
 	srv := client.server
@@ -1094,22 +1092,22 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 		}
 		client.write(unSuback)
 	}()
-	req := &UnSubscribeRequest{
-		UnSubscribe: unSub,
-		UnSubs: make(map[string]*struct {
+	req := &UnsubscribeRequest{
+		Unsubscribe: unSub,
+		Unsubs: make(map[string]*struct {
 			TopicName string
 			Error     error
 		}),
 	}
 
 	for _, v := range unSub.Topics {
-		req.UnSubs[v] = &struct {
+		req.Unsubs[v] = &struct {
 			TopicName string
 			Error     error
 		}{TopicName: v}
 	}
-	if srv.hooks.OnUnSubscribe != nil {
-		err := srv.hooks.OnUnSubscribe(context.Background(), client, req)
+	if srv.hooks.OnUnsubscribe != nil {
+		err := srv.hooks.OnUnsubscribe(context.Background(), client, req)
 		if ce := converError(err); ce != nil {
 			unSuback.Properties = getErrorProperties(client, &ce.ErrorDetails)
 			for k := range cs {
@@ -1120,8 +1118,8 @@ func (client *client) unsubscribeHandler(unSub *packets.Unsubscribe) {
 	}
 	for k, v := range unSub.Topics {
 		code := codes.Success
-		topicName := req.UnSubs[v].TopicName
-		ce := converError(req.UnSubs[v].Error)
+		topicName := req.Unsubs[v].TopicName
+		ce := converError(req.Unsubs[v].Error)
 		if ce != nil {
 			code = ce.Code
 		}

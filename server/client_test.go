@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"container/list"
-	"fmt"
 	"io"
 	"net"
 	"reflect"
@@ -766,8 +765,6 @@ func TestClient_subscribeHandler_retainedMessage(t *testing.T) {
 
 				want := &bytes.Buffer{}
 				got := &bytes.Buffer{}
-				fmt.Println(v.out)
-				fmt.Println(suback)
 				a.Nil(v.out.Pack(want))
 				a.Nil(suback.Pack(got))
 				a.Equal(want.Bytes(), got.Bytes())

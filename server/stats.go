@@ -58,9 +58,6 @@ func (s *statsManager) clientConnected(clientID string) {
 func (s *statsManager) clientDisconnected(clientID string) {
 	atomic.AddUint64(&s.totalStats.ConnectionStats.DisconnectedTotal, 1)
 	s.sessionInActive()
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
-	delete(s.clientStats, clientID)
 }
 
 func (s *statsManager) sessionActive(create bool) {
@@ -77,7 +74,7 @@ func (s *statsManager) sessionInActive() {
 	atomic.AddUint64(&s.totalStats.ConnectionStats.InactiveCurrent, 1)
 }
 
-func (s *statsManager) sessionTerminated(reason SessionTerminatedReason) {
+func (s *statsManager) sessionTerminated(clientID string, reason SessionTerminatedReason) {
 	var i *uint64
 	switch reason {
 	case NormalTermination:
@@ -89,6 +86,9 @@ func (s *statsManager) sessionTerminated(reason SessionTerminatedReason) {
 	}
 	atomic.AddUint64(i, 1)
 	atomic.AddUint64(&s.totalStats.ConnectionStats.InactiveCurrent, ^uint64(0))
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	delete(s.clientStats, clientID)
 }
 
 func (s *statsManager) messageDropped(qos uint8, clientID string, err error) {
@@ -237,6 +237,9 @@ func (p *PacketStats) add(pt packets.Packet, receive bool) {
 		atomic.AddUint64(&bytes.Unsubscribe, uint64(b))
 		atomic.AddUint64(&count.Unsubscribe, 1)
 	}
+	atomic.AddUint64(&bytes.Total, uint64(b))
+	atomic.AddUint64(&count.Total, 1)
+
 }
 func (p *PacketStats) copy() *PacketStats {
 	return &PacketStats{
@@ -264,6 +267,7 @@ type PacketBytes struct {
 	Subscribe   uint64
 	Unsuback    uint64
 	Unsubscribe uint64
+	Total       uint64
 }
 
 func (p *PacketBytes) copy() PacketBytes {
@@ -282,30 +286,12 @@ func (p *PacketBytes) copy() PacketBytes {
 		Subscribe:   atomic.LoadUint64(&p.Subscribe),
 		Unsuback:    atomic.LoadUint64(&p.Unsuback),
 		Unsubscribe: atomic.LoadUint64(&p.Unsubscribe),
+		Total:       atomic.LoadUint64(&p.Total),
 	}
 }
 
 // PacketCount represents total number of each in type have been received or sent.
-type PacketCount PacketBytes
-
-func (p *PacketCount) copy() PacketCount {
-	return PacketCount{
-		Connect:     atomic.LoadUint64(&p.Connect),
-		Connack:     atomic.LoadUint64(&p.Connack),
-		Disconnect:  atomic.LoadUint64(&p.Disconnect),
-		Pingreq:     atomic.LoadUint64(&p.Pingreq),
-		Pingresp:    atomic.LoadUint64(&p.Pingresp),
-		Puback:      atomic.LoadUint64(&p.Puback),
-		Pubcomp:     atomic.LoadUint64(&p.Pubcomp),
-		Publish:     atomic.LoadUint64(&p.Publish),
-		Pubrec:      atomic.LoadUint64(&p.Pubrec),
-		Pubrel:      atomic.LoadUint64(&p.Pubrel),
-		Suback:      atomic.LoadUint64(&p.Suback),
-		Subscribe:   atomic.LoadUint64(&p.Subscribe),
-		Unsuback:    atomic.LoadUint64(&p.Unsuback),
-		Unsubscribe: atomic.LoadUint64(&p.Unsubscribe),
-	}
-}
+type PacketCount = PacketBytes
 
 // ConnectionStats provides the statistics of client connections.
 type ConnectionStats struct {
@@ -428,10 +414,7 @@ func (s *statsManager) GetClientStats(clientID string) (ClientStats, error) {
 	if stats := s.clientStats[clientID]; stats == nil {
 		return ClientStats{}, errors.New("not found")
 	} else {
-		s, err := s.subStatsReader.GetClientStats(clientID)
-		if err != nil {
-			return ClientStats{}, errors.New("not found")
-		}
+		s, _ := s.subStatsReader.GetClientStats(clientID)
 		return ClientStats{
 			PacketStats:       *stats.PacketStats.copy(),
 			MessageStats:      *stats.MessageStats.copy(),

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReadWriteUnSubscribe_V5(t *testing.T) {
+func TestReadWriteUnsubscribe_V5(t *testing.T) {
 	a := assert.New(t)
 	firstByte := byte(0xa2)
 	pid := []byte{0, 10}
@@ -64,7 +64,7 @@ func TestUnsubscribeNoTopics_V5(t *testing.T) {
 	a.Nil(packet)
 }
 
-func TestReadWriteUnSubscribe_V311(t *testing.T) {
+func TestReadWriteUnsubscribe_V311(t *testing.T) {
 	a := assert.New(t)
 	firstByte := byte(0xa2)
 	pid := []byte{0, 10}

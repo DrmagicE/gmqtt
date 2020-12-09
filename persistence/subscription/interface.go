@@ -13,7 +13,7 @@ type IterationType byte
 
 const (
 	// TypeSYS represents system topic, which start with '$'.
-	TypeSYS = 1 << iota
+	TypeSYS IterationType = 1 << iota
 	// TypeSYS represents shared topic, which start with '$share/'.
 	TypeShared
 	// TypeNonShared represents non-shared topic.
@@ -25,24 +25,17 @@ var (
 	ErrClientNotExists = errors.New("client not exists")
 )
 
+// MatchType specifies what match operation will be performed during the iteration.
 type MatchType byte
 
 const (
-	MatchName MatchType = iota
+	MatchName MatchType = 1 << iota
 	MatchFilter
 )
 
+// FromTopic returns the subscription instance for given topic and subscription id.
 func FromTopic(topic packets.Topic, id uint32) *gmqtt.Subscription {
-	var shareName string
-	var topicFilter string
-	if strings.HasPrefix(topic.Name, "$share/") {
-		shared := strings.SplitN(topic.Name, "/", 3)
-		shareName = shared[1]
-		topicFilter = shared[2]
-	} else {
-		topicFilter = topic.Name
-	}
-
+	shareName, topicFilter := SplitTopic(topic.Name)
 	s := &gmqtt.Subscription{
 		ShareName:         shareName,
 		TopicFilter:       topicFilter,
@@ -94,8 +87,7 @@ type IterationOptions struct {
 	MatchType MatchType
 }
 
-// Store is the interface used by gmqtt.server and external logic to handler the operations of subscriptions.
-// User can get the implementation from gmqtt.Server interface.
+// Store is the interface used by gmqtt.server to handler the operations of subscriptions.
 // This interface provides the ability for extensions to interact with the subscriptions.
 // Notice:
 // This methods will not trigger any gmqtt hooks.
@@ -179,10 +171,14 @@ type StatsReader interface {
 	GetClientStats(clientID string) (Stats, error)
 }
 
-// SplitTopic returns the shareName and topicFilter of the given topic
+// SplitTopic returns the shareName and topicFilter of the given topic.
+// If the topic is invalid, returns empty strings.
 func SplitTopic(topic string) (shareName, topicFilter string) {
 	if strings.HasPrefix(topic, "$share/") {
 		shared := strings.SplitN(topic, "/", 3)
+		if len(shared) < 3 {
+			return "", ""
+		}
 		return shared[1], shared[2]
 	}
 	return "", topic
