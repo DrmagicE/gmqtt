@@ -10,7 +10,7 @@ Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的M
 # 功能特性
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
 * 支持tls/ssl以及ws/wss
-* 提供扩展编程接口，可以通过函数调用直接往broker发消息，添加删除订阅等。详见`server.go`的`Server`接口定义，以及 [admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/management/READEME.md)插件。
+* 提供扩展编程接口，可以通过函数调用直接往broker发消息，添加删除订阅等。详见`server.go`的`Server`接口定义，以及 [admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/READEME.md)插件。
 * 丰富的钩子方法和扩展编程接口赋予了Gmqtt强大的插件定制化能力。详见`server/plugin.go` 和 `/plugin`。
 * 提供监控指标，支持prometheus。 (plugin: [prometheus](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/prometheus/READEME.md))
 * GRPC和REST API 支持. (plugin:[admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/READEME.md))
