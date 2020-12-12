@@ -9,6 +9,7 @@ services:
 
 before_install:
   docker pull redis
+  go get -t -v ./...
 
 env:
   - GO111MODULE=on
