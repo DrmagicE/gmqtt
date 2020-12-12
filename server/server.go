@@ -1005,6 +1005,7 @@ func (srv *server) initPluginHooks() error {
 		onSessionTerminatedWrapper []OnSessionTerminatedWrapper
 		onSubscribeWrappers        []OnSubscribeWrapper
 		onSubscribedWrappers       []OnSubscribedWrapper
+		onUnsubscribeWrappers      []OnUnsubscribeWrapper
 		onUnsubscribedWrappers     []OnUnsubscribedWrapper
 		onMsgArrivedWrappers       []OnMsgArrivedWrapper
 		onDeliverWrappers          []OnDeliverWrapper
@@ -1059,6 +1060,9 @@ func (srv *server) initPluginHooks() error {
 		}
 		if hooks.OnSubscribedWrapper != nil {
 			onSubscribedWrappers = append(onSubscribedWrappers, hooks.OnSubscribedWrapper)
+		}
+		if hooks.OnUnsubscribeWrapper != nil {
+			onUnsubscribeWrappers = append(onUnsubscribeWrappers, hooks.OnUnsubscribeWrapper)
 		}
 		if hooks.OnUnsubscribedWrapper != nil {
 			onUnsubscribedWrappers = append(onUnsubscribedWrappers, hooks.OnUnsubscribedWrapper)
@@ -1152,6 +1156,15 @@ func (srv *server) initPluginHooks() error {
 			onSubscribed = onSubscribedWrappers[i-1](onSubscribed)
 		}
 		srv.hooks.OnSubscribed = onSubscribed
+	}
+	if onUnsubscribeWrappers != nil {
+		onUnsubscribe := func(ctx context.Context, client Client, req *UnsubscribeRequest) error {
+			return nil
+		}
+		for i := len(onUnsubscribeWrappers); i > 0; i-- {
+			onUnsubscribe = onUnsubscribeWrappers[i-1](onUnsubscribe)
+		}
+		srv.hooks.OnUnsubscribe = onUnsubscribe
 	}
 	if onUnsubscribedWrappers != nil {
 		onUnsubscribed := func(ctx context.Context, client Client, topicName string) {}

@@ -128,6 +128,8 @@ func (u *UnsubscribeRequest) Reject(topicName string, err error) {
 // If return an error, the returned error will override the error set in UnsubscribeRequest.
 type OnUnsubscribe func(ctx context.Context, client Client, req *UnsubscribeRequest) error
 
+type OnUnsubscribeWrapper func(OnUnsubscribe) OnUnsubscribe
+
 // OnMsgArrived will be called when receive a Publish packets.It provides the ability to modify the message before topic match process.
 // The return error is for V5 client to provide additional information for diagnostics and will be ignored if the version of used client is V3.
 // If the returned error type is *codes.Error, the code, reason string and user property will be set into the ack packet(puback for qos1, and pubrel for qos2);
