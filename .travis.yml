@@ -13,6 +13,6 @@ before_install:
 env:
   - GO111MODULE=on
 script:
-  -  go test -race ./...  -coverprofile=coverage.txt -covermode=atomic
+  -  ./go.test.sh
 after_success:
   - bash <(curl -s https://codecov.io/bash)
