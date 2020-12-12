@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -22,9 +21,7 @@ import (
 )
 
 func main() {
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
+
 	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		fmt.Println(err.Error())
@@ -71,7 +68,10 @@ func main() {
 
 	// publish service
 
-	srv.Run()
+	err = srv.Run()
+	if err != nil {
+		panic(err)
+	}
 
 	go func() {
 		for {

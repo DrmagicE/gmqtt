@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -165,10 +164,10 @@ func (s *statsManager) messageSent(qos uint8, clientID string) {
 
 // StatsReader interface provides the ability to access the statistics of the server
 type StatsReader interface {
-	// GetGlobalStats return the server statistics
+	// GetGlobalStats returns the server statistics.
 	GetGlobalStats() GlobalStats
-
-	GetClientStats(clientID string) (ClientStats, error)
+	// GetClientStats returns the client statistics for the given client id
+	GetClientStats(clientID string) (sts ClientStats, exist bool)
 }
 
 // PacketStats represents  the statistics of MQTT Packet.
@@ -341,12 +340,53 @@ type MessageQosStats struct {
 	SentTotal     uint64
 }
 
+func (m *MessageQosStats) GetDroppedTotal() uint64 {
+	return m.DroppedTotal.Internal + m.DroppedTotal.Expired + m.DroppedTotal.ExceedsMaxPacketSize + m.DroppedTotal.QueueFull
+}
+
 // MessageStats represents the statistics of PUBLISH in, separated by QOS.
 type MessageStats struct {
-	Qos0          MessageQosStats
-	Qos1          MessageQosStats
-	Qos2          MessageQosStats
-	QueuedCurrent uint64
+	Qos0            MessageQosStats
+	Qos1            MessageQosStats
+	Qos2            MessageQosStats
+	InflightCurrent uint64
+	QueuedCurrent   uint64
+}
+
+func (m *MessageStats) GetDroppedTotal() uint64 {
+	return m.Qos0.GetDroppedTotal() + m.Qos1.GetDroppedTotal() + m.Qos2.GetDroppedTotal()
+}
+
+func (s *statsManager) addInflight(clientID string, delta uint64) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	sts := s.getClientStats(clientID)
+	atomic.AddUint64(&sts.MessageStats.InflightCurrent, delta)
+}
+func (s *statsManager) decInflight(clientID string, delta uint64) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	sts := s.getClientStats(clientID)
+	if atomic.LoadUint64(&sts.MessageStats.QueuedCurrent) == 0 {
+		return
+	}
+	atomic.AddUint64(&sts.MessageStats.InflightCurrent, ^uint64(delta-1))
+}
+
+func (s *statsManager) addQueueLen(clientID string, delta uint64) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	sts := s.getClientStats(clientID)
+	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, delta)
+}
+func (s *statsManager) decQueueLen(clientID string, delta uint64) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	sts := s.getClientStats(clientID)
+	if atomic.LoadUint64(&sts.MessageStats.QueuedCurrent) == 0 {
+		return
+	}
+	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, ^uint64(delta-1))
 }
 
 func (m *MessageStats) copy() *MessageStats {
@@ -381,11 +421,12 @@ func (m *MessageStats) copy() *MessageStats {
 			ReceivedTotal: atomic.LoadUint64(&m.Qos2.ReceivedTotal),
 			SentTotal:     atomic.LoadUint64(&m.Qos2.SentTotal),
 		},
-		QueuedCurrent: atomic.LoadUint64(&m.QueuedCurrent),
+		InflightCurrent: atomic.LoadUint64(&m.InflightCurrent),
+		QueuedCurrent:   atomic.LoadUint64(&m.QueuedCurrent),
 	}
 }
 
-// GlobalStats is the collection of global  statistics.
+// GlobalStats is the collection of global statistics.
 type GlobalStats struct {
 	ConnectionStats   ConnectionStats
 	PacketStats       PacketStats
@@ -393,12 +434,18 @@ type GlobalStats struct {
 	SubscriptionStats subscription.Stats
 }
 
+// ClientStats is the statistic information of one client.
 type ClientStats struct {
 	PacketStats       PacketStats
 	MessageStats      MessageStats
 	SubscriptionStats subscription.Stats
 }
 
+func (c ClientStats) GetDroppedTotal() uint64 {
+	return c.MessageStats.Qos0.GetDroppedTotal() + c.MessageStats.Qos1.GetDroppedTotal() + c.MessageStats.Qos2.GetDroppedTotal()
+}
+
+// GetGlobalStats returns the GlobalStats
 func (s *statsManager) GetGlobalStats() GlobalStats {
 	return GlobalStats{
 		PacketStats:       *s.totalStats.PacketStats.copy(),
@@ -408,18 +455,19 @@ func (s *statsManager) GetGlobalStats() GlobalStats {
 	}
 }
 
-func (s *statsManager) GetClientStats(clientID string) (ClientStats, error) {
+// GetClientStats returns the client statistic information for given client id.
+func (s *statsManager) GetClientStats(clientID string) (ClientStats, bool) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
 	if stats := s.clientStats[clientID]; stats == nil {
-		return ClientStats{}, errors.New("not found")
+		return ClientStats{}, false
 	} else {
 		s, _ := s.subStatsReader.GetClientStats(clientID)
 		return ClientStats{
 			PacketStats:       *stats.PacketStats.copy(),
 			MessageStats:      *stats.MessageStats.copy(),
 			SubscriptionStats: s,
-		}, nil
+		}, true
 	}
 
 }

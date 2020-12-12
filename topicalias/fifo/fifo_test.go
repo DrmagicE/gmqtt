@@ -18,7 +18,7 @@ func TestQueue(t *testing.T) {
 
 	cid := "clientID"
 	max := uint16(10)
-	q := New(config.DefaultConfig, max, cid).(*Queue)
+	q := New(config.DefaultConfig(), max, cid).(*Queue)
 	for i := uint16(1); i <= max; i++ {
 		alias, ok := q.Check(&packets.Publish{
 			TopicName: []byte(strconv.Itoa(int(i))),

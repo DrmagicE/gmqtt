@@ -1,11 +1,3 @@
-// protoc -Iprotos \
-//-I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway \
-//-I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
-//--go-grpc_out=. \
-//--go_out=. \
-//--grpc-gateway_out=. \
-//--swagger_out=. \
-//Subscription.proto
 syntax = "proto3";
 
 package gmqtt.admin.api;
@@ -13,7 +5,6 @@ option go_package = ".;admin";
 
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
-import "google/protobuf/timestamp.proto";
 
 enum SubFilterType {
     SUB_FILTER_TYPE_SYS_UNSPECIFIED = 0;
@@ -22,7 +13,6 @@ enum SubFilterType {
     SUB_FILTER_TYPE_NON_SHARED = 3;
 }
 enum SubMatchType {
-
     SUB_MATCH_TYPE_MATCH_UNSPECIFIED = 0;
     SUB_MATCH_TYPE_MATCH_NAME=1;
     SUB_MATCH_TYPE_MATCH_FILTER=2;
@@ -38,16 +28,22 @@ message ListSubscriptionResponse {
     uint32 total_count = 2;
 }
 message FilterSubscriptionRequest {
+    // If set, only filter the subscriptions that belongs to the client.
     string client_id =1;
     // filter_type indicates what kinds of topics are going to filter.
     // If there are multiple types, use ',' to separate. e.g : 1,2
     // There are 3 kinds of topic can be filtered, defined by SubFilterType:
     // 1 = System Topic(begin with '$')
-    // 2 = NonShared Topic
-    // 3 = Shared Topic
+    // 2 = Shared Topic
+    // 3 = NonShared Topic
     string filter_type =2;
+ 	// If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subscriptions which has the same topic name with request topic_name.
+	// If 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subscriptions which match the request topic_name .
+    // match_type must be set when filter_type is not empty.
     SubMatchType match_type =3;
+    // topic_name must be set when match_type is not zero.
     string topic_name = 4;
+    // The maximum subscriptions can be returned.
     int32 limit = 5;
 }
 message FilterSubscriptionResponse {
@@ -76,6 +72,7 @@ message Subscription {
     bool no_local = 4;
     bool retain_as_published = 5;
     uint32 retain_handling = 6;
+    string client_id = 7;
 }
 service SubscriptionService {
     // list subscriptions.

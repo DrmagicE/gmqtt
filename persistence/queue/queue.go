@@ -10,7 +10,7 @@ import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
-// OnMsgDropped is same as server.OnMsgDropped. It is used to avoid cycle import.
+// OnMsgDropped is same as server.OnMsgDropped. It is used to avoid import cycle.
 type OnMsgDropped = func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
 
 // Drop wraps the logging for drop event.
@@ -69,7 +69,7 @@ type Store interface {
 	// Returning 0 length elems means all inflight messages have been read.
 	ReadInflight(maxSize uint) (elems []*Elem, err error)
 
-	// Remove
+	// Remove removes the elem for a given id.
 	Remove(pid packets.PacketID) error
 }
 

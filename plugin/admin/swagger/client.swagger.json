@@ -13,6 +13,7 @@
   "paths": {
     "/v1/clients": {
       "get": {
+        "summary": "lists clients",
         "operationId": "List",
         "responses": {
           "200": {
@@ -51,12 +52,13 @@
     },
     "/v1/clients/{client_id}": {
       "get": {
+        "summary": "Get the client for given client id.",
         "operationId": "Get",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiListClientResponse"
+              "$ref": "#/definitions/apiGetClientResponse"
             }
           },
           "default": {
@@ -79,6 +81,7 @@
         ]
       },
       "delete": {
+        "summary": "disconnect the client for given client id.",
         "operationId": "Delete",
         "responses": {
           "200": {
@@ -102,7 +105,7 @@
             "type": "string"
           },
           {
-            "name": "force_clean",
+            "name": "clean_session",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -151,33 +154,29 @@
           "type": "integer",
           "format": "int64"
         },
-        "topic_alias_max": {
-          "type": "integer",
-          "format": "int32"
-        },
         "max_inflight": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "inflight_len": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "max_queue": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "queue_len": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "subscriptions_current": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "subscriptions_total": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "packets_received_bytes": {
           "type": "string",
@@ -198,6 +197,14 @@
         "message_dropped": {
           "type": "string",
           "format": "uint64"
+        }
+      }
+    },
+    "apiGetClientResponse": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "$ref": "#/definitions/apiClient"
         }
       }
     },

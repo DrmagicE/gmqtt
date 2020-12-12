@@ -527,15 +527,16 @@ func ValidTopicFilter(mustUTF8 bool, p []byte) bool {
 		if mustUTF8 && ru == utf8.RuneError {
 			return false
 		}
+		plen := len(p)
+		if p[0] == byte('#') && plen != 1 { // #一定是最后一个字符
+			return false
+		}
 		if size == 1 && isSetPrevByte {
 			// + 前（如果有前后字节）,一定是'/' [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
-			plen := len(p)
 			if (p[0] == byte('+') || p[0] == byte('#')) && prevByte != byte('/') {
 				return false
 			}
-			if p[0] == byte('#') && plen != 1 { // #一定是最后一个字符
-				return false
-			}
+
 			if plen > 1 { // p[0] 不是最后一个字节
 				if p[0] == byte('+') && p[1] != byte('/') { // + 后（如果有字节）,一定是 '/'
 					return false

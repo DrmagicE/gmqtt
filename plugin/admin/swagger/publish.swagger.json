@@ -1,0 +1,139 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "publish.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/publish": {
+      "post": {
+        "summary": "publish message to broker",
+        "operationId": "Publish",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiPublishRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PublishService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "apiPublishRequest": {
+      "type": "object",
+      "properties": {
+        "topic_name": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "qos": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "retained": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "content_type": {
+          "type": "string",
+          "description": "the following fields are using in v5 client."
+        },
+        "correlation_data": {
+          "type": "string"
+        },
+        "message_expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "payload_format": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "response_topic": {
+          "type": "string"
+        },
+        "user_properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiUserProperties"
+          }
+        }
+      }
+    },
+    "apiUserProperties": {
+      "type": "object",
+      "properties": {
+        "K": {
+          "type": "string",
+          "format": "byte"
+        },
+        "V": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

@@ -17,14 +17,15 @@ func newPacketIDLimiter(limit uint16) *packetIDLimiter {
 	}
 }
 
-// packetIDLimiter limit the generation of packet id to keep the number of inflight messages always less or equal than receive maximum setting of the client.
+// packetIDLimiter limit the generation of packet id to keep the number of inflight messages
+// always less or equal than receive maximum setting of the client.
 type packetIDLimiter struct {
 	cond      *sync.Cond
-	used      uint16 // 当前用了多少ID
-	limit     uint16 // 最多同时可以用多少个个ID
+	used      uint16
+	limit     uint16
 	exit      bool
 	lockedPid map[packets.PacketID]bool // packet id in-use
-	freePid   packets.PacketID          //下一个可以使用的freeID
+	freePid   packets.PacketID          // next available id
 }
 
 func (p *packetIDLimiter) close() {

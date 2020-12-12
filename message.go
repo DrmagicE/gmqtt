@@ -39,19 +39,24 @@ func (m *Message) Copy() *Message {
 	newMsg.Payload = make([]byte, len(m.Payload))
 	copy(newMsg.Payload, m.Payload)
 
-	newMsg.CorrelationData = make([]byte, len(m.CorrelationData))
-	copy(newMsg.CorrelationData, m.CorrelationData)
+	if len(m.CorrelationData) != 0 {
+		newMsg.CorrelationData = make([]byte, len(m.CorrelationData))
+		copy(newMsg.CorrelationData, m.CorrelationData)
+	}
 
-	newMsg.SubscriptionIdentifier = make([]uint32, len(m.SubscriptionIdentifier))
-	copy(newMsg.SubscriptionIdentifier, m.SubscriptionIdentifier)
+	if len(m.SubscriptionIdentifier) != 0 {
+		newMsg.SubscriptionIdentifier = make([]uint32, len(m.SubscriptionIdentifier))
+		copy(newMsg.SubscriptionIdentifier, m.SubscriptionIdentifier)
+	}
+	if len(m.UserProperties) != 0 {
+		newMsg.UserProperties = make([]packets.UserProperty, len(m.UserProperties))
+		for k := range newMsg.UserProperties {
+			newMsg.UserProperties[k].K = make([]byte, len(m.UserProperties[k].K))
+			copy(newMsg.UserProperties[k].K, m.UserProperties[k].K)
 
-	newMsg.UserProperties = make([]packets.UserProperty, len(m.UserProperties))
-	for k := range newMsg.UserProperties {
-		newMsg.UserProperties[k].K = make([]byte, len(m.UserProperties[k].K))
-		copy(newMsg.UserProperties[k].K, m.UserProperties[k].K)
-
-		newMsg.UserProperties[k].V = make([]byte, len(m.UserProperties[k].V))
-		copy(newMsg.UserProperties[k].V, m.UserProperties[k].V)
+			newMsg.UserProperties[k].V = make([]byte, len(m.UserProperties[k].V))
+			copy(newMsg.UserProperties[k].V, m.UserProperties[k].V)
+		}
 	}
 	return newMsg
 

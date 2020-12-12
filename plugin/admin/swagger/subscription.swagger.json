@@ -32,19 +32,21 @@
         "parameters": [
           {
             "name": "client_id",
+            "description": "If set, only filter the subscriptions that belongs to the client.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "filter_type",
-            "description": "filter_type indicates what kinds of topics are going to filter.\nIf there are multiple types, use ',' to separate. e.g : 1,2\nThere are 3 kinds of topic can be filtered, defined by SubFilterType:\n1 = System Topic(begin with '$')\n2 = NonShared Topic\n3 = Shared Topic.",
+            "description": "filter_type indicates what kinds of topics are going to filter.\nIf there are multiple types, use ',' to separate. e.g : 1,2\nThere are 3 kinds of topic can be filtered, defined by SubFilterType:\n1 = System Topic(begin with '$')\n2 = Shared Topic\n3 = NonShared Topic.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "match_type",
+            "description": "If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subscriptions which has the same topic name with request topic_name.\nIf 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subscriptions which match the request topic_name .\nmatch_type must be set when filter_type is not empty.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -57,12 +59,14 @@
           },
           {
             "name": "topic_name",
+            "description": "topic_name must be set when match_type is not zero.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "limit",
+            "description": "The maximum subscriptions can be returned.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -268,6 +272,9 @@
         "retain_handling": {
           "type": "integer",
           "format": "int64"
+        },
+        "client_id": {
+          "type": "string"
         }
       }
     },

@@ -98,6 +98,8 @@ var topicFilterTest = []struct {
 	{input: "sport/tennis/#", want: true},
 	{input: "/1/+/#", want: true},
 	{input: "/1/+/+/1234", want: true},
+	{input: "##", want: false},
+	{input: "#/", want: false},
 }
 
 var sharedTopicFilterTest = []struct {

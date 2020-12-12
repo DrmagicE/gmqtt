@@ -14,7 +14,15 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 )
 
+const (
+	queuePrefix = "queue:"
+)
+
 var _ queue.Store = (*Queue)(nil)
+
+func getKey(clientID string) string {
+	return queuePrefix + clientID
+}
 
 type Options struct {
 	MaxQueuedMsg int
@@ -82,12 +90,12 @@ func (q *Queue) Init(opts *queue.InitOptions) error {
 	defer conn.Close()
 
 	if opts.CleanStart {
-		_, err := conn.Do("del", q.clientID)
+		_, err := conn.Do("del", getKey(q.clientID))
 		if err != nil {
 			return wrapError(err)
 		}
 	}
-	b, err := conn.Do("llen", q.clientID)
+	b, err := conn.Do("llen", getKey(q.clientID))
 	if err != nil {
 		return err
 	}
@@ -105,7 +113,7 @@ func (q *Queue) Init(opts *queue.InitOptions) error {
 func (q *Queue) Clean() error {
 	conn := q.pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("del", q.clientID)
+	_, err := conn.Do("del", getKey(q.clientID))
 	return err
 }
 
@@ -128,11 +136,11 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 				queue.Drop(q.onMsgDropped, q.log, q.clientID, elem.MessageWithID.(*queue.Publish).Message, dropErr)
 				return
 			} else {
-				err = conn.Send("lrem", q.clientID, 1, dropBytes)
+				err = conn.Send("lrem", getKey(q.clientID), 1, dropBytes)
 			}
 			queue.Drop(q.onMsgDropped, q.log, q.clientID, dropElem.MessageWithID.(*queue.Publish).Message, dropErr)
 		}
-		_ = conn.Send("rpush", q.clientID, elem.Encode())
+		_ = conn.Send("rpush", getKey(q.clientID), elem.Encode())
 		err = conn.Flush()
 		q.len++
 	}()
@@ -145,7 +153,7 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 			return
 		}
 		var rs []interface{}
-		rs, err = redigo.Values(conn.Do("lrange", q.clientID, q.current, q.len))
+		rs, err = redigo.Values(conn.Do("lrange", getKey(q.clientID), q.current, q.len))
 		if err != nil {
 			return err
 		}
@@ -210,7 +218,7 @@ func (q *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 	if stop < 0 {
 		stop = 0
 	}
-	rs, err := redigo.Values(conn.Do("lrange", q.clientID, 0, stop))
+	rs, err := redigo.Values(conn.Do("lrange", getKey(q.clientID), 0, stop))
 	if err != nil {
 		return false, err
 	}
@@ -222,7 +230,7 @@ func (q *Queue) Replace(elem *queue.Elem) (replaced bool, err error) {
 			return false, err
 		}
 		if e.ID() == elem.ID() {
-			_, err = conn.Do("lset", q.clientID, k, eb)
+			_, err = conn.Do("lset", getKey(q.clientID), k, eb)
 			if err != nil {
 				return false, err
 			}
@@ -249,7 +257,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	if q.closed {
 		return nil, queue.ErrClosed
 	}
-	rs, err := redigo.Values(conn.Do("lrange", q.clientID, q.current, q.current+len(pids)-1))
+	rs, err := redigo.Values(conn.Do("lrange", getKey(q.clientID), q.current, q.current+len(pids)-1))
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -263,7 +271,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		}
 		// remove expired message
 		if queue.ElemExpiry(now, e) {
-			err = conn.Send("lrem", q.clientID, 1, b)
+			err = conn.Send("lrem", getKey(q.clientID), 1, b)
 			q.len--
 			if err != nil {
 				return nil, err
@@ -275,7 +283,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		// remove message which exceeds maximum packet size
 		pub := e.MessageWithID.(*queue.Publish)
 		if size := pub.TotalBytes(q.version); size > q.readBytesLimit {
-			err = conn.Send("lrem", q.clientID, 1, b)
+			err = conn.Send("lrem", getKey(q.clientID), 1, b)
 			q.len--
 			if err != nil {
 				return nil, err
@@ -285,7 +293,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		}
 
 		if e.MessageWithID.(*queue.Publish).QoS == 0 {
-			err = conn.Send("lrem", q.clientID, 1, b)
+			err = conn.Send("lrem", getKey(q.clientID), 1, b)
 			q.len--
 			if err != nil {
 				return nil, err
@@ -294,7 +302,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			e.MessageWithID.SetID(pids[pflag])
 			pflag++
 			nb := e.Encode()
-			err = conn.Send("lset", q.clientID, q.current, nb)
+			err = conn.Send("lset", getKey(q.clientID), q.current, nb)
 			q.current++
 			q.readCache[e.MessageWithID.ID()] = nb
 		}
@@ -309,7 +317,7 @@ func (q *Queue) ReadInflight(maxSize uint) (elems []*queue.Elem, err error) {
 	defer q.cond.L.Unlock()
 	conn := q.pool.Get()
 	defer conn.Close()
-	rs, err := redigo.Values(conn.Do("lrange", q.clientID, q.current, q.current+int(maxSize)-1))
+	rs, err := redigo.Values(conn.Do("lrange", getKey(q.clientID), q.current, q.current+int(maxSize)-1))
 	if len(rs) == 0 {
 		q.inflightDrained = true
 		return
@@ -343,7 +351,7 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 	conn := q.pool.Get()
 	defer conn.Close()
 	if b, ok := q.readCache[pid]; ok {
-		_, err := conn.Do("lrem", q.clientID, 1, b)
+		_, err := conn.Do("lrem", getKey(q.clientID), 1, b)
 		if err != nil {
 			return err
 		}

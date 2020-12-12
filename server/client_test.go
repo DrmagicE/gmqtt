@@ -17,6 +17,7 @@ import (
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	"github.com/DrmagicE/gmqtt/persistence/subscription/mem"
 	"github.com/DrmagicE/gmqtt/persistence/unack"
 	unack_mem "github.com/DrmagicE/gmqtt/persistence/unack/mem"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
@@ -1203,6 +1204,7 @@ func TestClient_pubrecHandler_ErrorV5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
+	srv.statsManager = newStatsManager(mem.NewStore())
 	c, er := srv.newClient(noopConn{})
 	a.Nil(er)
 	c.opts.ClientID = "cid"
@@ -1267,6 +1269,7 @@ func TestClient_pubcompHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	srv := defaultServer()
+	srv.statsManager = newStatsManager(mem.NewStore())
 	c, er := srv.newClient(noopConn{})
 	a.Nil(er)
 	c.opts.ClientID = "cid"

@@ -20,14 +20,7 @@ var (
 	// DefaultPersistenceConfig is the default value of Persistence
 	DefaultPersistenceConfig = Persistence{
 		Type: PersistenceTypeMemory,
-		Redis: struct {
-			Addr        string        `yaml:"addr"`
-			Password    string        `yaml:"password"`
-			Database    uint          `yaml:"database"`
-			MaxIdle     *uint         `yaml:"max_idle"`
-			MaxActive   *uint         `yaml:"max_active"`
-			IdleTimeout time.Duration `yaml:"idle_timeout"`
-		}{
+		Redis: RedisPersistence{
 			Addr:        "127.0.0.1:6379",
 			Password:    "",
 			Database:    0,

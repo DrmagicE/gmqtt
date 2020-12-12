@@ -47,11 +47,11 @@ func (mr *MockStatsReaderMockRecorder) GetGlobalStats() *gomock.Call {
 }
 
 // GetClientStats mocks base method
-func (m *MockStatsReader) GetClientStats(clientID string) (ClientStats, error) {
+func (m *MockStatsReader) GetClientStats(clientID string) (ClientStats, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetClientStats", clientID)
 	ret0, _ := ret[0].(ClientStats)
-	ret1, _ := ret[1].(error)
+	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
 

@@ -1,132 +1,108 @@
 [中文文档](https://github.com/DrmagicE/gmqtt/blob/master/README_ZH.md)
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
-Gmqtt provides:
-*  MQTT broker that fully implements the MQTT protocol V3.1.1.
-*  Golang MQTT broker package for secondary development.
-*  MQTT protocol pack/unpack package for implementing MQTT clients or testing.
+News: MQTT V5 is now supported. But due to those new features in v5, there area lots of breaking changes. 
+If you have any migration problems, feel free to raise an issue.
+Or you can use the latest v3 [broker](https://github.com/DrmagicE/gmqtt/tree/v0.1.4).
 
 # Installation
 ```$ go get -u github.com/DrmagicE/gmqtt```
 
 # Features
-* Provide hook method to customized the broker behaviours(Authentication, ACL, etc..). See `hooks.go` for more details
+* Provide hook method to customized the broker behaviours(Authentication, ACL, etc..). See `server/hooks.go` for details
 * Support tls/ssl and websocket
-* Enable user to write plugins. See `plugin.go` and `/plugin` for more details.
-* Provide abilities for extensions to interact with the server. See `Server` interface in `server.go`  and `example_test.go` for more details.
+* Provide flexible plugable mechanism. See `server/plugin.go` and `/plugin` for details.
+* Provide Go interface for extensions to interact with the server. For examples, the extensions or plugins can publish message or add/remove subscription through function call.
+See `Server` interface in `server.go` and `/plugin` for details.
 * Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
-* Provide restful API to interact with server. (plugin:[management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md))
+* Provide GRPC and REST APIs to interact with server. (plugin:[admin](https://github.com/DrmagicE/gmqtt/blob/master/plugin/admin/README.md))
+* Provide session persistence which means the broker can retrieve the session data after restart. 
+Currently, only redis backend is supported.
+
+
 
 # Limitations
-* The retained messages are not persisted when the server exit.
 * Cluster is not supported.
 
 
 # Get Started
-## Build-in MQTT broker
-```
-$ cd cmd/broker
-$ go run main.go
-```
-The broker will listen on port 1883 for TCP and 8080 for websocket.
-The broker loads the following plugins:
- * [management](https://github.com/DrmagicE/gmqtt/blob/master/plugin/management/README.md): Listens on port `8081`, provides restful api service
- * [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md): Listens on port `8082`, serve as a prometheus exporter with `/metrics` path.
 
+The following command will start gmqtt broker with default configuration.
+The broker listens on 1883 for tcp server and 8883 for websocket server with `admin` and `prometheus` plugin loaded.
+
+```bash
+$ cd cmd/gmqttd
+$ go run . start -c default_config.yaml
+```
+
+## configuration
+Gmqtt use `-c` flag to define configuration path. If not set, gmqtt reads `$HOME/gmqtt.yml` as default. If default path not exist, 
+Gmqtt will start with [default configuration](https://github.com/DrmagicE/gmqtt/blob/master/cmd/gmqttd/default_config.yml).
+
+## session persistence
+Gmqtt uses memory to store session data by default and it is the recommended way because of the good performance.
+But the session data will be lose after the broker restart. You can use redis as backend storage to prevent data 
+loss from restart: 
+```yaml
+persistence:
+  type: redis  
+  redis:
+    # redis server address
+    addr: "127.0.0.1:6379"
+    # the maximum number of idle connections in the redis connection pool
+    max_idle: 1000
+    # the maximum number of connections allocated by the redis connection pool at a given time.
+    # If zero, there is no limit on the number of connections in the pool.
+    max_active: 0
+    # the connection idle timeout, connection will be closed after remaining idle for this duration. If the value is zero, then idle connections are not closed
+    idle_timeout: 240s
+    password: ""
+    # the number of the redis database
+    database: 0
+```
 
 ## Docker
 ```
 $ docker build -t gmqtt .
-$ docker run -p 1883:1883 -p  8081:8081 -p 8082:8082 gmqtt
+$ docker run -p 1883:1883 -p 8883:8883 -p 8082:8082 -p 8083:8083  -p 8084:8084  gmqtt
 ```
-## Build with external source code
-The features of build-in MQTT broker are not rich enough.It is not implementing some features such as Authentication, ACL etc..
-But It is easy to write your own plugins to extend the broker.
-```
-func main() {
-	// listener
-	ln, err := net.Listen("tcp", ":1883")
-	if err != nil {
-		log.Fatalln(err.Error())
-		return
-	}
-	// websocket server
-	ws := &gmqtt.WsServer{
-		Server: &http.Server{Addr: ":8080"},
-		Path:   "/ws",
-	}
-	if err != nil {
-		panic(err)
-	}
-
-	l, _ := zap.NewProduction()
-	// l, _ := zap.NewDevelopment()
-	s := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln),
-		gmqtt.WithWebsocketServer(ws),
-		// Add your plugins
-		gmqtt.WithPlugin(management.New(":8081", nil)),
-		gmqtt.WithPlugin(prometheus.New(&http.Server{
-			Addr: ":8082",
-		}, "/metrics")),
-		gmqtt.WithLogger(l),
-	)
-
-	s.Run()
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
-	<-signalCh
-	s.Stop(context.Background())
-}
-```
-See `/examples` for more details.
 
 # Documentation
 [godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
 ## Hooks
-Gmqtt implements the following hooks:
-* OnAccept  (Only for tcp/ssl, not for ws/wss)
-* OnConnect 
+Gmqtt implements the following hooks: 
+* OnAccept   (Only for tcp/ssl, not supporting ws/wss)
+* OnStop
+* OnSubscribe
+* OnSubscribed
+* OnUnsubscribe
+* OnUnsubscribed
+* OnMsgArrived
+* OnBasicAuth
+* OnEnhancedAuth (Only for V5 clients)
+* OnReAuth (Only for V5 clients)
 * OnConnected
 * OnSessionCreated
 * OnSessionResumed
 * OnSessionTerminated
-* OnSubscribe
-* OnSubscribed
-* OnUnsubscribed
-* OnMsgArrived
-* OnAcked
-* OnMsgDropped
 * OnDeliver
 * OnClose
-* OnStop
+* OnMsgDropped
 
-See `/examples/hook` for more detail.
+See `/examples/hook` for details.
 
-
-
-## Stop the Server
-Call `server.Stop()` to stop the broker gracefully:
-1. Close all open TCP listeners and shutting down all open websocket servers
-2. Close all idle connections
-3. Wait for all connections have been closed
-4. Trigger OnStop().
 
 # Test
 ## Unit Test
 ```
-$ go test -race . && go test -race pkg/packets
+$ go test -race ./...
 ```
-```
-$ cd pkg/packets
-$ go test -race .
-```
+
 ## Integration Test
-Pass [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
+[paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
 
 # TODO
-* Support MQTT V3 and V5.
-* Support bridge mode and maybe cluster.
+* Support bridge mode and cluster.
 
 *Breaking changes may occur when adding this new features.*

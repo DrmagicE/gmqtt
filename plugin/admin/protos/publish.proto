@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package gmqtt.admin.api;
+option go_package = ".;admin";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+message PublishRequest {
+    string topic_name = 1;
+    string payload = 2;
+    uint32 qos = 3;
+    bool retained = 4;
+    // the following fields are using in v5 client.
+    string content_type = 5;
+    string correlation_data = 6;
+    uint32 message_expiry = 7;
+    uint32 payload_format = 8;
+    string response_topic = 9;
+    repeated UserProperties user_properties = 10;
+}
+
+message UserProperties {
+    bytes K = 1;
+    bytes V = 2;
+}
+
+service PublishService {
+    // publish message to broker
+    rpc Publish (PublishRequest) returns (google.protobuf.Empty){
+        option (google.api.http) = {
+            post: "/v1/publish"
+            body:"*"
+        };
+    }
+}

@@ -14,8 +14,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/config"
-	"github.com/DrmagicE/gmqtt/pkg/codes"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/pkg/pidfile"
 	"github.com/DrmagicE/gmqtt/server"
 )
@@ -129,23 +127,11 @@ func NewStartCmd() *cobra.Command {
 			if useDefault {
 				l.Warn("config file not exist, use default configration")
 			}
-			// subscribe failure test
-			// TODO remove this
-			h := server.Hooks{
-				OnSubscribe: func(ctx context.Context, client server.Client, subReq *server.SubscribeRequest) error {
-					if sub := subReq.Subscriptions["test/nosubscribe"]; sub != nil {
-						sub.Error = codes.NewError(packets.SubscribeFailure)
-					}
-					return nil
-
-				},
-			}
 			s := server.New(
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
 				server.WithWebsocketServer(websockets...),
 				server.WithLogger(l),
-				server.WithHook(h),
 			)
 			err = s.Init()
 			if err != nil {

@@ -17,7 +17,7 @@ func TestParseConfig(t *testing.T) {
 			caseName: "defaultConfig",
 			fileName: "",
 			hasErr:   false,
-			expected: DefaultConfig,
+			expected: DefaultConfig(),
 		},
 	}
 

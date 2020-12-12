@@ -143,3 +143,17 @@ func (mr *MockServerMockRecorder) RetainedService() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetainedService", reflect.TypeOf((*MockServer)(nil).RetainedService))
 }
+
+// Plugin mocks base method
+func (m *MockServer) Plugin(name string) Plugable {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Plugin", name)
+	ret0, _ := ret[0].(Plugable)
+	return ret0
+}
+
+// Plugin indicates an expected call of Plugin
+func (mr *MockServerMockRecorder) Plugin(name interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Plugin", reflect.TypeOf((*MockServer)(nil).Plugin), name)
+}

@@ -122,7 +122,11 @@ func initStore(store queue.Store) error {
 
 func add(store queue.Store) error {
 	for _, v := range initElems {
-		err := store.Add(v)
+		elem := *v
+		elem.MessageWithID = &queue.Publish{
+			Message: elem.MessageWithID.(*queue.Publish).Message.Copy(),
+		}
+		err := store.Add(&elem)
 		if err != nil {
 			return err
 		}

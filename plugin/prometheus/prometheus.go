@@ -21,7 +21,7 @@ func init() {
 	config.RegisterDefaultPluginConfig(Name, &DefaultConfig)
 }
 
-func New(config config.Config) (server.Plugable, error) {
+func New(ctx context.Context, config config.Config) (server.Plugable, error) {
 	cfg := config.Plugins[Name].(*Config)
 	httpServer := &http.Server{
 		Addr: cfg.ListenAddress,
@@ -57,7 +57,7 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-// Config is the configuration of prometheus exporter plugin
+// Config is the configuration of prometheus exporter plugin.
 type Config struct {
 	// ListenAddress is the address that the exporter will listen on.
 	ListenAddress string `yaml:"listen_address"`

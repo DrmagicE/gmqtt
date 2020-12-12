@@ -100,7 +100,7 @@ type Server interface {
 
 	RetainedService() RetainedService
 
-	//Plugin(name string) (Plugable, error)
+	Plugin(name string) Plugable
 }
 
 type clientService struct {
@@ -112,16 +112,25 @@ func (c *clientService) IterateSession(fn session.IterateFn) error {
 	return c.sessionStore.Iterate(fn)
 }
 
-func (c *clientService) GetSession(clientID string) (*gmqtt.Session, error) {
-	return c.sessionStore.Get(clientID)
-}
-
-func (c *clientService) CloseClient(clientID string) {
+func (c *clientService) IterateClient(fn ClientIterateFn) {
 	c.srv.mu.Lock()
 	defer c.srv.mu.Unlock()
-	if cli, ok := c.srv.clients[clientID]; ok {
-		cli.Close()
+
+	for _, v := range c.srv.clients {
+		if !fn(v) {
+			return
+		}
 	}
+}
+
+func (c *clientService) GetClient(clientID string) Client {
+	c.srv.mu.Lock()
+	defer c.srv.mu.Unlock()
+	return c.srv.clients[clientID]
+}
+
+func (c *clientService) GetSession(clientID string) (*gmqtt.Session, error) {
+	return c.sessionStore.Get(clientID)
 }
 
 func (c *clientService) TerminateSession(clientID string) {
@@ -132,19 +141,23 @@ func (c *clientService) TerminateSession(clientID string) {
 		cli.Close()
 		return
 	}
-	err := c.srv.sessionTerminatedLocked(clientID, NormalTermination)
-	if err != nil {
-		err = fmt.Errorf("session terminated fail: %w", err)
-		zaplog.Error("session terminated fail", zap.Error(err))
+	if _, ok := c.srv.offlineClients[clientID]; ok {
+		err := c.srv.sessionTerminatedLocked(clientID, NormalTermination)
+		if err != nil {
+			err = fmt.Errorf("session terminated fail: %s", err.Error())
+			zaplog.Error("session terminated fail", zap.Error(err))
+		}
 	}
+
 }
 
 // server represents a mqtt server instance.
 // Create a server by using NewServer()
 type server struct {
-	wg     sync.WaitGroup
-	mu     sync.RWMutex //gard clients & offlineClients map
-	status int32        //server status
+	wg       sync.WaitGroup
+	initOnce sync.Once
+	mu       sync.RWMutex //gard clients & offlineClients map
+	status   int32        //server status
 	// clients stores the  online clients
 	clients map[string]*client
 	// offlineClients store the expired time of all disconnected clients
@@ -177,6 +190,17 @@ type server struct {
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 
 	clientService *clientService
+}
+
+func (srv *server) Plugin(name string) Plugable {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, v := range srv.plugins {
+		if v.Name() == name {
+			return v
+		}
+	}
+	return nil
 }
 
 func (srv *server) RetainedService() RetainedService {
@@ -243,13 +267,7 @@ func (srv *server) sessionTerminatedLocked(clientID string, reason SessionTermin
 	return err
 }
 
-func uint32P(v uint32) *uint32 {
-	return &v
-}
 func uint16P(v uint16) *uint16 {
-	return &v
-}
-func byteP(v byte) *byte {
 	return &v
 }
 
@@ -540,7 +558,8 @@ func (srv *server) unregisterClient(client *client) {
 
 func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
 	if !srv.config.MQTT.QueueQos0Msg {
-		if c := srv.clients[clientID]; c != nil && msg.QoS == packets.Qos0 {
+		// If the client with the clientID is not connected, skip qos0 messages.
+		if c := srv.clients[clientID]; c == nil && msg.QoS == packets.Qos0 {
 			return
 		}
 	}
@@ -569,11 +588,13 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 	})
 	if err != nil {
 		queue.Drop(srv.hooks.OnMsgDropped, zaplog, clientID, msg, &queue.InternalError{Err: err})
+		return
 	}
+	srv.statsManager.addQueueLen(clientID, 1)
 
 }
 
-// deliverMessage send msg to matched client, must call under srv.Lock
+// deliverMessage send msg to matched client, must call under srv.mu.Lock
 func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
 	// subscriber (client id) list of shared subscriptions, key by share name.
 	sharedList := make(map[string][]struct {
@@ -633,7 +654,7 @@ func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (match
 		}
 	}
 	// shared subscription
-	// TODO 实现一个钩子函数，自定义随机逻辑。 在shared里面挑一个
+	// TODO enable customize balance strategy of shared subscription
 	for _, v := range sharedList {
 		var rs struct {
 			clientID string
@@ -696,9 +717,6 @@ func (srv *server) sessionExpireCheck() {
 		if now.After(expiredTime) {
 			zaplog.Info("session expired", zap.String("client_id", cid))
 			_ = srv.sessionTerminatedLocked(cid, ExpiredTermination)
-			//TODO
-			//srv.statsManager.addSessionExpired()
-			//srv.statsManager.decSessionInactive()
 
 		}
 	}
@@ -759,8 +777,7 @@ func New(opts ...Options) *server {
 	return srv
 }
 
-// Init initialises the options.
-func (srv *server) Init(opts ...Options) (err error) {
+func (srv *server) init(opts ...Options) (err error) {
 	for _, fn := range opts {
 		fn(srv)
 	}
@@ -844,6 +861,14 @@ func (srv *server) Init(opts ...Options) (err error) {
 
 	err = srv.loadPlugins()
 	return nil
+}
+
+// Init initialises the options.
+func (srv *server) Init(opts ...Options) (err error) {
+	srv.initOnce.Do(func() {
+		err = srv.init(opts...)
+	})
+	return
 }
 
 // Client returns the client for given clientID
@@ -968,6 +993,7 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 }
 
 func (srv *server) initPluginHooks() error {
+	zaplog.Info("init plugin hook wrappers")
 	var (
 		onAcceptWrappers           []OnAcceptWrapper
 		onBasicAuthWrappers        []OnBasicAuthWrapper
@@ -986,8 +1012,9 @@ func (srv *server) initPluginHooks() error {
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
+	ctx := context.Background()
 	for _, v := range pluginOrder {
-		plg, err := plugins[v](srv.config)
+		plg, err := plugins[v](ctx, srv.config)
 		if err != nil {
 			return err
 		}
@@ -995,12 +1022,12 @@ func (srv *server) initPluginHooks() error {
 	}
 	onMsgDroppedWrappers = append(onMsgDroppedWrappers, func(onMsgDropped OnMsgDropped) OnMsgDropped {
 		return func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {
+			onMsgDropped(ctx, clientID, msg, err)
 			srv.statsManager.messageDropped(msg.QoS, clientID, err)
+			srv.statsManager.decQueueLen(clientID, 1)
 		}
 	})
-
 	for _, p := range srv.plugins {
-		zaplog.Info("init plugin hook wrappers")
 		hooks := p.HookWrapper()
 		// init all hook wrappers
 		if hooks.OnAcceptWrapper != nil {
@@ -1134,8 +1161,8 @@ func (srv *server) initPluginHooks() error {
 		srv.hooks.OnUnsubscribed = onUnsubscribed
 	}
 	if onMsgArrivedWrappers != nil {
-		onMsgArrived := func(ctx context.Context, client Client, pub *packets.Publish) (*gmqtt.Message, error) {
-			return gmqtt.MessageFromPublish(pub), nil
+		onMsgArrived := func(ctx context.Context, client Client, req *MsgArrivedRequest) error {
+			return nil
 		}
 		for i := len(onMsgArrivedWrappers); i > 0; i-- {
 			onMsgArrived = onMsgArrivedWrappers[i-1](onMsgArrived)
@@ -1188,7 +1215,7 @@ func (srv *server) wsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := defaultUpgrader.Upgrade(w, r, nil)
 		if err != nil {
-			zaplog.Warn("websocket upgrade error", zap.String("Msg", err.Error()))
+			zaplog.Error("websocket upgrade error", zap.String("Msg", err.Error()))
 			return
 		}
 		defer c.Close()
@@ -1204,7 +1231,10 @@ func (srv *server) wsHandler() http.HandlerFunc {
 
 // Run starts the mqtt server. This method is non-blocking
 func (srv *server) Run() (err error) {
-
+	err = srv.Init()
+	if err != nil {
+		return err
+	}
 	var tcps []string
 	var ws []string
 	for _, v := range srv.tcpListener {

@@ -1,6 +1,6 @@
 # Prometheus
-`Prometheus` implements the prometheus exporter for gmqtt. 
-
+`Prometheus` implements the prometheus exporter for gmqtt.   
+Default URL: 127.0.0.1:8082/metrics
 
 # Metrics
 

@@ -14,6 +14,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -150,8 +151,9 @@ type Client interface {
 	Disconnect(disconnect *packets.Disconnect)
 }
 
-// Client represents a MQTT client and implements the Client interface
+// client represents a MQTT client and implements the Client interface
 type client struct {
+	connectedAt  int64
 	server       *server
 	wg           sync.WaitGroup
 	rwc          net.Conn //raw tcp connection
@@ -164,20 +166,19 @@ type client struct {
 	close        chan struct{}
 	connected    chan struct{}
 	status       int32
-
-	error   chan error //错误
-	errOnce sync.Once
-	err     error
-
-	opts    *ClientOptions //OnConnect之前填充,set up before OnConnect()
-	session *gmqtt.Session
-
-	cleanWillFlag bool //收到DISCONNECT报文删除遗嘱标志, whether to remove will Msg
 	// if 1, when client close, the session expiry interval will be ignored and the session will be removed.
 	forceRemoveSession int32
-	disconnect         *packets.Disconnect
+	error              chan error
+	errOnce            sync.Once
+	err                error
 
-	connectedAt       int64
+	opts    *ClientOptions //set up before OnConnect()
+	session *gmqtt.Session
+
+	cleanWillFlag bool // whether to remove will Msg
+
+	disconnect *packets.Disconnect
+
 	topicAliasManager TopicAliasManager
 	version           packets.Version
 	aliasMapper       [][]byte
@@ -203,10 +204,6 @@ func (client *client) Version() packets.Version {
 
 func (client *client) Disconnect(disconnect *packets.Disconnect) {
 	client.write(disconnect)
-}
-
-type aliasMapper struct {
-	server [][]byte
 }
 
 // ConnectedAt
@@ -314,7 +311,7 @@ func (client *client) writeLoop() {
 			}
 			srv.statsManager.packetSent(packet, client.opts.ClientID)
 			if _, ok := packet.(*packets.Disconnect); ok {
-				client.rwc.Close()
+				_ = client.rwc.Close()
 				return
 			}
 		}
@@ -368,21 +365,17 @@ func (client *client) readLoop() {
 		var packet packets.Packet
 		if client.IsConnected() {
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
-				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
+				_ = client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 		}
 		packet, err = client.packetReader.ReadPacket()
 		if err != nil {
+			if err != io.EOF && packet != nil {
+				zaplog.Error("read error", zap.String("packet_type", reflect.TypeOf(packet).String()))
+			}
 			return
 		}
 
-		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
-			ce.Write(
-				zap.String("packet", packet.String()),
-				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-				zap.String("client_id", client.opts.ClientID),
-			)
-		}
 		if pub, ok := packet.(*packets.Publish); ok {
 			srv.statsManager.messageReceived(pub.Qos, client.opts.ClientID)
 			if client.version == packets.Version5 && pub.Qos > packets.Qos0 {
@@ -395,12 +388,19 @@ func (client *client) readLoop() {
 		client.in <- packet
 		<-client.connected
 		srv.statsManager.packetReceived(packet, client.opts.ClientID)
+		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
+			ce.Write(
+				zap.String("packet", packet.String()),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+				zap.String("client_id", client.opts.ClientID),
+			)
+		}
 	}
 }
 
 // Close closes the client connection. The returned channel will be closed after unregisterClient process has been done
 func (client *client) Close() {
-	client.rwc.Close()
+	_ = client.rwc.Close()
 }
 
 var pid = os.Getpid()
@@ -450,13 +450,6 @@ func bool2Byte(bo bool) *byte {
 		b = 0
 	}
 	return &b
-}
-
-func byte2bool(b *byte) bool {
-	if b == nil || *b == 0 {
-		return false
-	}
-	return true
 }
 
 func convertUint16(u *uint16, defaultValue uint16) uint16 {
@@ -582,6 +575,11 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					err = codes.ErrProtocol
 					return
 				}
+			default:
+				err = &codes.Error{
+					Code: codes.MalformedPacket,
+				}
+				return
 			}
 			// authentication faile
 			if err != nil {
@@ -661,7 +659,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			}
 
 			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
-				client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
+				_ = client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 			}
 			client.opts.Username = string(conn.Username)
 			client.newPacketIDLimiter(client.opts.MaxInflight)
@@ -683,13 +681,6 @@ func getErrorProperties(client *client, errDetails *codes.ErrorDetails) *packets
 		}
 	}
 	return nil
-}
-
-func setErrorProperties(client *client, errDetails *codes.ErrorDetails, ppt *packets.Properties) {
-	if client.version == packets.Version5 && client.opts.RequestProblemInfo && errDetails != nil {
-		ppt.ReasonString = errDetails.ReasonString
-		ppt.User = kvsToProperties(errDetails.UserProperties)
-	}
 }
 
 func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions {
@@ -788,8 +779,13 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		err := srv.hooks.OnSubscribe(context.Background(), client, subReq)
 		if ce := converError(err); ce != nil {
 			suback.Properties = getErrorProperties(client, &ce.ErrorDetails)
-			for k, _ := range suback.Payload {
-				suback.Payload[k] = ce.Code
+			for k := range suback.Payload {
+				switch client.version {
+				case packets.Version311:
+					suback.Payload[k] = packets.SubscribeFailure
+				case packets.Version5:
+					suback.Payload[k] = ce.Code
+				}
 			}
 			client.write(suback)
 			return nil
@@ -825,6 +821,9 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		var err error
 		if subErr != nil {
 			code = subErr.Code
+			if client.version == packets.Version311 {
+				code = packets.SubscribeFailure
+			}
 		}
 		if code < packets.SubscribeFailure {
 			subRs, err = srv.subscriptionsDB.Subscribe(client.opts.ClientID, sub)
@@ -949,7 +948,7 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 		if len(pub.Payload) == 0 {
 			srv.retainedDB.Remove(string(pub.TopicName))
 		} else {
-			srv.retainedDB.AddOrReplace(msg)
+			srv.retainedDB.AddOrReplace(msg.Copy())
 		}
 	}
 
@@ -957,11 +956,14 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	var topicMatched bool
 	if !dup {
 		if srv.hooks.OnMsgArrived != nil {
-			msg, err = srv.hooks.OnMsgArrived(context.Background(), client, pub)
+			req := &MsgArrivedRequest{
+				Publish: pub,
+				Message: msg,
+			}
+			err = srv.hooks.OnMsgArrived(context.Background(), client, req)
+			msg = req.Message
 		}
-		// 查询订阅，得到结果
-		// 根据结果，发送到不同队列
-		if msg != nil {
+		if msg != nil && err == nil {
 			srv.mu.Lock()
 			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, msg)
 			srv.mu.Unlock()
@@ -973,20 +975,14 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	var ppt *packets.Properties
 	code := codes.Success
 	if client.version == packets.Version5 {
-		if !topicMatched {
+		if !topicMatched && err == nil {
 			code = codes.NotMatchingSubscribers
 		}
-		if err != nil {
-			if codeErr, ok := err.(*codes.Error); ok {
-				ppt = getErrorProperties(client, &codeErr.ErrorDetails)
-				code = codeErr.Code
-			} else {
-				ppt = &packets.Properties{
-					ReasonString: []byte(err.Error()),
-				}
-				code = codes.UnspecifiedError
-			}
+		if codeErr := converError(err); codeErr != nil {
+			ppt = getErrorProperties(client, &codeErr.ErrorDetails)
+			code = codeErr.Code
 		}
+
 	}
 	if pub.Qos == packets.Qos1 {
 		ack = pub.NewPuback(code, ppt)
@@ -1024,6 +1020,10 @@ func converError(err error) *codes.Error {
 
 func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
 	err := client.queueStore.Remove(puback.PacketID)
+	srv := client.server
+	srv.statsManager.decInflight(client.opts.ClientID, 1)
+	srv.statsManager.decQueueLen(client.opts.ClientID, 1)
+
 	if err != nil {
 		return converError(err)
 	}
@@ -1045,9 +1045,11 @@ func (client *client) pubrelHandler(pubrel *packets.Pubrel) *codes.Error {
 	return nil
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
-	// 从queue中replace
+	srv := client.server
 	if client.version == packets.Version5 && pubrec.Code >= codes.UnspecifiedError {
 		err := client.queueStore.Remove(pubrec.PacketID)
+		srv.statsManager.decInflight(client.opts.ClientID, 1)
+		srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 		client.pl.release(pubrec.PacketID)
 		if err != nil {
 			client.setError(err)
@@ -1066,8 +1068,10 @@ func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	client.write(pubrel)
 }
 func (client *client) pubcompHandler(pubcomp *packets.Pubcomp) {
-	// 从queue中delete
+	srv := client.server
 	err := client.queueStore.Remove(pubcomp.PacketID)
+	srv.statsManager.decInflight(client.opts.ClientID, 1)
+	srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 	client.pl.release(pubcomp.PacketID)
 	if err != nil {
 		client.setError(err)
@@ -1310,6 +1314,7 @@ func (client *client) pollInflights() (cont bool, err error) {
 
 func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.PacketID, err error) {
 	now := time.Now()
+	srv := client.server
 	var elems []*queue.Elem
 	elems, err = client.queueStore.Read(ids)
 	if err != nil {
@@ -1320,7 +1325,11 @@ func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.
 		case *queue.Publish:
 			if m.QoS != packets.Qos0 {
 				ids = ids[1:]
+				srv.statsManager.addInflight(client.opts.ClientID, 1)
+			} else {
+				srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 			}
+
 			if client.version == packets.Version5 && m.Message.MessageExpiry != 0 {
 				d := uint32(now.Sub(v.At).Seconds())
 				m.Message.MessageExpiry = d
@@ -1349,8 +1358,11 @@ func (client *client) pollMessageHandler() {
 	}
 	var ids []packets.PacketID
 	for {
-		//TODO config
-		ids = client.pl.pollPacketIDs(client.opts.MaxInflight)
+		max := uint16(100)
+		if client.opts.MaxInflight < max {
+			max = client.opts.MaxInflight
+		}
+		ids = client.pl.pollPacketIDs(max)
 		if ids == nil {
 			return
 		}
@@ -1403,5 +1415,5 @@ func (client *client) serve() {
 		client.pl.close()
 	}
 	client.wg.Wait()
-	client.rwc.Close()
+	_ = client.rwc.Close()
 }

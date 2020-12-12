@@ -19,8 +19,6 @@ type subscriptionService struct {
 	a *Admin
 }
 
-const ()
-
 func (s *subscriptionService) mustEmbedUnimplementedSubscriptionServiceServer() {
 	return
 }
@@ -28,7 +26,7 @@ func (s *subscriptionService) mustEmbedUnimplementedSubscriptionServiceServer() 
 // List lists subscriptions in the broker.
 func (s *subscriptionService) List(ctx context.Context, req *ListSubscriptionRequest) (*ListSubscriptionResponse, error) {
 	page, pageSize := getPage(req.Page, req.PageSize)
-	subs, total, err := s.a.store.GetSubscriptions(page-1, pageSize)
+	subs, total, err := s.a.store.GetSubscriptions(page, pageSize)
 	if err != nil {
 		return &ListSubscriptionResponse{}, err
 	}
@@ -61,6 +59,7 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 				return nil, InvalidArgument("filter_type", err.Error())
 			}
 			switch SubFilterType(i) {
+
 			case SubFilterType_SUB_FILTER_TYPE_SYS:
 				iterType |= subscription.TypeSYS
 			case SubFilterType_SUB_FILTER_TYPE_SHARED:
@@ -111,6 +110,7 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 				NoLocal:           sub.NoLocal,
 				RetainAsPublished: sub.RetainAsPublished,
 				RetainHandling:    uint32(sub.RetainHandling),
+				ClientId:          clientID,
 			})
 		}
 		i++

@@ -44,7 +44,7 @@ type SubscribeRequest struct {
 	// Subscribe is the SUBSCRIBE packet. It is immutable, do not edit.
 	Subscribe *packets.Subscribe
 	// Subscriptions wraps all subscriptions by the full topic name.
-	// You can modify the value of the map to edit the subscription. But you cannot change the length of the map.
+	// You can modify the value of the map to edit the subscription. But must not change the length of the map.
 	Subscriptions map[string]*struct {
 		// Sub is the subscription.
 		Sub *gmqtt.Subscription
@@ -60,8 +60,29 @@ type SubscribeRequest struct {
 	ID uint32
 }
 
+// GrantQoS grants the qos to the subscription for the given topic name.
+func (s *SubscribeRequest) GrantQoS(topicName string, qos packets.QoS) *SubscribeRequest {
+	if sub := s.Subscriptions[topicName]; sub != nil {
+		sub.Sub.QoS = qos
+	}
+	return s
+}
+
+// Reject rejects the subscription for the given topic name.
+func (s *SubscribeRequest) Reject(topicName string, err error) {
+	if sub := s.Subscriptions[topicName]; sub != nil {
+		sub.Error = err
+	}
+}
+
+// SetID sets the subscription id for the subscriptions
+func (s *SubscribeRequest) SetID(id uint32) *SubscribeRequest {
+	s.ID = id
+	return s
+}
+
 // OnSubscribe will be called when receive a SUBSCRIBE packet.
-// User can use this function to modify and authorize subscriptions.
+// It provides the ability to modify and authorize the subscriptions.
 // If return an error, the returned error will override the error set in SubscribeRequest.
 type OnSubscribe func(ctx context.Context, client Client, req *SubscribeRequest) error
 
@@ -77,10 +98,11 @@ type OnUnsubscribed func(ctx context.Context, client Client, topicName string)
 
 type OnUnsubscribedWrapper func(OnUnsubscribed) OnUnsubscribed
 
+// UnsubscribeRequest is the input param for OnSubscribed hook.
 type UnsubscribeRequest struct {
 	// Unsubscribe is the UNSUBSCRIBE packet. It is immutable, do not edit.
 	Unsubscribe *packets.Unsubscribe
-	// Unsubs wraps all unsubscribe topic by the full topic name.
+	// Unsubs groups all unsubscribe topic by the full topic name.
 	// You can modify the value of the map to edit the unsubscribe topic. But you cannot change the length of the map.
 	Unsubs map[string]*struct {
 		// TopicName is the topic that is going to unsubscribe.
@@ -94,18 +116,37 @@ type UnsubscribeRequest struct {
 	}
 }
 
+// Reject rejects the subscription for the given topic name.
+func (u *UnsubscribeRequest) Reject(topicName string, err error) {
+	if sub := u.Unsubs[topicName]; sub != nil {
+		sub.Error = err
+	}
+}
+
 // OnUnsubscribe will be called when receive a UNSUBSCRIBE packet.
 // User can use this function to modify and authorize unsubscription.
 // If return an error, the returned error will override the error set in UnsubscribeRequest.
 type OnUnsubscribe func(ctx context.Context, client Client, req *UnsubscribeRequest) error
 
-// OnMsgArrived will be called when receive a Publish packets.
-// The returned message will be passed to topic match process and deliver to those matched clients.
-// If return nil message or error, no message will be deliver.
-// The error is for V5 client to provide additional information for diagnostics and will be ignored if the version of used client is V3.
+// OnMsgArrived will be called when receive a Publish packets.It provides the ability to modify the message before topic match process.
+// The return error is for V5 client to provide additional information for diagnostics and will be ignored if the version of used client is V3.
 // If the returned error type is *codes.Error, the code, reason string and user property will be set into the ack packet(puback for qos1, and pubrel for qos2);
 // otherwise, the code,reason string  will be set to 0x80 and error.Error().
-type OnMsgArrived func(ctx context.Context, client Client, publish *packets.Publish) (*gmqtt.Message, error)
+type OnMsgArrived func(ctx context.Context, client Client, req *MsgArrivedRequest) error
+
+// MsgArrivedRequest is the input param for OnMsgArrived hook.
+type MsgArrivedRequest struct {
+	// Publish is the origin MQTT PUBLISH packet, it is immutable. DO NOT EDIT.
+	Publish *packets.Publish
+	// Message is the message that is going to be passed to topic match process.
+	// The caller can modify it.
+	Message *gmqtt.Message
+}
+
+// Drop drops the message, so the message will not be delivered to any clients.
+func (m *MsgArrivedRequest) Drop() {
+	m.Message = nil
+}
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
 
@@ -187,8 +228,6 @@ type OnSessionCreated func(ctx context.Context, client Client)
 
 type OnSessionCreatedWrapper func(OnSessionCreated) OnSessionCreated
 
-// OnSessionResumed 恢复session时触发
-//
 // OnSessionResumed will be called when session resumed.
 type OnSessionResumed func(ctx context.Context, client Client)
 
@@ -202,9 +241,7 @@ const (
 	ExpiredTermination
 )
 
-// OnSessionTerminated session 下线时触发
-//
-// OnSessionTerminated will be called when session terminated.
+// OnSessionTerminated will be called when session has been terminated.
 type OnSessionTerminated func(ctx context.Context, clientID string, reason SessionTerminatedReason)
 
 type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated

@@ -36,7 +36,7 @@ func (s *Subscription) GetFullTopicName() string {
 	return s.TopicFilter
 }
 
-// Copy make a copy of subscription.
+// Copy makes a copy of subscription.
 func (s *Subscription) Copy() *Subscription {
 	return &Subscription{
 		ShareName:         s.ShareName,
@@ -50,7 +50,7 @@ func (s *Subscription) Copy() *Subscription {
 }
 
 // Validate returns whether the subscription is valid.
-// If you can unsure the subscription is valid then just skip the validation.
+// If you can ensure the subscription is valid then just skip the validation.
 func (s *Subscription) Validate() error {
 	if !packets.ValidV5Topic([]byte(s.GetFullTopicName())) {
 		return errors.New("invalid topic name")

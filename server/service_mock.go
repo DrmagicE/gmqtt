@@ -48,18 +48,6 @@ func (mr *MockPublisherMockRecorder) Publish(message interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublisher)(nil).Publish), message)
 }
 
-// PublishToClient mocks base method
-func (m *MockPublisher) PublishToClient(clientID string, message *gmqtt.Message) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "PublishToClient", clientID, message)
-}
-
-// PublishToClient indicates an expected call of PublishToClient
-func (mr *MockPublisherMockRecorder) PublishToClient(clientID, message interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishToClient", reflect.TypeOf((*MockPublisher)(nil).PublishToClient), clientID, message)
-}
-
 // MockClientService is a mock of ClientService interface
 type MockClientService struct {
 	ctrl     *gomock.Controller
@@ -112,16 +100,30 @@ func (mr *MockClientServiceMockRecorder) GetSession(clientID interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockClientService)(nil).GetSession), clientID)
 }
 
-// CloseClient mocks base method
-func (m *MockClientService) CloseClient(clientID string) {
+// GetClient mocks base method
+func (m *MockClientService) GetClient(clientID string) Client {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CloseClient", clientID)
+	ret := m.ctrl.Call(m, "GetClient", clientID)
+	ret0, _ := ret[0].(Client)
+	return ret0
 }
 
-// CloseClient indicates an expected call of CloseClient
-func (mr *MockClientServiceMockRecorder) CloseClient(clientID interface{}) *gomock.Call {
+// GetClient indicates an expected call of GetClient
+func (mr *MockClientServiceMockRecorder) GetClient(clientID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseClient", reflect.TypeOf((*MockClientService)(nil).CloseClient), clientID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClient", reflect.TypeOf((*MockClientService)(nil).GetClient), clientID)
+}
+
+// IterateClient mocks base method
+func (m *MockClientService) IterateClient(fn ClientIterateFn) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IterateClient", fn)
+}
+
+// IterateClient indicates an expected call of IterateClient
+func (mr *MockClientServiceMockRecorder) IterateClient(fn interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IterateClient", reflect.TypeOf((*MockClientService)(nil).IterateClient), fn)
 }
 
 // TerminateSession mocks base method

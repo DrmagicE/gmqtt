@@ -12,12 +12,17 @@ var (
 	defaultPluginConfig = make(map[string]Configuration)
 )
 
+// Configuration is the interface that enable the implementation can parse config from the global config file.
+// Plugin admin and prometheus are two examples.
 type Configuration interface {
+	// Validate validates the configuration.
+	// If returns error, the broker will not start.
 	Validate() error
+	// Unmarshaler defined how to unmarshal YAML into the config structure.
 	yaml.Unmarshaler
 }
-type Validate func(config Configuration) error
 
+// RegisterDefaultPluginConfig registers the default configuration for the given plugin name.
 func RegisterDefaultPluginConfig(name string, config Configuration) {
 	defaultPluginConfig[name] = config
 }
@@ -50,6 +55,12 @@ var DefaultListeners = []*ListenerConfig{
 		TLSOptions: nil,
 		Websocket:  nil,
 	},
+	{
+		Address: "0.0.0.0:8883",
+		Websocket: &WebsocketOptions{
+			Path: "/",
+		},
+	},
 }
 
 // LogConfig is use to configure the log behaviors.
@@ -81,17 +92,17 @@ type Config struct {
 }
 
 type TLSOptions struct {
-	CertFile string `yaml:"cert_file" validate:"required"`
-	KeyFile  string `yaml:"key_file" validate:"required"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 type ListenerConfig struct {
-	Address string `yaml:"address" validate:"required,hostname_port"`
-	*TLSOptions
-	Websocket *WebsocketOptions `yaml:"websocket"`
+	Address     string `yaml:"address"`
+	*TLSOptions `yaml:"tls"`
+	Websocket   *WebsocketOptions `yaml:"websocket"`
 }
 
 type WebsocketOptions struct {
-	Path string `yaml:"path" validate:"required"`
+	Path string `yaml:"path"`
 }
 
 func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {

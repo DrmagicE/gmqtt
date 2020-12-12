@@ -44,7 +44,9 @@ func TestTrieDB_GetRetainedMessage(t *testing.T) {
 		s.AddOrReplace(v)
 	}
 	for _, v := range tt {
-		a.Equal(v, s.GetRetainedMessage(v.Topic))
+		rs := s.GetRetainedMessage(v.Topic)
+		a.Equal(v.Topic, rs.Topic)
+		a.Equal(v.Payload, rs.Payload)
 	}
 	a.Nil(s.GetRetainedMessage("a/b"))
 }
@@ -76,75 +78,63 @@ func TestTrieDB_GetMatchedMessages(t *testing.T) {
 	}
 	var tt = []struct {
 		TopicFilter string
-		expected    []*gmqtt.Message
+		expected    map[string]*gmqtt.Message
 	}{
 		{
 			TopicFilter: "a/+",
-			expected: []*gmqtt.Message{
-				{
-					Topic:   "a/",
+			expected: map[string]*gmqtt.Message{
+				"a/": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a/b",
+				"a/b": {
 					Payload: []byte{1, 2, 3},
-				}},
+				},
+			},
 		},
 		{
 			TopicFilter: "#",
-			expected: []*gmqtt.Message{
-				{
-					Topic:   "a/b/c/d",
+			expected: map[string]*gmqtt.Message{
+				"a/b/c/d": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a/b/c/",
+				"a/b/c/": {
 					Payload: []byte{1, 2, 3, 4},
 				},
-				{
-					Topic:   "a/",
+				"a/": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a/b",
+				"a/b": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a",
+				"a": {
 					Payload: []byte{1, 2, 3},
 				},
 			},
 		},
 		{
 			TopicFilter: "a/#",
-			expected: []*gmqtt.Message{
-				{
-					Topic:   "a/b/c/d",
+			expected: map[string]*gmqtt.Message{
+				"a/b/c/d": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a/b/c/",
+				"a/b/c/": {
 					Payload: []byte{1, 2, 3, 4},
 				},
-				{
-					Topic:   "a/",
+				"a/": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a/b",
+				"a/b": {
 					Payload: []byte{1, 2, 3},
 				},
-				{
-					Topic:   "a",
+				"a": {
 					Payload: []byte{1, 2, 3},
 				},
 			},
 		},
 		{
 			TopicFilter: "a/b/c/d",
-			expected: []*gmqtt.Message{
-				{
-					Topic:   "a/b/c/d",
+			expected: map[string]*gmqtt.Message{
+				"a/b/c/d": {
 					Payload: []byte{1, 2, 3},
 				},
 			},
@@ -154,7 +144,18 @@ func TestTrieDB_GetMatchedMessages(t *testing.T) {
 		s.AddOrReplace(v)
 	}
 	for _, v := range tt {
-		a.ElementsMatch(v.expected, s.GetMatchedMessages(v.TopicFilter))
+		t.Run(v.TopicFilter, func(t *testing.T) {
+			rs := s.GetMatchedMessages(v.TopicFilter)
+			a.Equal(len(v.expected), len(rs))
+			got := make(map[string]*gmqtt.Message)
+			for _, v := range rs {
+				got[v.Topic] = v
+			}
+			for k, v := range v.expected {
+				a.Equal(v.Payload, got[k].Payload)
+			}
+		})
+
 	}
 }
 

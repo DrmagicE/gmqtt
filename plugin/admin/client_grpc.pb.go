@@ -18,8 +18,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ClientServiceClient interface {
+	// lists clients
 	List(ctx context.Context, in *ListClientRequest, opts ...grpc.CallOption) (*ListClientResponse, error)
-	Get(ctx context.Context, in *GetClientRequest, opts ...grpc.CallOption) (*ListClientResponse, error)
+	// Get the client for given client id.
+	Get(ctx context.Context, in *GetClientRequest, opts ...grpc.CallOption) (*GetClientResponse, error)
+	// disconnect the client for given client id.
 	Delete(ctx context.Context, in *DeleteClientRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
@@ -40,8 +43,8 @@ func (c *clientServiceClient) List(ctx context.Context, in *ListClientRequest, o
 	return out, nil
 }
 
-func (c *clientServiceClient) Get(ctx context.Context, in *GetClientRequest, opts ...grpc.CallOption) (*ListClientResponse, error) {
-	out := new(ListClientResponse)
+func (c *clientServiceClient) Get(ctx context.Context, in *GetClientRequest, opts ...grpc.CallOption) (*GetClientResponse, error) {
+	out := new(GetClientResponse)
 	err := c.cc.Invoke(ctx, "/gmqtt.admin.api.ClientService/Get", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -62,8 +65,11 @@ func (c *clientServiceClient) Delete(ctx context.Context, in *DeleteClientReques
 // All implementations must embed UnimplementedClientServiceServer
 // for forward compatibility
 type ClientServiceServer interface {
+	// lists clients
 	List(context.Context, *ListClientRequest) (*ListClientResponse, error)
-	Get(context.Context, *GetClientRequest) (*ListClientResponse, error)
+	// Get the client for given client id.
+	Get(context.Context, *GetClientRequest) (*GetClientResponse, error)
+	// disconnect the client for given client id.
 	Delete(context.Context, *DeleteClientRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedClientServiceServer()
 }
@@ -75,7 +81,7 @@ type UnimplementedClientServiceServer struct {
 func (UnimplementedClientServiceServer) List(context.Context, *ListClientRequest) (*ListClientResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method List not implemented")
 }
-func (UnimplementedClientServiceServer) Get(context.Context, *GetClientRequest) (*ListClientResponse, error) {
+func (UnimplementedClientServiceServer) Get(context.Context, *GetClientRequest) (*GetClientResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
 func (UnimplementedClientServiceServer) Delete(context.Context, *DeleteClientRequest) (*empty.Empty, error) {

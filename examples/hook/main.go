@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
 	_ "github.com/DrmagicE/gmqtt/persistence"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
@@ -19,12 +20,12 @@ import (
 )
 
 var validUser = map[string]string{
-	"root":           "rootpwd",
-	"qos0":           "0pwd",
-	"qos1":           "1pwd",
-	"publishonly":    "ppwd",
-	"subscribeonly":  "spwd",
-	"disable_shared": "shared",
+	"root":           "pwd",
+	"qos0":           "pwd",
+	"qos1":           "pwd",
+	"publishonly":    "pwd",
+	"subscribeonly":  "pwd",
+	"disable_shared": "pwd",
 }
 
 func validateUser(username string, password string) bool {
@@ -62,77 +63,75 @@ func main() {
 		return nil
 	}
 
-	var onSubscribe server.OnSubscribe = func(ctx context.Context, client server.Client, subscribe *packets.Subscribe) (resp *server.SubscribeResponse, errDetails *codes.ErrorDetails) {
-		resp = &server.SubscribeResponse{
-			Topics: subscribe.Topics,
-		}
+	// subscription acl
+	var onSubscribe server.OnSubscribe = func(ctx context.Context, client server.Client, req *server.SubscribeRequest) error {
 		username := client.ClientOptions().Username
-		for k := range resp.Topics {
+		for k := range req.Subscriptions {
 			switch username {
 			case "root":
 			case "qos0":
-				resp.Topics[k].Qos = packets.Qos0
+				req.GrantQoS(k, packets.Qos0)
 			case "qos1":
-				resp.Topics[k].Qos = packets.Qos1
+				req.GrantQoS(k, packets.Qos1)
 			case "publishonly":
-				resp.Topics[k].Qos = packets.SubscribeFailure
-				if client.Version() == packets.Version5 {
-					errDetails = &codes.ErrorDetails{
+				req.Reject(k, &codes.Error{
+					Code: codes.NotAuthorized,
+					ErrorDetails: codes.ErrorDetails{
 						ReasonString: []byte("publish only"),
-						UserProperties: []struct {
-							K []byte
-							V []byte
-						}{
-							{
-								K: []byte("key"),
-								V: []byte("value"),
-							},
-						},
-					}
-				}
-
+					},
+				})
 			}
 		}
-		return resp, errDetails
+		return nil
 	}
 
-	var onMsgArrived server.OnMsgArrived = func(ctx context.Context, client server.Client, publish *packets.Publish) (message *gmqtt.Message, e error) {
+	var onMsgArrived server.OnMsgArrived = func(ctx context.Context, client server.Client, req *server.MsgArrivedRequest) error {
 		version := client.Version()
 		if client.ClientOptions().Username == "subscribeonly" {
 			switch version {
 			case packets.Version311:
-				client.Close()
+				// For v3 client:
+				// If a Server implementation does not authorize a PUBLISH to be performed by a Client;
+				// it has no way of informing that Client. It MUST either make a positive acknowledgement,
+				// according to the normal QoS rules, or close the Network Connection [MQTT-3.3.5-2].
+				req.Drop()
+				// client.Close()
+				return nil
+
 			case packets.Version5:
-				client.Disconnect(&packets.Disconnect{
-					Version: packets.Version5,
-					Code:    codes.UnspecifiedError,
-				})
+				return &codes.Error{
+					Code: codes.NotAuthorized,
+				}
+				// or you can disconnect the client
+
+				//client.Disconnect(&packets.Disconnect{
+				//	Version: packets.Version5,
+				//	Code:    codes.UnspecifiedError,
+				//})
+				//return
 			}
+
 		}
 		//Only qos1 & qos0 are acceptable(will be delivered)
-		if publish.Qos == packets.Qos2 {
-			switch version {
-			case packets.Version311:
-				return nil, nil
-			case packets.Version5:
-				return nil, &codes.Error{
-					Code: codes.NotAuthorized,
-					ErrorDetails: codes.ErrorDetails{
-						ReasonString: []byte("not authorized"),
-						UserProperties: []struct {
-							K []byte
-							V []byte
-						}{
-							{
-								K: []byte("user property key"),
-								V: []byte("user property value"),
-							},
+		if req.Message.QoS == packets.Qos2 {
+			req.Drop()
+			return &codes.Error{
+				Code: codes.NotAuthorized,
+				ErrorDetails: codes.ErrorDetails{
+					ReasonString: []byte("not authorized"),
+					UserProperties: []struct {
+						K []byte
+						V []byte
+					}{
+						{
+							K: []byte("user property key"),
+							V: []byte("user property value"),
 						},
 					},
-				}
+				},
 			}
 		}
-		return gmqtt.MessageFromPublish(publish), nil
+		return nil
 	}
 	onClose := func(ctx context.Context, client server.Client, err error) {
 		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
@@ -157,8 +156,12 @@ func main() {
 		server.WithTCPListener(ln),
 		server.WithHook(hooks),
 		server.WithLogger(l),
+		server.WithConfig(config.DefaultConfig()),
 	)
-	s.Run()
+	err = s.Run()
+	if err != nil {
+		panic(err)
+	}
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh

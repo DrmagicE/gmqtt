@@ -12,17 +12,18 @@ type Publisher interface {
 	// Publish Publish a message to broker.
 	// Calling this method will not trigger OnMsgArrived hook.
 	Publish(message *gmqtt.Message)
-	// PublishToClient Publish a message to a specific client.
-	// The message will send to the client only if the client is subscribed to a topic that matches the message.
-	// Calling this method will not trigger OnMsgArrived hook.
-	PublishToClient(clientID string, message *gmqtt.Message)
 }
+
+// ClientIterateFn is the callback function used by ClientService.IterateClient
+// Return false means to stop the iteration.
+type ClientIterateFn = func(client Client) bool
 
 // ClientService provides the ability to query and close clients.
 type ClientService interface {
 	IterateSession(fn session.IterateFn) error
 	GetSession(clientID string) (*gmqtt.Session, error)
-	CloseClient(clientID string)
+	GetClient(clientID string) Client
+	IterateClient(fn ClientIterateFn)
 	TerminateSession(clientID string)
 }
 
@@ -47,6 +48,7 @@ type SubscriptionService interface {
 	subscription.StatsReader
 }
 
+// RetainedService providers the ability to query and add/delete retained messages.
 type RetainedService interface {
 	retained.Store
 }
