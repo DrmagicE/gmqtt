@@ -14,6 +14,6 @@ before_install:
 env:
   - GO111MODULE=on
 script:
-  -  ./go.test.sh
+  -  ./go_test.sh
 after_success:
   - bash <(curl -s https://codecov.io/bash)
