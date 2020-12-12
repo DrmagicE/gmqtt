@@ -3,7 +3,7 @@ package trie
 import (
 	"sync"
 
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/retained"
 )
 
@@ -32,12 +32,12 @@ func (t *trieDB) getTrie(topicName string) *topicTrie {
 
 // GetRetainedMessage return the retain message of the given topic name.
 // return nil if the topic name not exists
-func (t *trieDB) GetRetainedMessage(topicName string) packets.Message {
+func (t *trieDB) GetRetainedMessage(topicName string) *gmqtt.Message {
 	t.RLock()
 	defer t.RUnlock()
 	node := t.getTrie(topicName).find(topicName)
 	if node != nil {
-		return node.msg
+		return node.msg.Copy()
 	}
 	return nil
 }
@@ -51,13 +51,13 @@ func (t *trieDB) ClearAll() {
 }
 
 // AddOrReplace add or replace a retain message.
-func (t *trieDB) AddOrReplace(message packets.Message) {
+func (t *trieDB) AddOrReplace(message *gmqtt.Message) {
 	t.Lock()
 	defer t.Unlock()
-	t.getTrie(message.Topic()).addRetainMsg(message.Topic(), message)
+	t.getTrie(message.Topic).addRetainMsg(message.Topic, message)
 }
 
-// Remove remove the retain message of the topic name.
+// remove remove the retain message of the topic name.
 func (t *trieDB) Remove(topicName string) {
 	t.Lock()
 	defer t.Unlock()
@@ -65,7 +65,7 @@ func (t *trieDB) Remove(topicName string) {
 }
 
 // GetMatchedMessages returns all messages that match the topic filter.
-func (t *trieDB) GetMatchedMessages(topicFilter string) []packets.Message {
+func (t *trieDB) GetMatchedMessages(topicFilter string) []*gmqtt.Message {
 	t.RLock()
 	defer t.RUnlock()
 	return t.getTrie(topicFilter).getMatchedMessages(topicFilter)

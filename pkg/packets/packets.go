@@ -2,28 +2,30 @@ package packets
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
 	"unicode/utf8"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Error type
 var (
-	ErrInvalPacketType           = errors.New("invalid Packet Type")
-	ErrInvalFlags                = errors.New("invalid Flags")
-	ErrInvalConnFlags            = errors.New("invalid Connect Flags")
-	ErrInvalConnAcknowledgeFlags = errors.New("invalid Connect Acknowledge Flags")
-	ErrInvalSessionPresent       = errors.New("invalid Session Present")
-	ErrInvalRemainLength         = errors.New("Malformed Remaining Length")
-	ErrInvalProtocolName         = errors.New("invalid protocol name")
-	ErrInvalUtf8                 = errors.New("invalid utf-8 string")
-	ErrInvalTopicName            = errors.New("invalid topic name")
-	ErrInvalTopicFilter          = errors.New("invalid topic filter")
-	ErrInvalQos                  = errors.New("invalid Qos,only support qos0 | qos1 | qos2")
-	ErrInvalWillQos              = errors.New("invalid Will Qos")
-	ErrInvalWillRetain           = errors.New("invalid Will Retain")
-	ErrInvalUTF8String           = errors.New("invalid utf-8 string")
+	ErrInvalUTF8String = errors.New("invalid utf-8 string")
+)
+
+// MQTT Version
+type Version = byte
+
+type QoS = byte
+
+const (
+	Version311 Version = 0x04
+	Version5   Version = 0x05
+	// The maximum packet size of a MQTT packet
+	MaximumSize = 268435456
 )
 
 //Packet type
@@ -43,22 +45,23 @@ const (
 	PINGREQ
 	PINGRESP
 	DISCONNECT
-)
-
-// Flag in the FixHeader
-const (
-	FLAG_RESERVED    = 0
-	FLAG_SUBSCRIBE   = 2
-	FLAG_UNSUBSCRIBE = 2
-	FLAG_PUBREL      = 2
+	AUTH
 )
 
 // QoS levels & Subscribe failure
 const (
-	QOS_0             uint8 = 0x00
-	QOS_1             uint8 = 0x01
-	QOS_2             uint8 = 0x02
-	SUBSCRIBE_FAILURE       = 0x80
+	Qos0             uint8 = 0x00
+	Qos1             uint8 = 0x01
+	Qos2             uint8 = 0x02
+	SubscribeFailure       = 0x80
+)
+
+// Flag in the FixHeader
+const (
+	FlagReserved    = 0
+	FlagSubscribe   = 2
+	FlagUnsubscribe = 2
+	FlagPubrel      = 2
 )
 
 //PacketID is the type of packet identifier
@@ -66,9 +69,23 @@ type PacketID = uint16
 
 //Max & min packet ID
 const (
-	MAX_PACKET_ID PacketID = 65535
-	MIN_PACKET_ID PacketID = 1
+	MaxPacketID PacketID = 65535
+	MinPacketID PacketID = 1
 )
+
+type PayloadFormat = byte
+
+const (
+	PayloadFormatBytes  PayloadFormat = 0
+	PayloadFormatString PayloadFormat = 1
+)
+
+// FixHeader represents the FixHeader of the MQTT packet
+type FixHeader struct {
+	PacketType   byte
+	Flags        byte
+	RemainLength int
+}
 
 // Packet defines the interface for structs intended to hold
 // decoded MQTT packets, either from being read or before being
@@ -80,27 +97,40 @@ type Packet interface {
 	Unpack(r io.Reader) error
 	// String is mainly used in logging, debugging and testing.
 	String() string
-	//// Header returns the referenced header structure of the packet.
-	//// The return value is read only. DO NOT EDIT.
-	//Header() *FixHeader
-}
-
-// FixHeader represents the FixHeader of the MQTT packet
-type FixHeader struct {
-	PacketType   byte
-	Flags        byte
-	RemainLength int
 }
 
 // Topic represents the MQTT Topic
 type Topic struct {
-	Qos  uint8
+	SubOptions
 	Name string
+}
+
+// SubOptions is the subscription option of subscriptions.
+// For details: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Subscription_Options
+type SubOptions struct {
+	// Qos is the QoS level of the subscription.
+	// 0 = At most once delivery
+	// 1 = At least once delivery
+	// 2 = Exactly once delivery
+	Qos uint8
+	// RetainHandling specifies whether retained messages are sent when the subscription is established.
+	// 0 = Send retained messages at the time of the subscribe
+	// 1 = Send retained messages at subscribe only if the subscription does not currently exist
+	// 2 = Do not send retained messages at the time of the subscribe
+	RetainHandling byte
+	// NoLocal is the No Local option.
+	//  If the value is 1, Application Messages MUST NOT be forwarded to a connection with a ClientID equal to the ClientID of the publishing connection
+	NoLocal bool
+	// RetainAsPublished is the Retain As Published option.
+	// If 1, Application Messages forwarded using this subscription keep the RETAIN flag they were published with.
+	// If 0, Application Messages forwarded using this subscription have the RETAIN flag set to 0. Retained messages sent when the subscription is established have the RETAIN flag set to 1.
+	RetainAsPublished bool
 }
 
 // Reader is used to read data from bufio.Reader and create MQTT packet instance.
 type Reader struct {
-	bufr *bufio.Reader
+	bufr    *bufio.Reader
+	version Version
 }
 
 // Writer is used to encode MQTT packet into bytes and write it to bufio.Writer.
@@ -122,9 +152,13 @@ type ReadWriter struct {
 // NewReader returns a new Reader.
 func NewReader(r io.Reader) *Reader {
 	if bufr, ok := r.(*bufio.Reader); ok {
-		return &Reader{bufr: bufr}
+		return &Reader{bufr: bufr, version: Version311}
 	}
-	return &Reader{bufr: bufio.NewReaderSize(r, 2048)}
+	return &Reader{bufr: bufio.NewReaderSize(r, 2048), version: Version311}
+}
+
+func (r *Reader) SetVersion(version Version) {
+	r.version = version
 }
 
 // NewWriter returns a new Writer.
@@ -139,17 +173,37 @@ func NewWriter(w io.Writer) *Writer {
 // If any errors occurs, returns nil, error
 func (r *Reader) ReadPacket() (Packet, error) {
 	first, err := r.bufr.ReadByte()
-
 	if err != nil {
 		return nil, err
 	}
 	fh := &FixHeader{PacketType: first >> 4, Flags: first & 15} //设置FixHeader
 	length, err := EncodeRemainLength(r.bufr)
+
+	var headerLen int
+	if length <= 127 {
+		headerLen = 2
+	} else if length <= 16383 {
+		headerLen = 3
+	} else if length <= 2097151 {
+		headerLen = 4
+	} else if length <= 268435455 {
+		headerLen = 5
+	}
+	if headerLen+length > 1234 {
+		return nil, codes.NewError(codes.RecvMaxExceeded)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	fh.RemainLength = length
-	packet, err := NewPacket(fh, r.bufr)
+	packet, err := NewPacket(fh, r.version, r.bufr)
+	if err != nil {
+		return nil, err
+	}
+	if p, ok := packet.(*Connect); ok {
+		r.version = p.Version
+	}
 	return packet, err
 }
 
@@ -157,6 +211,16 @@ func (r *Reader) ReadPacket() (Packet, error) {
 // Call Flush after WritePacket to flush buffered data to the underlying io.Writer.
 func (w *Writer) WritePacket(packet Packet) error {
 	err := packet.Pack(w.bufw)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// WriteRaw write raw bytes to the Writer.
+// Call Flush after WriteRaw to flush buffered data to the underlying io.Writer.
+func (w *Writer) WriteRaw(b []byte) error {
+	_, err := w.bufw.Write(b)
 	if err != nil {
 		return err
 	}
@@ -201,7 +265,7 @@ func DecodeRemainLength(length int) ([]byte, error) {
 	} else if length < 268435456 {
 		result = make([]byte, 4)
 	} else {
-		return nil, ErrInvalRemainLength
+		return nil, codes.ErrMalformed
 	}
 	var i int
 	for {
@@ -223,41 +287,90 @@ func DecodeRemainLength(length int) ([]byte, error) {
 // EncodeRemainLength 读remainLength,如果格式错误返回 error
 //
 // EncodeRemainLength reads the remain length bytes from bufio.Reader and returns length int.
-func EncodeRemainLength(r *bufio.Reader) (int, error) {
-	var i int
-	multiplier := 1
-	var value int
-	buf := make([]byte, 0, 1)
+func EncodeRemainLength(r io.ByteReader) (int, error) {
+	var vbi uint32
+	var multiplier uint32
 	for {
-		b, err := r.ReadByte()
-		if err != nil {
+		digit, err := r.ReadByte()
+		if err != nil && err != io.EOF {
 			return 0, err
 		}
-		buf = append(buf, b)
-		value += int(buf[i]&byte(127)) * multiplier
-		multiplier *= 128
-		if multiplier > 128*128*128*128 {
-			return 0, ErrInvalRemainLength
+		vbi |= uint32(digit&127) << multiplier
+		if (digit & 128) == 0 {
+			break
 		}
-		if buf[i]&128 != 0 { //高位不等于零还有下一个字节
-			i++
-		} else { //否则返回value
-			return value, nil
-		}
+		multiplier += 7
 	}
+	return int(vbi), nil
 }
 
 // EncodeUTF8String encodes the bytes into UTF-8 encoded strings, returns the encoded bytes, bytes size and error.
 func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	buflen := len(buf)
 	if buflen > 65535 {
-		return nil, 0, ErrInvalUTF8String
+		return nil, 0, codes.ErrMalformed
 	}
 	//length := int(binary.BigEndian.Uint16(buf[0:2]))
 	bufw := make([]byte, 2, 2+buflen)
 	binary.BigEndian.PutUint16(bufw, uint16(buflen))
 	bufw = append(bufw, buf...)
 	return bufw, 2 + buflen, nil
+}
+
+func readUint16(r *bytes.Buffer) (uint16, error) {
+	if r.Len() < 2 {
+		return 0, codes.ErrMalformed
+	}
+	return binary.BigEndian.Uint16(r.Next(2)), nil
+}
+
+func writeUint16(w *bytes.Buffer, i uint16) {
+	w.WriteByte(byte(i >> 8))
+	w.WriteByte(byte(i))
+}
+func writeUint32(w *bytes.Buffer, i uint32) {
+	w.WriteByte(byte(i >> 24))
+	w.WriteByte(byte(i >> 16))
+	w.WriteByte(byte(i >> 8))
+	w.WriteByte(byte(i))
+}
+
+func readUint32(r *bytes.Buffer) (uint32, error) {
+	if r.Len() < 4 {
+		return 0, codes.ErrMalformed
+	}
+	return binary.BigEndian.Uint32(r.Next(4)), nil
+}
+
+func readBinary(r *bytes.Buffer) (b []byte, err error) {
+	return readUTF8String(false, r)
+}
+
+func readUTF8String(mustUTF8 bool, r *bytes.Buffer) (b []byte, err error) {
+	if r.Len() < 2 {
+		return nil, codes.ErrMalformed
+	}
+	length := int(binary.BigEndian.Uint16(r.Next(2)))
+	if r.Len() < length {
+		return nil, codes.ErrMalformed
+	}
+	payload := r.Next(length)
+	if mustUTF8 {
+		if !ValidUTF8(payload) {
+			return nil, codes.ErrMalformed
+		}
+	}
+	return payload, nil
+}
+
+// the length of s cannot be greater than 65535
+func writeUTF8String(w *bytes.Buffer, s []byte) {
+	writeUint16(w, uint16(len(s)))
+	w.Write(s)
+}
+func writeBinary(w *bytes.Buffer, b []byte) {
+	writeUint16(w, uint16(len(b)))
+	w.Write(b)
 }
 
 // DecodeUTF8String decodes the  UTF-8 encoded strings into bytes, returns the decoded bytes, bytes size and error.
@@ -279,38 +392,40 @@ func DecodeUTF8String(buf []byte) (b []byte, size int, err error) {
 }
 
 // NewPacket returns a packet representing the decoded MQTT packet and an error.
-func NewPacket(fh *FixHeader, r io.Reader) (Packet, error) {
+func NewPacket(fh *FixHeader, version Version, r io.Reader) (Packet, error) {
 	switch fh.PacketType {
 	case CONNECT:
-		return NewConnectPacket(fh, r)
+		return NewConnectPacket(fh, version, r)
 	case CONNACK:
-		return NewConnackPacket(fh, r)
+		return NewConnackPacket(fh, version, r)
 	case PUBLISH:
-		return NewPublishPacket(fh, r)
+		return NewPublishPacket(fh, version, r)
 	case PUBACK:
-		return NewPubackPacket(fh, r)
+		return NewPubackPacket(fh, version, r)
 	case PUBREC:
-		return NewPubrecPacket(fh, r)
+		return NewPubrecPacket(fh, version, r)
 	case PUBREL:
 		return NewPubrelPacket(fh, r)
 	case PUBCOMP:
-		return NewPubcompPacket(fh, r)
+		return NewPubcompPacket(fh, version, r)
 	case SUBSCRIBE:
-		return NewSubscribePacket(fh, r)
+		return NewSubscribePacket(fh, version, r)
 	case SUBACK:
-		return NewSubackPacket(fh, r)
+		return NewSubackPacket(fh, version, r)
 	case UNSUBSCRIBE:
-		return NewUnsubscribePacket(fh, r)
+		return NewUnsubscribePacket(fh, version, r)
 	case PINGREQ:
 		return NewPingreqPacket(fh, r)
 	case DISCONNECT:
-		return NewDisConnectPackets(fh, r)
+		return NewDisConnectPackets(fh, version, r)
 	case UNSUBACK:
-		return NewUnsubackPacket(fh, r)
+		return NewUnsubackPacket(fh, version, r)
 	case PINGRESP:
 		return NewPingrespPacket(fh, r)
+	case AUTH:
+		return NewAuthPacket(fh, r)
 	default:
-		return nil, ErrInvalPacketType
+		return nil, codes.ErrProtocol
 
 	}
 }
@@ -343,16 +458,11 @@ func ValidUTF8(p []byte) bool {
 	}
 }
 
-// ValidTopicName 验证主题名是否合法  [MQTT-4.7.1-1]
-//
-// ValidTopicName returns whether the bytes is a valid topic name.[MQTT-4.7.1-1].
-func ValidTopicName(p []byte) bool {
-	if len(p) == 0 {
-		return false
-	}
-	for {
+// ValidTopicName returns whether the bytes is a valid non-shared topic filter.[MQTT-4.7.1-1].
+func ValidTopicName(mustUTF8 bool, p []byte) bool {
+	for len(p) > 0 {
 		ru, size := utf8.DecodeRune(p)
-		if !utf8.ValidRune(ru) {
+		if mustUTF8 && ru == utf8.RuneError {
 			return false
 		}
 		if size == 1 {
@@ -361,49 +471,83 @@ func ValidTopicName(p []byte) bool {
 				return false
 			}
 		}
-		if size == 0 {
-			return true
-		}
 		p = p[size:]
 	}
+	return true
+}
+
+// ValidV5Topic returns whether the given bytes is a valid MQTT V5 topic
+func ValidV5Topic(p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	if bytes.HasPrefix(p, []byte("$share/")) {
+		if len(p) < 9 {
+			return false
+		}
+		if p[7] != '/' {
+			subp := p[7:]
+			for len(subp) > 0 {
+				ru, size := utf8.DecodeRune(subp)
+				if ru == utf8.RuneError {
+					return false
+				}
+				if size == 1 {
+					if subp[0] == '/' {
+						return ValidTopicFilter(true, subp[1:])
+					}
+					if subp[0] == byte('+') || subp[0] == byte('#') {
+						return false
+					}
+				}
+				subp = subp[size:]
+			}
+
+		}
+		return false
+	}
+	return ValidTopicFilter(true, p)
 }
 
 // ValidTopicFilter 验证主题过滤器是否合法
 //
 // ValidTopicFilter  returns whether the bytes is a valid topic filter. [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
-func ValidTopicFilter(p []byte) bool {
+// ValidTopicFilter 验证主题过滤器是否合法
+//
+// ValidTopicFilter  returns whether the bytes is a valid topic filter. [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
+func ValidTopicFilter(mustUTF8 bool, p []byte) bool {
 	if len(p) == 0 {
 		return false
 	}
 	var prevByte byte //前一个字节
 	var isSetPrevByte bool
-	for {
+
+	for len(p) > 0 {
 		ru, size := utf8.DecodeRune(p)
-		if !utf8.ValidRune(ru) {
+		if mustUTF8 && ru == utf8.RuneError {
+			return false
+		}
+		plen := len(p)
+		if p[0] == byte('#') && plen != 1 { // #一定是最后一个字符
 			return false
 		}
 		if size == 1 && isSetPrevByte {
 			// + 前（如果有前后字节）,一定是'/' [MQTT-4.7.1-2]  [MQTT-4.7.1-3]
-			plen := len(p)
 			if (p[0] == byte('+') || p[0] == byte('#')) && prevByte != byte('/') {
 				return false
 			}
-			if p[0] == byte('#') && plen != 1 { // #一定是最后一个字符
-				return false
-			}
+
 			if plen > 1 { // p[0] 不是最后一个字节
 				if p[0] == byte('+') && p[1] != byte('/') { // + 后（如果有字节）,一定是 '/'
 					return false
 				}
 			}
 		}
-		if size == 0 {
-			return true
-		}
 		prevByte = p[0]
 		isSetPrevByte = true
 		p = p[size:]
 	}
+	return true
 }
 
 // TopicMatch 返回topic和topic filter是否
@@ -481,9 +625,11 @@ func TopicMatch(topic []byte, topicFilter []byte) bool {
 }
 
 // TotalBytes returns how many bytes of the packet
-func TotalBytes(p Packet) uint {
+func TotalBytes(p Packet) uint32 {
 	var header *FixHeader
 	switch pt := p.(type) {
+	case *Auth:
+		header = pt.FixHeader
 	case *Connect:
 		header = pt.FixHeader
 	case *Connack:
@@ -516,7 +662,7 @@ func TotalBytes(p Packet) uint {
 	if header == nil {
 		return 0
 	}
-	var headerLength uint
+	var headerLength uint32
 	if header.RemainLength <= 127 {
 		headerLength = 2
 	} else if header.RemainLength <= 16383 {
@@ -526,6 +672,6 @@ func TotalBytes(p Packet) uint {
 	} else if header.RemainLength <= 268435455 {
 		headerLength = 5
 	}
-	return headerLength + uint(header.RemainLength)
+	return headerLength + uint32(header.RemainLength)
 
 }

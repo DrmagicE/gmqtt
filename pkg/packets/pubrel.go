@@ -1,21 +1,24 @@
 package packets
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Pubrel represents the MQTT Pubrel  packet
 type Pubrel struct {
 	FixHeader *FixHeader
 	PacketID  PacketID
-
-	//Dup bool //是否重发标记，不属于协议包内容
+	// V5
+	Code       codes.Code
+	Properties *Properties
 }
 
 func (p *Pubrel) String() string {
-	return fmt.Sprintf("Pubrel, Pid: %v", p.PacketID)
+	return fmt.Sprintf("Pubrel, Code: %v, Pid: %v, Properties: %s", p.Code, p.PacketID, p.Properties)
 }
 
 // NewPubrelPacket returns a Pubrel instance by the given FixHeader and io.Reader.
@@ -30,31 +33,51 @@ func NewPubrelPacket(fh *FixHeader, r io.Reader) (*Pubrel, error) {
 
 // NewPubcomp returns the Pubcomp struct related to the Pubrel struct in QoS 2.
 func (p *Pubrel) NewPubcomp() *Pubcomp {
-	pub := &Pubcomp{FixHeader: &FixHeader{PacketType: PUBCOMP, Flags: RESERVED, RemainLength: 2}}
+	pub := &Pubcomp{FixHeader: &FixHeader{PacketType: PUBCOMP, Flags: FlagReserved, RemainLength: 2}}
 	pub.PacketID = p.PacketID
 	return pub
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubrel) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: PUBREL, Flags: FLAG_PUBREL, RemainLength: 2}
-	p.FixHeader.Pack(w)
-	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketID)
-	_, err := w.Write(pid)
+	p.FixHeader = &FixHeader{PacketType: PUBREL, Flags: FlagPubrel}
+	bufw := &bytes.Buffer{}
+	writeUint16(bufw, p.PacketID)
+	if p.Code != codes.Success || p.Properties != nil {
+		bufw.WriteByte(p.Code)
+		p.Properties.Pack(bufw, PUBREL)
+	}
+	p.FixHeader.RemainLength = bufw.Len()
+	err := p.FixHeader.Pack(w)
+	if err != nil {
+		return err
+	}
+	_, err = bufw.WriteTo(w)
 	return err
 }
 
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pubrel) Unpack(r io.Reader) error {
-	if p.FixHeader.RemainLength != 2 {
-		return ErrInvalRemainLength
-	}
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err := io.ReadFull(r, restBuffer)
 	if err != nil {
+		return codes.ErrMalformed
+	}
+	bufr := bytes.NewBuffer(restBuffer)
+	p.PacketID, err = readUint16(bufr)
+	if err != nil {
 		return err
 	}
-	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
-	return nil
+	if p.FixHeader.RemainLength == 2 {
+		p.Code = codes.Success
+		return nil
+	}
+	p.Properties = &Properties{}
+	if p.Code, err = bufr.ReadByte(); err != nil {
+		return err
+	}
+	if !ValidateCode(PUBREL, p.Code) {
+		return codes.ErrProtocol
+	}
+	return p.Properties.Unpack(bufr, PUBREL)
 }

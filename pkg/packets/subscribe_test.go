@@ -2,196 +2,128 @@ package packets
 
 import (
 	"bytes"
-	"io"
+	"encoding/binary"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func subscribe3TopicsBuffer() *bytes.Buffer {
-	return bytes.NewBuffer([]byte{0x82, 29, //FIxHeader
-		0, 10, //pid 10
-		0, 5, 97, 47, 98, 47, 99, //Topic Filter :"a/b/c"
-		0,                            //qos = 0
-		0, 6, 97, 47, 98, 47, 99, 99, //Topic Filter："a/b/cc"
-		1,                                //qos = 1
-		0, 7, 97, 47, 98, 47, 99, 99, 99, //Topic Filter："a/b/ccc"
-		2, //qos = 2
-	})
-}
-
-func subscribeOneTopicBuffer() *bytes.Buffer {
-	return bytes.NewBuffer([]byte{0x82, 10, //FIxHeader
-		0, 10, //pid 10
-		0, 5, 97, 47, 98, 47, 99, //Topic Filter :"a/b/c"
-		1, //qos = 1
-	})
-}
-
-func TestReadSubscribePacketWithOneTopic(t *testing.T) {
-	subscribeBytes := subscribeOneTopicBuffer()
-	packet, err := NewReader(subscribeBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err.Error())
+func TestReadWriteSubscribe_V5(t *testing.T) {
+	a := assert.New(t)
+	firstByte := byte(0x82)
+	pid := []byte{0, 10}
+	properties := []byte{
+		2,
+		0x0b, 1,
 	}
-	if p, ok := packet.(*Subscribe); ok {
-		if p.PacketID != 10 {
-			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
-		}
-		if len(p.Topics) != 1 {
-			t.Fatalf("len error,want %d, got %d", 1, len(p.Topics))
-		}
-		if p.Topics[0].Name != "a/b/c" {
-			t.Fatalf("p.Topics[0].Name error,want %s, got %s", "a/b/c", p.Topics[0].Name)
-		}
+	topicFilter1 := []byte("/topic/A")
+	topicFilter1Bytes, _, _ := EncodeUTF8String(topicFilter1)
+	option1 := []byte{0x1d} // retain Handling = 1, rap = 1, nl = 1, qos = 1
+	topicFilter2 := []byte("/topic/B")
+	topicFilter2Bytes, _, _ := EncodeUTF8String(topicFilter2)
+	option2 := []byte{0x06} // retain Handling = 0, rap = 0, nl = 1, qos = 2
 
-		if p.Topics[0].Qos != 1 {
-			t.Fatalf("p.Topics[0].Qos error,want %d, got %d", 0, p.Topics[0].Qos)
-		}
+	pb := appendPacket(firstByte, pid, properties, topicFilter1Bytes, option1, topicFilter2Bytes, option2)
 
-	} else {
-		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
-	}
-}
+	subBytes := bytes.NewBuffer(pb)
 
-func TestReadSubscribePacketWith3Topics(t *testing.T) {
-	subscribeBytes := subscribe3TopicsBuffer()
-	packet, err := NewReader(subscribeBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err.Error())
-	}
-	if p, ok := packet.(*Subscribe); ok {
-		if p.PacketID != 10 {
-			t.Fatalf("PacketID error,want %d, got %d", 10, p.PacketID)
-		}
-		if len(p.Topics) != 3 {
-			t.Fatalf("len error,want %d, got %d", 3, len(p.Topics))
-		}
-		if p.Topics[0].Name != "a/b/c" {
-			t.Fatalf("p.Topics[0].Name error,want %s, got %s", "a/b/c", p.Topics[0].Name)
-		}
-		if p.Topics[1].Name != "a/b/cc" {
-			t.Fatalf("p.Topics[1].Name error,want %s, got %s", "a/b/cc", p.Topics[1].Name)
-		}
-		if p.Topics[2].Name != "a/b/ccc" {
-			t.Fatalf("p.Topics[2].Name error,want %s, got %s", "a/b/ccc", p.Topics[2].Name)
-		}
-
-		if p.Topics[0].Qos != 0 {
-			t.Fatalf("p.Topics[0].Qos error,want %d, got %d", 0, p.Topics[0].Qos)
-		}
-		if p.Topics[1].Qos != 1 {
-			t.Fatalf("p.Topics[1].Qos error,want %d, got %d", 1, p.Topics[1].Qos)
-		}
-		if p.Topics[2].Qos != 2 {
-			t.Fatalf("p.Topics[2].Qos error,want %d, got %d", 2, p.Topics[2].Qos)
-		}
-
-	} else {
-		t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
-	}
-}
-
-func TestSubscribe_NewSubBackWithOneTopic(t *testing.T) {
-	subscribeBytes := subscribeOneTopicBuffer()
-	packet, err := NewReader(subscribeBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err.Error())
-	}
-	p := packet.(*Subscribe)
-	suback := p.NewSubBack()
-
-	if suback.FixHeader.PacketType != SUBACK {
-		t.Fatalf("FixHeader.PacketType error,want %d, got %d", SUBACK, suback.FixHeader.PacketType)
-	}
-
-	if suback.FixHeader.RemainLength != 3 {
-		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 3, suback.FixHeader.RemainLength)
-	}
-	if suback.PacketID != p.PacketID {
-		t.Fatalf("PacketID error,want %d, got %d", p.PacketID, suback.PacketID)
-	}
-	if !bytes.Equal(suback.Payload, []byte{1}) {
-		t.Fatalf("Payload error,want %v, got %v", suback.Payload, []byte{1})
-	}
-}
-
-func TestSubscribe_NewSubBackWith3Topics(t *testing.T) {
-	subscribeBytes := subscribe3TopicsBuffer()
-	packet, err := NewReader(subscribeBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err.Error())
-	}
-	p := packet.(*Subscribe)
-	suback := p.NewSubBack()
-	if suback.FixHeader.PacketType != SUBACK {
-		t.Fatalf("FixHeader.PacketType error,want %d, got %d", SUBACK, suback.FixHeader.PacketType)
-	}
-
-	if suback.FixHeader.RemainLength != 5 {
-		t.Fatalf("FixHeader.RemainLength error,want %d, got %d", 5, suback.FixHeader.RemainLength)
-	}
-
-	if suback.PacketID != p.PacketID {
-		t.Fatalf("PacketID error,want %d, got %d", p.PacketID, suback.PacketID)
-	}
-	if !bytes.Equal(suback.Payload, []byte{0, 1, 2}) {
-		t.Fatalf("Payload error,want %v, got %v", suback.Payload, []byte{0, 1, 2})
-	}
-}
-
-func TestWriteSubscribePacket(t *testing.T) {
-	var tt = []struct {
-		pid    uint16
-		topics []Topic
-	}{
-		{pid: 10, topics: []Topic{
-			{Name: "T0", Qos: 0},
-			{Name: "T1", Qos: 1},
-			{Name: "T2", Qos: 2},
-		}},
-		{pid: 11, topics: []Topic{
-			{Name: "T0", Qos: 0},
-		}},
-	}
-
-	for _, v := range tt {
-		b := make([]byte, 0, 2048)
-		buf := bytes.NewBuffer(b)
-		sub := &Subscribe{
-			PacketID: v.pid,
-			Topics:   v.topics,
-		}
-		err := NewWriter(buf).WriteAndFlush(sub)
-		if err != nil {
-			t.Fatalf("unexpected error: %s, pid :%d", err.Error(), v.pid)
-		}
-
-		packet, err := NewReader(buf).ReadPacket()
-		if err != nil {
-			t.Fatalf("unexpected error: %s, pid :%d", err.Error(), v.pid)
-		}
-		n, err := buf.ReadByte()
-		if err != io.EOF {
-			t.Fatalf("ReadByte() error,want io.EOF,got %s and %v bytes", err, n)
-		}
-
+	var packet Packet
+	var err error
+	t.Run("unpack", func(t *testing.T) {
+		r := NewReader(subBytes)
+		r.SetVersion(Version5)
+		packet, err = r.ReadPacket()
+		a.Nil(err)
 		if p, ok := packet.(*Subscribe); ok {
-			if len(p.Topics) != len(sub.Topics) {
-				t.Fatalf("len(p.Topics) error,want %d, got %v", len(sub.Topics), p.Topics)
-			}
-			for k, v := range p.Topics {
-				if v != sub.Topics[k] {
-					t.Fatalf("Topics error,want %v, got %v", sub.Topics[k], v)
-				}
-			}
+			a.Equal(binary.BigEndian.Uint16(pid), p.PacketID)
+			a.EqualValues(1, p.Properties.SubscriptionIdentifier[0])
+			a.EqualValues(topicFilter1, p.Topics[0].Name)
+			a.EqualValues(1, p.Topics[0].RetainHandling)
+			a.EqualValues(true, p.Topics[0].RetainAsPublished)
+			a.EqualValues(true, p.Topics[0].NoLocal)
+			a.EqualValues(1, p.Topics[0].Qos)
 
-			if p.PacketID != sub.PacketID {
-				t.Fatalf("PacketID error,want %v, got %v", sub.PacketID, p.PacketID)
-			}
+			a.EqualValues(0, p.Topics[1].RetainHandling)
+			a.EqualValues(false, p.Topics[1].RetainAsPublished)
+			a.EqualValues(true, p.Topics[1].NoLocal)
+			a.EqualValues(2, p.Topics[1].Qos)
+
+			a.Len(p.Topics, 2)
 
 		} else {
-			t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Publish{}), reflect.TypeOf(packet))
+			t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
 		}
+	})
+
+	t.Run("pack", func(t *testing.T) {
+		bufw := &bytes.Buffer{}
+		err = packet.Pack(bufw)
+		a.Nil(err)
+		a.Equal(pb, bufw.Bytes())
+	})
+
+}
+
+func TestSubscribeNoTopics_V5(t *testing.T) {
+	a := assert.New(t)
+	firstByte := byte(0x82)
+	pid := []byte{0, 10}
+	properties := []byte{
+		2,
+		0x0b, 1,
 	}
+
+	pb := appendPacket(firstByte, pid, properties)
+
+	subBytes := bytes.NewBuffer(pb)
+
+	r := NewReader(subBytes)
+	r.SetVersion(Version5)
+	packet, err := r.ReadPacket()
+	a.Nil(packet)
+	a.NotNil(err)
+}
+
+func TestReadWriteSubscribe_V311(t *testing.T) {
+	a := assert.New(t)
+	firstByte := byte(0x82)
+	pid := []byte{0, 10}
+	topicFilter1 := []byte("/topic/A")
+	topicFilter1Bytes, _, _ := EncodeUTF8String(topicFilter1)
+	qos1 := []byte{0x01}
+	topicFilter2 := []byte("/topic/B")
+	topicFilter2Bytes, _, _ := EncodeUTF8String(topicFilter2)
+	qos2 := []byte{0x02}
+
+	pb := appendPacket(firstByte, pid, topicFilter1Bytes, qos1, topicFilter2Bytes, qos2)
+
+	subBytes := bytes.NewBuffer(pb)
+
+	var packet Packet
+	var err error
+	t.Run("unpack", func(t *testing.T) {
+		r := NewReader(subBytes)
+		r.SetVersion(Version311)
+		packet, err = r.ReadPacket()
+		a.Nil(err)
+		if p, ok := packet.(*Subscribe); ok {
+			a.Equal(binary.BigEndian.Uint16(pid), p.PacketID)
+			a.EqualValues(topicFilter1, p.Topics[0].Name)
+			a.EqualValues(1, p.Topics[0].Qos)
+			a.EqualValues(2, p.Topics[1].Qos)
+			a.Len(p.Topics, 2)
+
+		} else {
+			t.Fatalf("Packet Type error,want %v,got %v", reflect.TypeOf(&Subscribe{}), reflect.TypeOf(packet))
+		}
+	})
+
+	t.Run("pack", func(t *testing.T) {
+		bufw := &bytes.Buffer{}
+		err = packet.Pack(bufw)
+		a.Nil(err)
+		a.Equal(pb, bufw.Bytes())
+	})
 
 }

@@ -2,66 +2,107 @@ package packets
 
 import (
 	"bytes"
-	"reflect"
 	"testing"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestWriteUnSuback(t *testing.T) {
-
-	unsubscribeBytes := unsubscribeOneTopicBuffer()
-	packet, err := NewReader(unsubscribeBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err.Error())
-	}
-	p := packet.(*Unsubscribe)
-	unsuback := p.NewUnSubBack()
-	buf := bytes.NewBuffer(make([]byte, 0, 2048))
-	err = NewWriter(buf).WriteAndFlush(unsuback)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err.Error())
-	}
-	want := []byte{0xb0, 2, 0, 10}
-	if !bytes.Equal(buf.Bytes(), want) {
-		t.Fatalf("write error,want %v, got %v", want, buf.Bytes())
-	}
-}
-
-func TestReadUnSuback(t *testing.T) {
-	unsubackPacketBytes := bytes.NewBuffer([]byte{0xb0, 2, //FixHeader
-		0,
-		10,
-	})
-	packet, err := NewReader(unsubackPacketBytes).ReadPacket()
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err.Error())
-	}
-	if up, ok := packet.(*Unsuback); ok {
-		if up.PacketID != 10 {
-			t.Fatalf("WillRetain error,want %d, got %d", 10, up.PacketID)
-		}
-	} else {
-		t.Fatalf("Packet type error,want %v,got %v", reflect.TypeOf(&Unsuback{}), reflect.TypeOf(packet))
-	}
-}
-
-func TestWriteUnSubackFixheader(t *testing.T) {
-	var tt = []struct {
-		unsuback *Unsuback
-		want     []byte
+func TestReadWriteUnsubackPacket_V5(t *testing.T) {
+	a := assert.New(t)
+	tt := []struct {
+		pid        PacketID
+		codes      []codes.Code
+		properties *Properties
+		want       []byte
 	}{
-		{unsuback: &Unsuback{PacketID: 10}, want: []byte{0xb0, 2, 0, 10}},
-		{unsuback: &Unsuback{PacketID: 266}, want: []byte{0xb0, 2, 1, 10}},
-		{unsuback: &Unsuback{PacketID: 522}, want: []byte{0xb0, 2, 2, 10}},
+		{
+			pid:        10,
+			codes:      []codes.Code{codes.Success},
+			properties: &Properties{},
+			want: []byte{0xb0, 4,
+				0, 10, // pid
+				0, // properties
+				0, //code
+			},
+		},
+		{
+			pid:   10,
+			codes: []codes.Code{codes.Success, codes.NoSubscriptionExisted},
+			properties: &Properties{
+				ReasonString: []byte("a"),
+			},
+			want: []byte{0xb0, 9,
+				0, 10, // pid
+				4, // properties
+				0x1f, 0, 1, 'a',
+				0, 0x11, //codes
+			},
+		},
 	}
 	for _, v := range tt {
-		unsuback := v.unsuback
-		buf := bytes.NewBuffer(make([]byte, 0, 2048))
-		err := NewWriter(buf).WriteAndFlush(unsuback)
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err.Error())
+
+		b := make([]byte, 0, 2048)
+		buf := bytes.NewBuffer(b)
+		pkg := &Unsuback{
+			Version:    Version5,
+			PacketID:   v.pid,
+			Properties: v.properties,
+			Payload:    v.codes,
 		}
-		if !bytes.Equal(buf.Bytes(), v.want) {
-			t.Fatalf("write error,want %v, got %v", v.want, buf.Bytes())
+		err := NewWriter(buf).WriteAndFlush(pkg)
+		a.Nil(err)
+		a.Equal(v.want, buf.Bytes())
+
+		bufr := bytes.NewBuffer(buf.Bytes())
+
+		r := NewReader(bufr)
+		r.SetVersion(Version5)
+		p, err := r.ReadPacket()
+		a.Nil(err)
+		rp := p.(*Unsuback)
+
+		a.EqualValues(v.codes, rp.Payload)
+		a.Equal(v.properties, rp.Properties)
+		a.Equal(v.pid, rp.PacketID)
+
+	}
+
+}
+
+func TestReadWriteUnsubackPacket_V311(t *testing.T) {
+	a := assert.New(t)
+	tt := []struct {
+		pid  PacketID
+		want []byte
+	}{
+		{
+			pid: 10,
+			want: []byte{0xb0, 2,
+				0, 10, // pid
+			},
+		},
+	}
+	for _, v := range tt {
+
+		b := make([]byte, 0, 2048)
+		buf := bytes.NewBuffer(b)
+		pkg := &Unsuback{
+			Version:  Version311,
+			PacketID: v.pid,
 		}
+		err := NewWriter(buf).WriteAndFlush(pkg)
+		a.Nil(err)
+		a.Equal(v.want, buf.Bytes())
+
+		bufr := bytes.NewBuffer(buf.Bytes())
+
+		r := NewReader(bufr)
+		r.SetVersion(Version311)
+		p, err := r.ReadPacket()
+		a.Nil(err)
+		rp := p.(*Unsuback)
+		a.Equal(v.pid, rp.PacketID)
+
 	}
 }

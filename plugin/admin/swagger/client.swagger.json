@@ -1,0 +1,260 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "client.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/clients": {
+      "get": {
+        "summary": "lists clients",
+        "operationId": "List",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiListClientResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "ClientService"
+        ]
+      }
+    },
+    "/v1/clients/{client_id}": {
+      "get": {
+        "summary": "Get the client for given client id.",
+        "operationId": "Get",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiGetClientResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "ClientService"
+        ]
+      },
+      "delete": {
+        "summary": "disconnect the client for given client id.",
+        "operationId": "Delete",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "clean_session",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "ClientService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "apiClient": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "keep_alive": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "remote_addr": {
+          "type": "string"
+        },
+        "local_addr": {
+          "type": "string"
+        },
+        "connected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "disconnected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "session_expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "max_inflight": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "inflight_len": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "max_queue": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "queue_len": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "subscriptions_current": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "subscriptions_total": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "packets_received_bytes": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "packets_received_nums": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "packets_send_bytes": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "packets_send_nums": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "message_dropped": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "apiGetClientResponse": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "$ref": "#/definitions/apiClient"
+        }
+      }
+    },
+    "apiListClientResponse": {
+      "type": "object",
+      "properties": {
+        "clients": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiClient"
+          }
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

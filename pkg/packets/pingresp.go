@@ -3,6 +3,8 @@ package packets
 import (
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Pingresp represents the MQTT Pingresp  packet
@@ -23,15 +25,15 @@ func (p *Pingresp) Pack(w io.Writer) error {
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pingresp) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 0 {
-		return ErrInvalRemainLength
+		return codes.ErrMalformed
 	}
 	return nil
 }
 
 // NewPingrespPacket returns a Pingresp instance by the given FixHeader and io.Reader
 func NewPingrespPacket(fh *FixHeader, r io.Reader) (*Pingresp, error) {
-	if fh.Flags != FLAG_RESERVED {
-		return nil, ErrInvalFlags
+	if fh.Flags != FlagReserved {
+		return nil, codes.ErrMalformed
 	}
 	p := &Pingresp{FixHeader: fh}
 	err := p.Unpack(r)

@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func appendPacket(firstByte byte, b ...[]byte) []byte {
+	var rs []byte
+	var l int
+	for _, v := range b {
+		l += len(v)
+	}
+	lb, _ := DecodeRemainLength(l)
+	rs = append(rs, firstByte)
+	rs = append(rs, lb...)
+	for _, v := range b {
+		rs = append(rs, v...)
+	}
+	return rs
+
+}
+func uint32P(v uint32) *uint32 {
+	return &v
+}
+func uint16P(v uint16) *uint16 {
+	return &v
+}
+func byteP(v byte) *byte {
+	return &v
+}
+
 var testDecodeUTF8String = []struct {
 	buf       []byte
 	wantBytes []byte
@@ -73,6 +98,25 @@ var topicFilterTest = []struct {
 	{input: "sport/tennis/#", want: true},
 	{input: "/1/+/#", want: true},
 	{input: "/1/+/+/1234", want: true},
+	{input: "##", want: false},
+	{input: "#/", want: false},
+}
+
+var sharedTopicFilterTest = []struct {
+	input string
+	want  bool
+}{
+	{input: "$share/sport/tennis#", want: false},
+	{input: "$share/sport/tennis/#/rank", want: false},
+	{input: "$share//1", want: false},
+	{input: "$share/+1", want: false},
+	{input: "$share/a/", want: false},
+	{input: "$share/a/+", want: true},
+	{input: "$share/a/#", want: true},
+	{input: "$share/1/+/#", want: true},
+	{input: "$share/+/1", want: false},
+	{input: "$share/#/2", want: false},
+	{input: "$share/a/b", want: true},
 }
 
 var topicNameTest = []struct {
@@ -166,7 +210,16 @@ func TestValidUTF8(t *testing.T) {
 //Subscribable Topic Filter
 func TestValidTopicFilter(t *testing.T) {
 	for _, v := range topicFilterTest {
-		if valid := ValidTopicFilter([]byte(v.input)); valid != v.want {
+		if valid := ValidTopicFilter(true, []byte(v.input)); valid != v.want {
+			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
+		}
+	}
+}
+
+//Subscribable Topic Filter
+func TestValidV5TopicFilter(t *testing.T) {
+	for _, v := range sharedTopicFilterTest {
+		if valid := ValidV5Topic([]byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicFilter(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}
@@ -174,7 +227,7 @@ func TestValidTopicFilter(t *testing.T) {
 
 func TestValidTopicName(t *testing.T) {
 	for _, v := range topicNameTest {
-		if valid := ValidTopicName([]byte(v.input)); valid != v.want {
+		if valid := ValidTopicName(true, []byte(v.input)); valid != v.want {
 			t.Fatalf("ValidTopicName(%v) error,want %t, but %t", v.input, v.want, valid)
 		}
 	}

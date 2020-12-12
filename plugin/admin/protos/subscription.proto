@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package gmqtt.admin.api;
+option go_package = ".;admin";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+enum SubFilterType {
+    SUB_FILTER_TYPE_SYS_UNSPECIFIED = 0;
+    SUB_FILTER_TYPE_SYS = 1;
+    SUB_FILTER_TYPE_SHARED = 2;
+    SUB_FILTER_TYPE_NON_SHARED = 3;
+}
+enum SubMatchType {
+    SUB_MATCH_TYPE_MATCH_UNSPECIFIED = 0;
+    SUB_MATCH_TYPE_MATCH_NAME=1;
+    SUB_MATCH_TYPE_MATCH_FILTER=2;
+}
+
+message ListSubscriptionRequest {
+    uint32 page_size = 1;
+    uint32 page = 2;
+}
+
+message ListSubscriptionResponse {
+    repeated Subscription subscriptions = 1;
+    uint32 total_count = 2;
+}
+message FilterSubscriptionRequest {
+    // If set, only filter the subscriptions that belongs to the client.
+    string client_id =1;
+    // filter_type indicates what kinds of topics are going to filter.
+    // If there are multiple types, use ',' to separate. e.g : 1,2
+    // There are 3 kinds of topic can be filtered, defined by SubFilterType:
+    // 1 = System Topic(begin with '$')
+    // 2 = Shared Topic
+    // 3 = NonShared Topic
+    string filter_type =2;
+ 	// If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subscriptions which has the same topic name with request topic_name.
+	// If 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subscriptions which match the request topic_name .
+    // match_type must be set when filter_type is not empty.
+    SubMatchType match_type =3;
+    // topic_name must be set when match_type is not zero.
+    string topic_name = 4;
+    // The maximum subscriptions can be returned.
+    int32 limit = 5;
+}
+message FilterSubscriptionResponse {
+    repeated Subscription subscriptions = 1;
+}
+
+message SubscribeRequest {
+    string client_id = 1;
+    repeated Subscription subscriptions = 2;
+}
+
+message SubscribeResponse {
+    // indicates whether it is a new subscription or the subscription is already existed.
+    repeated bool new = 1;
+}
+
+message UnsubscribeRequest {
+    string client_id = 1;
+    repeated string topics = 2;
+}
+
+message Subscription {
+    string topic_name =1;
+    uint32 id = 2;
+    uint32 qos = 3;
+    bool no_local = 4;
+    bool retain_as_published = 5;
+    uint32 retain_handling = 6;
+    string client_id = 7;
+}
+service SubscriptionService {
+    // list subscriptions.
+    rpc List (ListSubscriptionRequest) returns (ListSubscriptionResponse){
+        option (google.api.http) = {
+            get: "/v1/subscriptions"
+        };
+    }
+    // filter subscriptions, paging is not supported in this api.
+    rpc Filter(FilterSubscriptionRequest) returns (FilterSubscriptionResponse) {
+        option (google.api.http) = {
+            get: "/v1/filter_subscriptions"
+        };
+    }
+    // subscribe topics for the client.
+    rpc Subscribe (SubscribeRequest) returns (SubscribeResponse) {
+        option (google.api.http) = {
+            post: "/v1/subscribe"
+            body:"*"
+        };
+    }
+    // unsubscribe topics for the client.
+    rpc Unsubscribe (UnsubscribeRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            post: "/v1/unsubscribe"
+            body:"*"
+        };
+    }
+}

@@ -1,106 +1,158 @@
 package packets
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Subscribe represents the MQTT Subscribe  packet.
 type Subscribe struct {
-	FixHeader *FixHeader
-	PacketID  PacketID
-
-	Topics []Topic //suback响应之前填充
+	Version    Version
+	FixHeader  *FixHeader
+	PacketID   PacketID
+	Topics     []Topic //suback响应之前填充
+	Properties *Properties
 }
 
 func (p *Subscribe) String() string {
-	str := fmt.Sprintf("Subscribe, Pid: %v", p.PacketID)
-
+	str := fmt.Sprintf("Subscribe, Version: %v, Pid: %v", p.Version, p.PacketID)
 	for k, t := range p.Topics {
 		str += fmt.Sprintf(", Topic[%d][Name: %s, Qos: %v]", k, t.Name, t.Qos)
 	}
+	str += fmt.Sprintf(", Properties: %s", p.Properties)
 	return str
 }
 
-// NewSubBack returns the Suback struct which is the ack packet of the Subscribe packet.
-func (p *Subscribe) NewSubBack() *Suback {
-	fh := &FixHeader{PacketType: SUBACK, Flags: FLAG_RESERVED}
-	suback := &Suback{FixHeader: fh, Payload: make([]byte, 0, len(p.Topics))}
+// NewSuback returns the Suback struct which is the ack packet of the Subscribe packet.
+func (p *Subscribe) NewSuback() *Suback {
+	fh := &FixHeader{PacketType: SUBACK, Flags: FlagReserved}
+	suback := &Suback{FixHeader: fh, Version: p.Version, Payload: make([]byte, 0, len(p.Topics))}
 	suback.PacketID = p.PacketID
 	var qos byte
 	for _, v := range p.Topics {
 		qos = v.Qos
 		suback.Payload = append(suback.Payload, qos)
 	}
-	fh.RemainLength = 2 + len(suback.Payload)
 	return suback
 }
 
 // NewSubscribePacket returns a Subscribe instance by the given FixHeader and io.Reader.
-func NewSubscribePacket(fh *FixHeader, r io.Reader) (*Subscribe, error) {
-	p := &Subscribe{FixHeader: fh}
+func NewSubscribePacket(fh *FixHeader, version Version, r io.Reader) (*Subscribe, error) {
+	p := &Subscribe{FixHeader: fh, Version: version}
 	//判断 标志位 flags 是否合法[MQTT-3.8.1-1]
-	if fh.Flags != FLAG_SUBSCRIBE {
-		return nil, ErrInvalFlags
+	if fh.Flags != FlagSubscribe {
+		return nil, codes.ErrMalformed
 	}
 	err := p.Unpack(r)
+	if err != nil {
+		return nil, err
+	}
 	return p, err
 }
 
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Subscribe) Pack(w io.Writer) error {
-	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FLAG_SUBSCRIBE}
-	buf := make([]byte, 0, 256)
-	pid := make([]byte, 2)
-	binary.BigEndian.PutUint16(pid, p.PacketID)
-	buf = append(buf, pid...)
-	for _, t := range p.Topics {
-		topicName, _, _ := EncodeUTF8String([]byte(t.Name))
-		buf = append(buf, topicName...)
-		buf = append(buf, t.Qos)
+	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FlagSubscribe}
+	bufw := &bytes.Buffer{}
+	writeUint16(bufw, p.PacketID)
+	var nl, rap byte
+	if p.Version == Version5 {
+		p.Properties.Pack(bufw, SUBSCRIBE)
+		for _, v := range p.Topics {
+			writeUTF8String(bufw, []byte(v.Name))
+			if v.NoLocal {
+				nl = 4
+			} else {
+				nl = 0
+			}
+			if v.RetainAsPublished {
+				rap = 8
+			} else {
+				rap = 0
+			}
+			bufw.WriteByte(v.Qos | nl | rap | (v.RetainHandling << 4))
+		}
+	} else {
+		for _, t := range p.Topics {
+			writeUTF8String(bufw, []byte(t.Name))
+			bufw.WriteByte(t.Qos)
+		}
 	}
-	p.FixHeader.RemainLength = len(buf)
-	p.FixHeader.Pack(w)
-	_, err := w.Write(buf)
+	p.FixHeader.RemainLength = bufw.Len()
+	err := p.FixHeader.Pack(w)
+	if err != nil {
+		return err
+	}
+	_, err = bufw.WriteTo(w)
 	return err
 
 }
 
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Subscribe) Unpack(r io.Reader) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = ErrInvalUTF8String
-		}
-	}()
 	restBuffer := make([]byte, p.FixHeader.RemainLength)
 	_, err = io.ReadFull(r, restBuffer)
 	if err != nil {
+		return codes.ErrMalformed
+	}
+	bufr := bytes.NewBuffer(restBuffer)
+	p.PacketID, err = readUint16(bufr)
+	if err != nil {
 		return err
 	}
-	p.PacketID = binary.BigEndian.Uint16(restBuffer[0:2])
-	restBuffer = restBuffer[2:]
-
+	if p.Version == Version5 {
+		p.Properties = &Properties{}
+		if err := p.Properties.Unpack(bufr, SUBSCRIBE); err != nil {
+			return err
+		}
+	}
 	for {
-		topicName, size, err := DecodeUTF8String(restBuffer)
+		topicFilter, err := readUTF8String(true, bufr)
 		if err != nil {
 			return err
 		}
-		if !ValidTopicFilter(topicName) {
-			return ErrInvalTopicFilter
+		if p.Version == Version5 {
+			// check shared subscription syntax
+			if !ValidV5Topic(topicFilter) {
+				return codes.ErrMalformed
+			}
+		} else {
+			if !ValidTopicFilter(true, topicFilter) {
+				return codes.ErrMalformed
+			}
 		}
-		restBuffer = restBuffer[size:]
-		qos := restBuffer[0]
-		restBuffer = restBuffer[1:]
-		if qos > QOS_2 {
-			return ErrInvalQos
+		opts, err := bufr.ReadByte()
+		if err != nil {
+			return codes.ErrMalformed
 		}
-		p.Topics = append(p.Topics, Topic{Name: string(topicName), Qos: qos})
-		if len(restBuffer) == 0 {
-			break
+		topic := Topic{
+			Name: string(topicFilter),
+		}
+		if p.Version == Version5 {
+			topic.Qos = opts & 3
+			topic.NoLocal = (1 & (opts >> 2)) > 0
+			topic.RetainAsPublished = (1 & (opts >> 3)) > 0
+			topic.RetainHandling = (3 & (opts >> 4))
+		} else {
+			topic.Qos = opts
+			if topic.Qos > Qos2 {
+				return codes.ErrProtocol
+			}
+		}
+
+		// check reserved
+		if 3&(opts>>6) != 0 {
+			return codes.ErrProtocol
+		}
+		if topic.Qos > Qos2 {
+			return codes.ErrProtocol
+		}
+		p.Topics = append(p.Topics, topic)
+		if bufr.Len() == 0 {
+			return nil
 		}
 	}
-
-	return nil
 }

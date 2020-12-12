@@ -6,25 +6,29 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
+	"go.uber.org/zap"
+
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/config"
+	_ "github.com/DrmagicE/gmqtt/persistence"
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
+	_ "github.com/DrmagicE/gmqtt/topicalias/fifo"
 )
 
-var validUserMu sync.Mutex
 var validUser = map[string]string{
-	"root":          "rootpwd",
-	"qos0":          "0pwd",
-	"qos1":          "1pwd",
-	"publishonly":   "ppwd",
-	"subscribeonly": "spwd",
+	"root":           "pwd",
+	"qos0":           "pwd",
+	"qos1":           "pwd",
+	"publishonly":    "pwd",
+	"subscribeonly":  "pwd",
+	"disable_shared": "pwd",
 }
 
 func validateUser(username string, password string) bool {
-	validUserMu.Lock()
-	defer validUserMu.Unlock()
 	if pwd, ok := validUser[username]; ok {
 		if pwd == password {
 			return true
@@ -40,61 +44,106 @@ func main() {
 		log.Fatalln(err.Error())
 		return
 	}
-
 	//authentication
-	onConnect := func(ctx context.Context, client gmqtt.Client) (code uint8) {
-		username := client.OptionsReader().Username()
-		password := client.OptionsReader().Password()
+	var onBasicAuth server.OnBasicAuth = func(ctx context.Context, client server.Client, req *server.ConnectRequest) error {
+		username := string(req.Connect.Username)
+		password := string(req.Connect.Password)
 		if validateUser(username, password) {
-			return packets.CodeAccepted
+			if username == "disable_shared" {
+				req.Options.SharedSubAvailable = false
+			}
+			return nil
 		}
-		return packets.CodeBadUsernameorPsw
+		switch client.Version() {
+		case packets.Version5:
+			return codes.NewError(codes.BadUserNameOrPassword)
+		case packets.Version311:
+			return codes.NewError(codes.V3BadUsernameorPassword)
+		}
+		return nil
 	}
 
-	// acl
-	onSubscribe := func(ctx context.Context, client gmqtt.Client, topic packets.Topic) (qos uint8) {
-		if client.OptionsReader().Username() == "root" {
-			return topic.Qos
-		}
-		if client.OptionsReader().Username() == "qos0" {
-			if topic.Qos <= packets.QOS_0 {
-				return topic.Qos
+	// subscription acl
+	var onSubscribe server.OnSubscribe = func(ctx context.Context, client server.Client, req *server.SubscribeRequest) error {
+		username := client.ClientOptions().Username
+		for k := range req.Subscriptions {
+			switch username {
+			case "root":
+			case "qos0":
+				req.GrantQoS(k, packets.Qos0)
+			case "qos1":
+				req.GrantQoS(k, packets.Qos1)
+			case "publishonly":
+				req.Reject(k, &codes.Error{
+					Code: codes.NotAuthorized,
+					ErrorDetails: codes.ErrorDetails{
+						ReasonString: []byte("publish only"),
+					},
+				})
 			}
-			return packets.QOS_0
 		}
-		if client.OptionsReader().Username() == "qos1" {
-			if topic.Qos <= packets.QOS_1 {
-				return topic.Qos
-			}
-			return packets.QOS_1
-		}
-		if client.OptionsReader().Username() == "publishonly" {
-			return packets.SUBSCRIBE_FAILURE
-		}
-		return topic.Qos
+		return nil
 	}
-	onMsgArrived := func(ctx context.Context, client gmqtt.Client, msg packets.Message) (valid bool) {
-		if client.OptionsReader().Username() == "subscribeonly" {
-			client.Close()
-			return false
+
+	var onMsgArrived server.OnMsgArrived = func(ctx context.Context, client server.Client, req *server.MsgArrivedRequest) error {
+		version := client.Version()
+		if client.ClientOptions().Username == "subscribeonly" {
+			switch version {
+			case packets.Version311:
+				// For v3 client:
+				// If a Server implementation does not authorize a PUBLISH to be performed by a Client;
+				// it has no way of informing that Client. It MUST either make a positive acknowledgement,
+				// according to the normal QoS rules, or close the Network Connection [MQTT-3.3.5-2].
+				req.Drop()
+				// client.Close()
+				return nil
+
+			case packets.Version5:
+				return &codes.Error{
+					Code: codes.NotAuthorized,
+				}
+				// or you can disconnect the client
+
+				//client.Disconnect(&packets.Disconnect{
+				//	Version: packets.Version5,
+				//	Code:    codes.UnspecifiedError,
+				//})
+				//return
+			}
+
 		}
 		//Only qos1 & qos0 are acceptable(will be delivered)
-		if msg.Qos() == packets.QOS_2 {
-			return false
+		if req.Message.QoS == packets.Qos2 {
+			req.Drop()
+			return &codes.Error{
+				Code: codes.NotAuthorized,
+				ErrorDetails: codes.ErrorDetails{
+					ReasonString: []byte("not authorized"),
+					UserProperties: []struct {
+						K []byte
+						V []byte
+					}{
+						{
+							K: []byte("user property key"),
+							V: []byte("user property value"),
+						},
+					},
+				},
+			}
 		}
-		return true
+		return nil
 	}
-	onClose := func(ctx context.Context, client gmqtt.Client, err error) {
-		log.Println("client id:"+client.OptionsReader().ClientID()+"is closed with error:", err)
+	onClose := func(ctx context.Context, client server.Client, err error) {
+		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
 	}
 	onStop := func(ctx context.Context) {
 		log.Println("stop")
 	}
-	onDeliver := func(ctx context.Context, client gmqtt.Client, msg packets.Message) {
-		log.Printf("delivering message %s to client %s", msg.Payload(), client.OptionsReader().ClientID())
+	onDeliver := func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
+		log.Printf("delivering message %s to client %s", msg.Payload, client.ClientOptions().ClientID)
 	}
-	hooks := gmqtt.Hooks{
-		OnConnect:    onConnect,
+	hooks := server.Hooks{
+		OnBasicAuth:  onBasicAuth,
 		OnSubscribe:  onSubscribe,
 		OnMsgArrived: onMsgArrived,
 		OnClose:      onClose,
@@ -102,16 +151,19 @@ func main() {
 		OnDeliver:    onDeliver,
 	}
 
-	s := gmqtt.NewServer(
-		gmqtt.WithTCPListener(ln),
-		gmqtt.WithHook(hooks),
+	l, _ := zap.NewDevelopment()
+	s := server.New(
+		server.WithTCPListener(ln),
+		server.WithHook(hooks),
+		server.WithLogger(l),
+		server.WithConfig(config.DefaultConfig()),
 	)
-
-	log.Println("started...")
-	s.Run()
+	err = s.Run()
+	if err != nil {
+		panic(err)
+	}
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	s.Stop(context.Background())
-	log.Println("stopped")
 }

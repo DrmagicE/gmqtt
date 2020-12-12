@@ -3,6 +3,8 @@ package packets
 import (
 	"fmt"
 	"io"
+
+	"github.com/DrmagicE/gmqtt/pkg/codes"
 )
 
 // Pingreq represents the MQTT Pingreq  packet
@@ -16,8 +18,8 @@ func (p *Pingreq) String() string {
 
 // NewPingreqPacket returns a Pingreq instance by the given FixHeader and io.Reader
 func NewPingreqPacket(fh *FixHeader, r io.Reader) (*Pingreq, error) {
-	if fh.Flags != FLAG_RESERVED {
-		return nil, ErrInvalFlags
+	if fh.Flags != FlagReserved {
+		return nil, codes.ErrMalformed
 	}
 	p := &Pingreq{FixHeader: fh}
 	err := p.Unpack(r)
@@ -42,7 +44,7 @@ func (p *Pingreq) Pack(w io.Writer) error {
 // Unpack read the packet bytes from io.Reader and decodes it into the packet struct.
 func (p *Pingreq) Unpack(r io.Reader) error {
 	if p.FixHeader.RemainLength != 0 {
-		return ErrInvalRemainLength
+		return codes.ErrMalformed
 	}
 	return nil
 }
