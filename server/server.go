@@ -1008,8 +1008,8 @@ func (srv *server) initPluginHooks() error {
 		onUnsubscribeWrappers      []OnUnsubscribeWrapper
 		onUnsubscribedWrappers     []OnUnsubscribedWrapper
 		onMsgArrivedWrappers       []OnMsgArrivedWrapper
-		onDeliverWrappers          []OnDeliverWrapper
-		onCloseWrappers            []OnCloseWrapper
+		OnDeliveredWrappers        []OnDeliveredWrapper
+		OnClosedWrappers           []OnClosedWrapper
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
@@ -1073,11 +1073,11 @@ func (srv *server) initPluginHooks() error {
 		if hooks.OnMsgDroppedWrapper != nil {
 			onMsgDroppedWrappers = append(onMsgDroppedWrappers, hooks.OnMsgDroppedWrapper)
 		}
-		if hooks.OnDeliverWrapper != nil {
-			onDeliverWrappers = append(onDeliverWrappers, hooks.OnDeliverWrapper)
+		if hooks.OnDeliveredWrapper != nil {
+			OnDeliveredWrappers = append(OnDeliveredWrappers, hooks.OnDeliveredWrapper)
 		}
-		if hooks.OnCloseWrapper != nil {
-			onCloseWrappers = append(onCloseWrappers, hooks.OnCloseWrapper)
+		if hooks.OnClosedWrapper != nil {
+			OnClosedWrappers = append(OnClosedWrappers, hooks.OnClosedWrapper)
 		}
 		if hooks.OnStopWrapper != nil {
 			onStopWrappers = append(onStopWrappers, hooks.OnStopWrapper)
@@ -1182,19 +1182,19 @@ func (srv *server) initPluginHooks() error {
 		}
 		srv.hooks.OnMsgArrived = onMsgArrived
 	}
-	if onDeliverWrappers != nil {
-		onDeliver := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
-		for i := len(onDeliverWrappers); i > 0; i-- {
-			onDeliver = onDeliverWrappers[i-1](onDeliver)
+	if OnDeliveredWrappers != nil {
+		OnDelivered := func(ctx context.Context, client Client, msg *gmqtt.Message) {}
+		for i := len(OnDeliveredWrappers); i > 0; i-- {
+			OnDelivered = OnDeliveredWrappers[i-1](OnDelivered)
 		}
-		srv.hooks.OnDeliver = onDeliver
+		srv.hooks.OnDelivered = OnDelivered
 	}
-	if onCloseWrappers != nil {
-		onClose := func(ctx context.Context, client Client, err error) {}
-		for i := len(onCloseWrappers); i > 0; i-- {
-			onClose = onCloseWrappers[i-1](onClose)
+	if OnClosedWrappers != nil {
+		OnClosed := func(ctx context.Context, client Client, err error) {}
+		for i := len(OnClosedWrappers); i > 0; i-- {
+			OnClosed = OnClosedWrappers[i-1](OnClosed)
 		}
-		srv.hooks.OnClose = onClose
+		srv.hooks.OnClosed = OnClosed
 	}
 	if onStopWrappers != nil {
 		onStop := func(ctx context.Context) {}

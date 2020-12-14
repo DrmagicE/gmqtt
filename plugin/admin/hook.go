@@ -27,7 +27,7 @@ func (a *Admin) OnSessionTerminatedWrapper(pre server.OnSessionTerminated) serve
 	}
 }
 
-func (a *Admin) OnCloseWrapper(pre server.OnClose) server.OnClose {
+func (a *Admin) OnClosedWrapper(pre server.OnClosed) server.OnClosed {
 	return func(ctx context.Context, client server.Client, err error) {
 		pre(ctx, client, err)
 		a.store.setClientDisconnected(client.ClientOptions().ClientID)

@@ -32,7 +32,7 @@ The broker listens on 1883 for tcp server and 8883 for websocket server with `ad
 
 ```bash
 $ cd cmd/gmqttd
-$ go run . start -c default_config.yaml
+$ go run . start -c default_config.yml
 ```
 
 ## configuration
@@ -71,24 +71,26 @@ $ docker run -p 1883:1883 -p 8883:8883 -p 8082:8082 -p 8083:8083  -p 8084:8084  
 [godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
 ## Hooks
 Gmqtt implements the following hooks: 
-* OnAccept   (Only for tcp/ssl, not supporting ws/wss)
-* OnStop
-* OnSubscribe
-* OnSubscribed
-* OnUnsubscribe
-* OnUnsubscribed
-* OnMsgArrived
-* OnBasicAuth
-* OnEnhancedAuth (Only for V5 clients)
-* OnReAuth (Only for V5 clients)
-* OnConnected
-* OnSessionCreated
-* OnSessionResumed
-* OnSessionTerminated
-* OnDeliver
-* OnClose
-* OnMsgDropped
 
+| Name | hooking point | possible usages  |
+|------|------------|------------|
+| OnAccept  | When accepts a TCP connection.(Not supported in websocket)| Connection rate limit, IP allow/block list. |
+| OnStop  | When the broker exists |    |
+| OnSubscribe  | When received a subscribe packet | Subscribe access control, modifies subscriptions. |
+| OnSubscribed  | When subscribe succeed   |     |
+| OnUnsubscribe  |  When received a unsubscribe packet | Unsubscribe access controls, modifies the topics that is going to unsubscribe.|
+| OnUnsubscribed  | When unsubscribe succeed     |        |
+| OnMsgArrived  | When received a publish packet  |  Publish access control, modifies message before delivery.|
+| OnBasicAuth  | When received a connect packet without AuthMethod property | Authentication      |
+| OnEnhancedAuth  | When received a connect packet with AuthMethod property (Only for v5 clients) | Authentication      |
+| OnReAuth  | When received a auth packet (Only for v5 clients)        | Authentication      |
+| OnConnected  | When the client connected succeed|      | 
+| OnSessionCreated  | When creates a new session       |         |
+| OnSessionResumed  | When resumes from old session    |        |
+| OnSessionTerminated  | When session terminated       |        |
+| OnDelivered  | When a message is delivered to the client     |        |
+| OnClosed  | When the client is closed  |        |
+| OnMsgDropped  | When a message is dropped for some reasons|        |
 See `/examples/hook` for details.
 
 

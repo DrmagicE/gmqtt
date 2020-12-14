@@ -291,9 +291,9 @@ func (client *client) writeLoop() {
 						}
 					}
 				}
-				// onDeliver hook
-				if srv.hooks.OnDeliver != nil {
-					srv.hooks.OnDeliver(context.Background(), client, gmqtt.MessageFromPublish(p))
+				// OnDelivered hook
+				if srv.hooks.OnDelivered != nil {
+					srv.hooks.OnDelivered(context.Background(), client, gmqtt.MessageFromPublish(p))
 				}
 				srv.statsManager.messageSent(p.Qos, client.opts.ClientID)
 			case *packets.Puback, *packets.Pubcomp:
@@ -589,6 +589,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					Code:       codeErr.Code,
 					Properties: getErrorProperties(client, &codeErr.ErrorDetails),
 				}
+				fmt.Println(getErrorProperties(client, &codeErr.ErrorDetails))
 				return
 			}
 			// authentication success
@@ -716,9 +717,9 @@ func (client *client) internalClose() {
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
 
-	// onClose hooks
-	if client.server.hooks.OnClose != nil {
-		client.server.hooks.OnClose(context.Background(), client, client.err)
+	// OnClosed hooks
+	if client.server.hooks.OnClosed != nil {
+		client.server.hooks.OnClosed(context.Background(), client, client.err)
 	}
 	client.server.statsManager.clientDisconnected(client.opts.ClientID)
 }

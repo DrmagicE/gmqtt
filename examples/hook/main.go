@@ -50,30 +50,40 @@ func main() {
 		password := string(req.Connect.Password)
 		if validateUser(username, password) {
 			if username == "disable_shared" {
+				// disable shared subscription for this particular client
 				req.Options.SharedSubAvailable = false
 			}
 			return nil
 		}
+		// check the client version, return a compatible reason code.
 		switch client.Version() {
 		case packets.Version5:
 			return codes.NewError(codes.BadUserNameOrPassword)
 		case packets.Version311:
 			return codes.NewError(codes.V3BadUsernameorPassword)
 		}
+		// return nil if pass authentication.
 		return nil
 	}
 
 	// subscription acl
 	var onSubscribe server.OnSubscribe = func(ctx context.Context, client server.Client, req *server.SubscribeRequest) error {
 		username := client.ClientOptions().Username
-		for k := range req.Subscriptions {
+		// iterate all subscriptions in the Subscribe packet.
+		for k, v := range req.Subscriptions {
 			switch username {
 			case "root":
+				// if root, there are not limit on the subscription qos level.
 			case "qos0":
+				// if qos0, grants qos0 level
 				req.GrantQoS(k, packets.Qos0)
 			case "qos1":
-				req.GrantQoS(k, packets.Qos1)
+				// if qos1, grants at most qos 1 qos level.
+				if v.Sub.QoS > packets.Qos1 {
+					req.GrantQoS(k, packets.Qos1)
+				}
 			case "publishonly":
+				// reject any subscriptions for the publishonly client.
 				req.Reject(k, &codes.Error{
 					Code: codes.NotAuthorized,
 					ErrorDetails: codes.ErrorDetails{
@@ -95,6 +105,7 @@ func main() {
 				// it has no way of informing that Client. It MUST either make a positive acknowledgement,
 				// according to the normal QoS rules, or close the Network Connection [MQTT-3.3.5-2].
 				req.Drop()
+				// Or close the client.
 				// client.Close()
 				return nil
 
@@ -102,17 +113,16 @@ func main() {
 				return &codes.Error{
 					Code: codes.NotAuthorized,
 				}
-				// or you can disconnect the client
-
+				// Or close the client. For V5 clients, it is recommended to use Disconnect() to send a disconnect packet to client, which is a good feature introduced by V5.
+				//req.Drop()
 				//client.Disconnect(&packets.Disconnect{
 				//	Version: packets.Version5,
 				//	Code:    codes.UnspecifiedError,
 				//})
 				//return
 			}
-
 		}
-		//Only qos1 & qos0 are acceptable(will be delivered)
+
 		if req.Message.QoS == packets.Qos2 {
 			req.Drop()
 			return &codes.Error{
@@ -133,22 +143,22 @@ func main() {
 		}
 		return nil
 	}
-	onClose := func(ctx context.Context, client server.Client, err error) {
+	OnClosed := func(ctx context.Context, client server.Client, err error) {
 		log.Println("client id:"+client.ClientOptions().ClientID+"is closed with error:", err)
 	}
 	onStop := func(ctx context.Context) {
 		log.Println("stop")
 	}
-	onDeliver := func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
+	OnDelivered := func(ctx context.Context, client server.Client, msg *gmqtt.Message) {
 		log.Printf("delivering message %s to client %s", msg.Payload, client.ClientOptions().ClientID)
 	}
 	hooks := server.Hooks{
 		OnBasicAuth:  onBasicAuth,
 		OnSubscribe:  onSubscribe,
 		OnMsgArrived: onMsgArrived,
-		OnClose:      onClose,
+		OnClosed:     OnClosed,
 		OnStop:       onStop,
-		OnDeliver:    onDeliver,
+		OnDelivered:  OnDelivered,
 	}
 
 	l, _ := zap.NewDevelopment()

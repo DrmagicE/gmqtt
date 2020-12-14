@@ -155,6 +155,7 @@ func (a *Admin) registerHTTP() (err error) {
 	}()
 	return nil
 }
+
 func (a *Admin) Load(service server.Server) (err error) {
 	log = server.LoggerWithField(zap.String("plugin", "admin"))
 	s := grpc.NewServer(
@@ -200,7 +201,7 @@ func (a *Admin) HookWrapper() server.HookWrapper {
 	return server.HookWrapper{
 		OnSessionCreatedWrapper:    a.OnSessionCreatedWrapper,
 		OnSessionResumedWrapper:    a.OnSessionResumeWrapper,
-		OnCloseWrapper:             a.OnCloseWrapper,
+		OnClosedWrapper:            a.OnClosedWrapper,
 		OnSessionTerminatedWrapper: a.OnSessionTerminatedWrapper,
 		OnSubscribedWrapper:        a.OnSubscribedWrapper,
 		OnUnsubscribedWrapper:      a.OnUnsubscribedWrapper,

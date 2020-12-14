@@ -23,8 +23,8 @@ Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的M
 
 下列命令会使用默认配置启动Gmqtt服务，该服务使用1883端口[tcp]和8883端口[websocket]端口提供MQTT broker服务，并加载admin和prometheus插件。
 ```bash
-$ cd cmd/Gmqttd
-$ go run . start -c default_config.yaml
+$ cd cmd/gmqttd
+$ go run . start -c default_config.yml
 ```
 
 ## 配置
@@ -60,24 +60,27 @@ $ docker run -p 1883:1883 -p 8883:8883 -p 8082:8082 -p 8083:8083  -p 8084:8084  
 # 文档说明
 [godoc](https://www.godoc.org/github.com/DrmagicE/gmqtt)
 ## 钩子方法
-Gmqtt实现了下列钩子方法
-* OnAccept  (仅支持在tcp/ssl下,websocket不支持)
-* OnStop
-* OnSubscribe
-* OnSubscribed
-* OnUnsubscribe
-* OnUnsubscribed
-* OnMsgArrived
-* OnBasicAuth
-* OnEnhancedAuth (只对V5客户端生效)
-* OnReAuth (只对V5客户端生效)
-* OnConnected
-* OnSessionCreated
-* OnSessionResumed
-* OnSessionTerminated
-* OnDeliver
-* OnClose
-* OnMsgDropped
+Gmqtt实现了下列钩子方法。
+
+| hook | 说明 | 用途示例 |
+|------|------------|------------|
+| OnAccept  | TCP连接建立时调用|  TCP连接限速，黑白名单等.      |
+| OnStop  | Broker退出时调用 |    |
+| OnSubscribe  | 收到订阅请求时调用| 校验订阅是否合法    |
+| OnSubscribed  | 订阅成功后调用   |   统计订阅报文数量   |
+| OnUnsubscribe  | 取消订阅时调用       | 校验是否允许取消订阅       |
+| OnUnsubscribed  | 取消订阅成功后调用   |   统计订阅报文数     |
+| OnMsgArrived  | 收到消息发布报文时调用       |  校验发布权限，改写发布消息       |
+| OnBasicAuth  | 收到连接请求报文时调用       | 客户端连接鉴权       |
+| OnEnhancedAuth  | 收到带有AuthMetho的连接请求报文时调用（V5特性）| 客户端连接鉴权      |
+| OnReAuth  | 收到Auth报文时调用（V5特性）        | 客户端连接鉴权      |
+| OnConnected  | 客户端连接成功后调用|    统计在线客户端数量    | 
+| OnSessionCreated  | 客户端创建新session后调用       |  统计session数量       |
+| OnSessionResumed  | 客户端从旧session恢复后调用       | 统计session数量       |
+| OnSessionTerminated  | session删除后调用       | 统计session数量       |
+| OnDelivered  | 消息从broker投递到客户端后调用       |        |
+| OnClosed  | 客户端断开连接后调用       |   统计在线客户端数量      |
+| OnMsgDropped  | 消息被丢弃时调用 |        |
 
 在 `/examples/hook` 中有常用钩子的使用方法介绍。
 

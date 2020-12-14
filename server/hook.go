@@ -23,8 +23,8 @@ type Hooks struct {
 	OnSessionCreated
 	OnSessionResumed
 	OnSessionTerminated
-	OnDeliver
-	OnClose
+	OnDelivered
+	OnClosed
 	OnMsgDropped
 }
 
@@ -152,10 +152,10 @@ func (m *MsgArrivedRequest) Drop() {
 
 type OnMsgArrivedWrapper func(OnMsgArrived) OnMsgArrived
 
-// OnClose will be called after the tcp connection of the client has been closed
-type OnClose func(ctx context.Context, client Client, err error)
+// OnClosed will be called after the tcp connection of the client has been closed
+type OnClosed func(ctx context.Context, client Client, err error)
 
-type OnCloseWrapper func(OnClose) OnClose
+type OnClosedWrapper func(OnClosed) OnClosed
 
 type AuthOptions struct {
 	SessionExpiry        uint32
@@ -248,10 +248,10 @@ type OnSessionTerminated func(ctx context.Context, clientID string, reason Sessi
 
 type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 
-//  OnDeliver will be called when publishing a message to a client.
-type OnDeliver func(ctx context.Context, client Client, msg *gmqtt.Message)
+//  OnDelivered will be called when publishing a message to a client.
+type OnDelivered func(ctx context.Context, client Client, msg *gmqtt.Message)
 
-type OnDeliverWrapper func(OnDeliver) OnDeliver
+type OnDeliveredWrapper func(OnDelivered) OnDelivered
 
 // OnMsgDropped will be called after the Msg dropped.
 // The err indicates the reason of dropping.

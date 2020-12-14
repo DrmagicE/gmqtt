@@ -3,6 +3,8 @@ module github.com/DrmagicE/gmqtt
 go 1.14
 
 require (
+	github.com/eclipse/paho.golang v0.9.0 // indirect
+	github.com/eclipse/paho.mqtt.golang v1.3.0 // indirect
 	github.com/gin-gonic/gin v1.5.0
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/golang/mock v1.2.0
