@@ -91,6 +91,8 @@ Gmqtt implements the following hooks:
 | OnDelivered  | When a message is delivered to the client     |        |
 | OnClosed  | When the client is closed  |        |
 | OnMsgDropped  | When a message is dropped for some reasons|        |
+
+
 See `/examples/hook` for details.
 
 
