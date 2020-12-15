@@ -589,7 +589,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					Code:       codeErr.Code,
 					Properties: getErrorProperties(client, &codeErr.ErrorDetails),
 				}
-				fmt.Println(getErrorProperties(client, &codeErr.ErrorDetails))
 				return
 			}
 			// authentication success

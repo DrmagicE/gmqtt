@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"io/ioutil"
+	"os"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -22,23 +24,27 @@ type Configuration interface {
 	yaml.Unmarshaler
 }
 
-// RegisterDefaultPluginConfig registers the default configuration for the given plugin name.
+// RegisterDefaultPluginConfig registers the default configuration for the given plugin.
 func RegisterDefaultPluginConfig(name string, config Configuration) {
+	if _, ok := defaultPluginConfig[name]; ok {
+		panic(fmt.Sprintf("duplicated default config for %s plugin", name))
+	}
 	defaultPluginConfig[name] = config
+
 }
 
 // DefaultConfig return the default configuration.
 // If config file is not provided, gmqttd will start with DefaultConfig.
-// Command-line flags will override the configuration.
 func DefaultConfig() Config {
 	c := Config{
 		Listeners: DefaultListeners,
 		MQTT:      DefaultMQTTConfig,
 		Log: LogConfig{
-			Level: "info",
+			Level:  "info",
+			Format: "text",
 		},
 		PidFile:           getDefaultPidFile(),
-		Plugins:           make(PluginConfig),
+		Plugins:           make(pluginConfig),
 		Persistence:       DefaultPersistenceConfig,
 		TopicAliasManager: DefaultTopicAliasManager,
 	}
@@ -65,12 +71,27 @@ var DefaultListeners = []*ListenerConfig{
 
 // LogConfig is use to configure the log behaviors.
 type LogConfig struct {
+	// Level is the log level. Possible values: debug, info, warn, error
 	Level string
+	// Format is the log format. Possible values: json, text
+	Format string
 }
 
-type PluginConfig map[string]Configuration
+func (l LogConfig) Validate() error {
+	if l.Level != "debug" && l.Level != "info" && l.Level != "warn" && l.Level != "error" {
+		return fmt.Errorf("invalid log level: %s", l.Level)
+	}
+	if l.Format != "json" && l.Format != "text" {
+		return fmt.Errorf("invalid log format: %s", l.Format)
+	}
+	return nil
+}
 
-func (p PluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+// pluginConfig stores the plugin default configuration, key by the plugin name.
+// If the plugin has default configuration, it should call RegisterDefaultPluginConfig in it's init function to register.
+type pluginConfig map[string]Configuration
+
+func (p pluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	for _, v := range p {
 		err := unmarshal(v)
 		if err != nil {
@@ -86,7 +107,7 @@ type Config struct {
 	MQTT              MQTT              `yaml:"mqtt,omitempty"`
 	Log               LogConfig         `yaml:"log"`
 	PidFile           string            `yaml:"pid_file"`
-	Plugins           PluginConfig      `yaml:"plugins"`
+	Plugins           pluginConfig      `yaml:"plugins"`
 	Persistence       Persistence       `yaml:"persistence"`
 	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
 }
@@ -116,7 +137,7 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		raw.MQTT = DefaultMQTTConfig
 	}
 	if len(raw.Plugins) == 0 {
-		raw.Plugins = make(PluginConfig)
+		raw.Plugins = make(pluginConfig)
 		for name, v := range defaultPluginConfig {
 			raw.Plugins[name] = v
 		}
@@ -140,6 +161,7 @@ func (c Config) Validate() error {
 	if err != nil {
 		return err
 	}
+
 	for _, conf := range c.Plugins {
 		err := conf.Validate()
 		if err != nil {
@@ -175,9 +197,14 @@ func (c Config) GetLogger(config LogConfig) (l *zap.Logger, err error) {
 	if err != nil {
 		return
 	}
+	var core zapcore.Core
+	if config.Format == "json" {
+		core = zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), os.Stdout, logLevel)
+	}
+	if config.Format == "text" {
+		core = zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), os.Stdout, logLevel)
+	}
 
-	lc := zap.NewDevelopmentConfig()
-	lc.Level = zap.NewAtomicLevelAt(logLevel)
-	l, err = lc.Build()
-	return l, nil
+	zaplog := zap.New(core, zap.AddStacktrace(zap.ErrorLevel), zap.AddCaller())
+	return zaplog, nil
 }

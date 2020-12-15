@@ -64,6 +64,7 @@ plugins:
       addr: 8084
 log:
   level: info # debug | info | warn | error
+  format: text # json | text
 
 
 

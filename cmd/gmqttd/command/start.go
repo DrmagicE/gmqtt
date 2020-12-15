@@ -127,18 +127,11 @@ func NewStartCmd() *cobra.Command {
 			if useDefault {
 				l.Warn("config file not exist, use default configration")
 			}
-			hook := server.Hooks{
-				OnBasicAuth: func(ctx context.Context, client server.Client, req *server.ConnectRequest) (err error) {
-					fmt.Println(req.Options.SessionExpiry)
-					return nil
-				},
-			}
 			s := server.New(
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
 				server.WithWebsocketServer(websockets...),
 				server.WithLogger(l),
-				server.WithHook(hook),
 			)
 			err = s.Init()
 			if err != nil {
