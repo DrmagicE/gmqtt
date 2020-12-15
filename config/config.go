@@ -152,8 +152,12 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func (c Config) Validate() error {
-	err := c.MQTT.Validate()
+func (c Config) Validate() (err error) {
+	err = c.Log.Validate()
+	if err != nil {
+		return err
+	}
+	err = c.MQTT.Validate()
 	if err != nil {
 		return err
 	}
@@ -161,7 +165,6 @@ func (c Config) Validate() error {
 	if err != nil {
 		return err
 	}
-
 	for _, conf := range c.Plugins {
 		err := conf.Validate()
 		if err != nil {
