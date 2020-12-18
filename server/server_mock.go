@@ -6,9 +6,10 @@ package server
 
 import (
 	context "context"
+	reflect "reflect"
+
 	config "github.com/DrmagicE/gmqtt/config"
 	gomock "github.com/golang/mock/gomock"
-	reflect "reflect"
 )
 
 // MockServer is a mock of Server interface
@@ -145,10 +146,10 @@ func (mr *MockServerMockRecorder) RetainedService() *gomock.Call {
 }
 
 // Plugin mocks base method
-func (m *MockServer) Plugin(name string) Plugable {
+func (m *MockServer) Plugin(name string) Plugin {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Plugin", name)
-	ret0, _ := ret[0].(Plugable)
+	ret0, _ := ret[0].(Plugin)
 	return ret0
 }
 

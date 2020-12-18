@@ -100,7 +100,7 @@ type Server interface {
 
 	RetainedService() RetainedService
 
-	Plugin(name string) Plugable
+	Plugin(name string) Plugin
 }
 
 type clientService struct {
@@ -180,7 +180,7 @@ type server struct {
 	configMu sync.RWMutex
 	config   config.Config
 	hooks    Hooks
-	plugins  []Plugable
+	plugins  []Plugin
 
 	statsManager   *statsManager
 	publishService Publisher
@@ -192,7 +192,7 @@ type server struct {
 	clientService *clientService
 }
 
-func (srv *server) Plugin(name string) Plugable {
+func (srv *server) Plugin(name string) Plugin {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	for _, v := range srv.plugins {

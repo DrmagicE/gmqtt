@@ -32,7 +32,7 @@ func WithWebsocketServer(ws ...*WsServer) Options {
 }
 
 // WithPlugin set plugin(s) of the server.
-func WithPlugin(plugin ...Plugable) Options {
+func WithPlugin(plugin ...Plugin) Options {
 	return func(srv *server) {
 		srv.plugins = append(srv.plugins, plugin...)
 	}

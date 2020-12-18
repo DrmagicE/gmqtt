@@ -28,10 +28,10 @@ type HookWrapper struct {
 }
 
 // NewPlugin is the constructor of a plugin. The context is used for sharing information between plugins.
-type NewPlugin func(ctx context.Context, config config.Config) (Plugable, error)
+type NewPlugin func(ctx context.Context, config config.Config) (Plugin, error)
 
-// Plugable is the interface need to be implemented for every plugins.
-type Plugable interface {
+// Plugin is the interface need to be implemented for every plugins.
+type Plugin interface {
 	// Load will be called in server.Run(). If return error, the server will panic.
 	Load(service Server) error
 	// Unload will be called when the server is shutdown, the return error is only for logging
