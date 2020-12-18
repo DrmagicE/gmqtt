@@ -5,11 +5,12 @@
 package server
 
 import (
-	gomock "github.com/golang/mock/gomock"
 	reflect "reflect"
+
+	gomock "github.com/golang/mock/gomock"
 )
 
-// MockPlugable is a mock of Plugable interface
+// MockPlugable is a mock of Plugin interface
 type MockPlugable struct {
 	ctrl     *gomock.Controller
 	recorder *MockPlugableMockRecorder

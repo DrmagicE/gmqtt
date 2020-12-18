@@ -29,7 +29,7 @@ func init() {
 	config.RegisterDefaultPluginConfig(Name, &DefaultConfig)
 }
 
-func New(ctx context.Context, config config.Config) (server.Plugable, error) {
+func New(ctx context.Context, config config.Config) (server.Plugin, error) {
 	cfg := config.Plugins[Name].(*Config)
 	return &Admin{
 		config: *cfg,
