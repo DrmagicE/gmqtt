@@ -95,6 +95,8 @@ Gmqtt implements the following hooks:
 
 See `/examples/hook` for details.
 
+## How to write plugins
+[How to write plugins](https://github.com/DrmagicE/gmqtt/blob/master/plugin/README.md)
 
 # Test
 ## Unit Test

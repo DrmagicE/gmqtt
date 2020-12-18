@@ -84,6 +84,8 @@ Gmqtt实现了下列钩子方法。
 
 在 `/examples/hook` 中有常用钩子的使用方法介绍。
 
+## 怎么写插件
+[How to write plugins](https://github.com/DrmagicE/gmqtt/blob/master/plugin/README.md)
 
 # 测试
 ## 单元测试
