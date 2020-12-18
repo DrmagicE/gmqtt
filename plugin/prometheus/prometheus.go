@@ -2,8 +2,6 @@ package prometheus
 
 import (
 	"context"
-	"errors"
-	"net"
 	"net/http"
 	"sync/atomic"
 
@@ -14,6 +12,13 @@ import (
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/server"
+)
+
+var _ server.Plugin = (*Prometheus)(nil)
+
+const (
+	Name         = "prometheus"
+	metricPrefix = "gmqtt_"
 )
 
 func init() {
@@ -32,52 +37,7 @@ func New(ctx context.Context, config config.Config) (server.Plugin, error) {
 	}, nil
 }
 
-const (
-	Name         = "prometheus"
-	metricPrefix = "gmqtt_"
-)
-
 var log *zap.Logger
-
-func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type cfg Config
-	var v = &struct {
-		Prometheus cfg `yaml:"prometheus"`
-	}{
-		Prometheus: cfg(DefaultConfig),
-	}
-	if err := unmarshal(v); err != nil {
-		return err
-	}
-	empty := cfg(Config{})
-	if v.Prometheus == empty {
-		v.Prometheus = cfg(DefaultConfig)
-	}
-	*c = Config(v.Prometheus)
-	return nil
-}
-
-// Config is the configuration of prometheus exporter plugin.
-type Config struct {
-	// ListenAddress is the address that the exporter will listen on.
-	ListenAddress string `yaml:"listen_address"`
-	// Path is the exporter url path.
-	Path string `yaml:"path"`
-}
-
-func (c *Config) Validate() error {
-	_, _, err := net.SplitHostPort(c.ListenAddress)
-	if err != nil {
-		return errors.New("invalid listner_address")
-	}
-	return nil
-}
-
-// DefaultConfig is the default configuration.
-var DefaultConfig = Config{
-	ListenAddress: ":8082",
-	Path:          "/metrics",
-}
 
 // Prometheus served as a prometheus exporter that exposes gmqtt metrics.
 type Prometheus struct {
@@ -102,12 +62,11 @@ func (p *Prometheus) Load(service server.Server) error {
 	}()
 	return nil
 }
+
 func (p *Prometheus) Unload() error {
 	return p.httpServer.Shutdown(context.Background())
 }
-func (p *Prometheus) HookWrapper() server.HookWrapper {
-	return server.HookWrapper{}
-}
+
 func (p *Prometheus) Name() string {
 	return Name
 }

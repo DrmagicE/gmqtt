@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
 
@@ -18,11 +17,9 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
-const (
-	Name = "admin"
-)
+var _ server.Plugin = (*Admin)(nil)
 
-var log *zap.Logger
+const Name = "admin"
 
 func init() {
 	server.RegisterPlugin(Name, New)
@@ -36,78 +33,9 @@ func New(ctx context.Context, config config.Config) (server.Plugin, error) {
 	}, nil
 }
 
-func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type cfg Config
-	var v = &struct {
-		Admin cfg `yaml:"admin"`
-	}{
-		Admin: cfg(DefaultConfig),
-	}
-	if err := unmarshal(v); err != nil {
-		return err
-	}
-	emptyGRPC := GRPCConfig{}
-	if v.Admin.GRPC == emptyGRPC {
-		v.Admin.GRPC = DefaultConfig.GRPC
-	}
-	emptyHTTP := HTTPConfig{}
-	if v.Admin.HTTP == emptyHTTP {
-		v.Admin.HTTP = DefaultConfig.HTTP
-	}
-	empty := cfg(Config{})
-	if v.Admin == empty {
-		v.Admin = cfg(DefaultConfig)
-	}
-	*c = Config(v.Admin)
-	return nil
-}
+var log *zap.Logger
 
-// Config is the configuration of api plugin
-type Config struct {
-	HTTP HTTPConfig `yaml:"http"`
-	GRPC GRPCConfig `yaml:"grpc"`
-}
-
-// HTTPConfig is the configuration for http endpoint.
-type HTTPConfig struct {
-	// Enable indicates whether to expose http endpoint.
-	Enable bool `yaml:"enable"`
-	// Addr is the address that the http server listen on.
-	Addr string `yaml:"http_addr"`
-}
-
-// GRPCConfig is the configuration for grpc endpoint.
-type GRPCConfig struct {
-	// Addr is the address that the grpc server listen on.
-	Addr string `yaml:"http_addr"`
-}
-
-func (c *Config) Validate() error {
-	if c.HTTP.Enable {
-		_, _, err := net.SplitHostPort(c.HTTP.Addr)
-		if err != nil {
-			return errors.New("invalid http_addr")
-		}
-	}
-	_, _, err := net.SplitHostPort(c.GRPC.Addr)
-	if err != nil {
-		return errors.New("invalid grpc_addr")
-	}
-	return nil
-}
-
-// DefaultConfig is the default configuration.
-var DefaultConfig = Config{
-	HTTP: HTTPConfig{
-		Enable: true,
-		Addr:   ":8083",
-	},
-	GRPC: GRPCConfig{
-		Addr: ":8084",
-	},
-}
-
-// Admin providers grpc and http api that enables the external system to interact with the broker.
+// Admin providers gRPC and HTTP API that enables the external system to interact with the broker.
 type Admin struct {
 	config        Config
 	httpServer    *http.Server
@@ -156,8 +84,8 @@ func (a *Admin) registerHTTP() (err error) {
 	return nil
 }
 
-func (a *Admin) Load(service server.Server) (err error) {
-	log = server.LoggerWithField(zap.String("plugin", "admin"))
+func (a *Admin) Load(service server.Server) error {
+	log = server.LoggerWithField(zap.String("plugin", Name))
 	s := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			grpc_zap.UnaryServerInterceptor(log),
@@ -195,17 +123,6 @@ func (a *Admin) Unload() error {
 	}
 	a.grpcServer.Stop()
 	return nil
-}
-
-func (a *Admin) HookWrapper() server.HookWrapper {
-	return server.HookWrapper{
-		OnSessionCreatedWrapper:    a.OnSessionCreatedWrapper,
-		OnSessionResumedWrapper:    a.OnSessionResumeWrapper,
-		OnClosedWrapper:            a.OnClosedWrapper,
-		OnSessionTerminatedWrapper: a.OnSessionTerminatedWrapper,
-		OnSubscribedWrapper:        a.OnSubscribedWrapper,
-		OnUnsubscribedWrapper:      a.OnUnsubscribedWrapper,
-	}
 }
 
 func (a *Admin) Name() string {

@@ -83,7 +83,7 @@ func ({{$.Receiver}} *{{$.StrutName}}) {{$element}}Wrapper(pre server.{{$element
 const ConfigTemplate = `package {{.Name}}
 
 {{if .Config}}
-// Config is the configuration of {{.Name}} plugin.
+// Config is the configuration for the {{.Name}} plugin.
 type Config struct {
 	// add your config fields
 }
