@@ -1013,9 +1013,8 @@ func (srv *server) initPluginHooks() error {
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
-	ctx := context.Background()
 	for _, v := range pluginOrder {
-		plg, err := plugins[v](ctx, srv.config)
+		plg, err := plugins[v](srv.config)
 		if err != nil {
 			return err
 		}

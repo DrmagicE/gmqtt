@@ -14,8 +14,6 @@ import (
 const MainTemplate = `package {{.Name}}
 
 import (
-	"context"
-
 	"go.uber.org/zap"
 
 	"github.com/DrmagicE/gmqtt/config"
@@ -33,7 +31,7 @@ func init() {
 	{{- end}}
 }
 
-func New(ctx context.Context, config config.Config) (server.Plugin, error) {
+func New(config config.Config) (server.Plugin, error) {
     panic("implement me")
 }
 

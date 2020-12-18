@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-
 	"github.com/DrmagicE/gmqtt/config"
 )
 
@@ -27,8 +25,8 @@ type HookWrapper struct {
 	OnStopWrapper              OnStopWrapper
 }
 
-// NewPlugin is the constructor of a plugin. The context is used for sharing information between plugins.
-type NewPlugin func(ctx context.Context, config config.Config) (Plugin, error)
+// NewPlugin is the constructor of a plugin.
+type NewPlugin func(config config.Config) (Plugin, error)
 
 // Plugin is the interface need to be implemented for every plugins.
 type Plugin interface {
