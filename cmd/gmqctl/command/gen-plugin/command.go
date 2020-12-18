@@ -29,7 +29,6 @@ func init() {
 	Command.Run = func(cmd *cobra.Command, args []string) {
 		must(run(cmd, args))
 	}
-	Command.Flag("")
 	Command.Flags().StringVarP(&name, "name", "n", "", "The plugin name.")
 	Command.Flags().StringVarP(&hooksStr, "hooks", "H", "", "The hooks use by the plugin, multiple hooks are separated by ','")
 	Command.Flags().BoolVarP(&config, "config", "c", false, "Whether the plugin needs a configuration.")
@@ -116,9 +115,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 	if v.Config {
 		err = v.Execute(path.Join(output, "config.go"), "config", ConfigTemplate)
-		if err != nil {
-			return err
-		}
 	}
-	return nil
+	return err
 }
