@@ -62,8 +62,11 @@ func openFile(name string) (f *os.File, err error) {
 }
 
 var Command = &cobra.Command{
-	Use:   "gen",
+	Use:   "plugin",
 	Short: "code generator",
+	Example: "The following command will generate a code template for the 'awesome' plugin, which makes use of OnConnect and OnSubscribe hook and enables the configuration in ./plugins directory.\n" +
+		"\n" +
+		"gmqctl gen plugin -n awesome -H OnConnect,OnSubscribe -c true -o ./plugins",
 }
 
 func run(cmd *cobra.Command, args []string) error {

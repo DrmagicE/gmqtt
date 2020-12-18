@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	gen_plugin "github.com/DrmagicE/gmqtt/cmd/gmqctl/command/gen-plugin"
+	"github.com/DrmagicE/gmqtt/cmd/gmqctl/command"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(gen_plugin.Command)
+	rootCmd.AddCommand(command.Gen)
 }
 
 func must(err error) {
