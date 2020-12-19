@@ -19,9 +19,9 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SubscriptionServiceClient interface {
-	// list subscriptions.
+	// list subIndexer.
 	List(ctx context.Context, in *ListSubscriptionRequest, opts ...grpc.CallOption) (*ListSubscriptionResponse, error)
-	// filter subscriptions, paging is not supported in this api.
+	// filter subIndexer, paging is not supported in this api.
 	Filter(ctx context.Context, in *FilterSubscriptionRequest, opts ...grpc.CallOption) (*FilterSubscriptionResponse, error)
 	// subscribe topics for the client.
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (*SubscribeResponse, error)
@@ -77,9 +77,9 @@ func (c *subscriptionServiceClient) Unsubscribe(ctx context.Context, in *Unsubsc
 // All implementations must embed UnimplementedSubscriptionServiceServer
 // for forward compatibility
 type SubscriptionServiceServer interface {
-	// list subscriptions.
+	// list subIndexer.
 	List(context.Context, *ListSubscriptionRequest) (*ListSubscriptionResponse, error)
-	// filter subscriptions, paging is not supported in this api.
+	// filter subIndexer, paging is not supported in this api.
 	Filter(context.Context, *FilterSubscriptionRequest) (*FilterSubscriptionResponse, error)
 	// subscribe topics for the client.
 	Subscribe(context.Context, *SubscribeRequest) (*SubscribeResponse, error)

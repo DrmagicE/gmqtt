@@ -75,26 +75,26 @@ message Subscription {
     string client_id = 7;
 }
 service SubscriptionService {
-    // list subscriptions.
+    // List subscriptions.
     rpc List (ListSubscriptionRequest) returns (ListSubscriptionResponse){
         option (google.api.http) = {
             get: "/v1/subscriptions"
         };
     }
-    // filter subscriptions, paging is not supported in this api.
+    // Filter subscriptions, paging is not supported in this API.
     rpc Filter(FilterSubscriptionRequest) returns (FilterSubscriptionResponse) {
         option (google.api.http) = {
             get: "/v1/filter_subscriptions"
         };
     }
-    // subscribe topics for the client.
+    // Subscribe topics for the client.
     rpc Subscribe (SubscribeRequest) returns (SubscribeResponse) {
         option (google.api.http) = {
             post: "/v1/subscribe"
             body:"*"
         };
     }
-    // unsubscribe topics for the client.
+    // Unsubscribe topics for the client.
     rpc Unsubscribe (UnsubscribeRequest) returns (google.protobuf.Empty) {
         option (google.api.http) = {
             post: "/v1/unsubscribe"

@@ -99,8 +99,8 @@ type Server interface {
 	SubscriptionService() SubscriptionService
 
 	RetainedService() RetainedService
-
-	Plugin(name string) Plugin
+	// Plugins returns all enabled plugins
+	Plugins() []Plugin
 }
 
 type clientService struct {
@@ -192,15 +192,13 @@ type server struct {
 	clientService *clientService
 }
 
-func (srv *server) Plugin(name string) Plugin {
+func (srv *server) Plugins() []Plugin {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	for _, v := range srv.plugins {
-		if v.Name() == name {
-			return v
-		}
-	}
-	return nil
+	p := make([]Plugin, len(srv.plugins))
+	copy(p, srv.plugins)
+	return p
+
 }
 
 func (srv *server) RetainedService() RetainedService {
@@ -860,7 +858,7 @@ func (srv *server) init(opts ...Options) (err error) {
 	}
 
 	err = srv.loadPlugins()
-	return nil
+	return err
 }
 
 // Init initialises the options.
@@ -868,7 +866,7 @@ func (srv *server) Init(opts ...Options) (err error) {
 	srv.initOnce.Do(func() {
 		err = srv.init(opts...)
 	})
-	return
+	return err
 }
 
 // Client returns the client for given clientID

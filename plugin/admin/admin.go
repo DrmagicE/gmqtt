@@ -10,8 +10,6 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/server"
@@ -35,6 +33,24 @@ func New(config config.Config) (server.Plugin, error) {
 
 var log *zap.Logger
 
+// GRPCGatewayRegister provides the ability to let other plugin to share the gRPC and HTTP server.
+type GRPCGatewayRegister interface {
+	GRPCRegister
+	HTTPRegister
+}
+
+// GRPCRegister is the interface that enable the implement to expose gRPC endpoint.
+type GRPCRegister interface {
+	// RegisterGRPC registers the gRPC handler into gRPC server which created by admin plugin.
+	RegisterGRPC(s grpc.ServiceRegistrar)
+}
+
+// HTTPRegister is the interface that enable the implement to expose HTTP endpoint.
+type HTTPRegister interface {
+	// RegisterHTTP registers the http handler into http server which created by admin plugin.
+	RegisterHTTP(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error)
+}
+
 // Admin providers gRPC and HTTP API that enables the external system to interact with the broker.
 type Admin struct {
 	config        Config
@@ -46,26 +62,32 @@ type Admin struct {
 	store         *store
 }
 
-func (a *Admin) registerHTTP() (err error) {
-	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{OrigName: true, EmitDefaults: true}))
-
+func (a *Admin) registerHTTP(mux *runtime.ServeMux) (err error) {
 	err = RegisterClientServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
 		a.config.GRPC.Addr,
-		[]grpc.DialOption{grpc.WithInsecure()})
+		[]grpc.DialOption{grpc.WithInsecure()},
+	)
+	if err != nil {
+		return err
+	}
 
 	err = RegisterSubscriptionServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
 		a.config.GRPC.Addr,
-		[]grpc.DialOption{grpc.WithInsecure()})
-
+		[]grpc.DialOption{grpc.WithInsecure()},
+	)
+	if err != nil {
+		return err
+	}
 	err = RegisterPublishServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
 		a.config.GRPC.Addr,
-		[]grpc.DialOption{grpc.WithInsecure()})
+		[]grpc.DialOption{grpc.WithInsecure()},
+	)
 
 	if err != nil {
 		return err
@@ -92,9 +114,34 @@ func (a *Admin) Load(service server.Server) error {
 			grpc_prometheus.UnaryServerInterceptor),
 	)
 	a.grpcServer = s
+
 	RegisterClientServiceServer(s, &clientService{a: a})
 	RegisterSubscriptionServiceServer(s, &subscriptionService{a: a})
 	RegisterPublishServiceServer(s, &publisher{a: a})
+	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{OrigName: true, EmitDefaults: true}))
+	if a.config.HTTP.Enable {
+		err := a.registerHTTP(mux)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, v := range service.Plugins() {
+		if v, ok := v.(GRPCRegister); ok {
+			v.RegisterGRPC(s)
+		}
+
+		if v, ok := v.(HTTPRegister); a.config.HTTP.Enable && ok {
+			err := v.RegisterHTTP(context.Background(),
+				mux,
+				a.config.GRPC.Addr,
+				[]grpc.DialOption{grpc.WithInsecure()})
+			if err != nil {
+				return err
+			}
+		}
+
+	}
 	l, err := net.Listen("tcp", a.config.GRPC.Addr)
 	if err != nil {
 		return err
@@ -111,9 +158,6 @@ func (a *Admin) Load(service server.Server) error {
 			panic(err)
 		}
 	}()
-	if a.config.HTTP.Enable {
-		err = a.registerHTTP()
-	}
 	return err
 }
 
@@ -127,24 +171,4 @@ func (a *Admin) Unload() error {
 
 func (a *Admin) Name() string {
 	return Name
-}
-
-func getPage(reqPage, reqPageSize uint32) (page, pageSize uint) {
-	page = 1
-	pageSize = 20
-	if reqPage != 0 {
-		page = uint(reqPage)
-	}
-	if reqPageSize != 0 {
-		pageSize = uint(reqPageSize)
-	}
-	return
-}
-
-func InvalidArgument(name string, msg string) error {
-	errString := "invalid " + name
-	if msg != "" {
-		errString = errString + ":" + msg
-	}
-	return status.Error(codes.InvalidArgument, errString)
 }
