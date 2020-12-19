@@ -44,10 +44,10 @@ func (c *Config) Validate() error {
 var DefaultConfig = Config{
 	HTTP: HTTPConfig{
 		Enable: true,
-		Addr:   ":8083",
+		Addr:   "127.0.0.1:8083",
 	},
 	GRPC: GRPCConfig{
-		Addr: ":8084",
+		Addr: "127.0.0.1:8084",
 	},
 }
 

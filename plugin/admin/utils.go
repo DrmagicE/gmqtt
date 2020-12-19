@@ -48,11 +48,17 @@ func (i *Indexer) Remove(id string) *list.Element {
 
 // GetByID returns the value for the given id.
 // Return nil if not found.
+// Notice: Any access to the return *list.Element also require the mutex,
+// because the Set method can modify the Value for *list.Element when updating the Value for the same id.
+// If the caller needs the Value in *list.Element, it must get the Value before the next Set is called.
 func (i *Indexer) GetByID(id string) *list.Element {
 	return i.index[id]
 }
 
 // Iterate iterates at most n elements in the list begin from offset.
+// Notice: Any access to the  *list.Element in fn also require the mutex,
+// because the Set method can modify the Value for *list.Element when updating the Value for the same id.
+// If the caller needs the Value in *list.Element, it must get the Value before the next Set is called.
 func (i *Indexer) Iterate(fn func(elem *list.Element), offset, n uint) {
 	if i.rows.Len() < int(offset) {
 		return

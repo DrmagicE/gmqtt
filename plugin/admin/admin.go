@@ -9,7 +9,9 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/server"
@@ -110,7 +112,12 @@ func (a *Admin) Load(service server.Server) error {
 	log = server.LoggerWithField(zap.String("plugin", Name))
 	s := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			grpc_zap.UnaryServerInterceptor(log),
+			grpc_zap.UnaryServerInterceptor(log, grpc_zap.WithLevels(func(code codes.Code) zapcore.Level {
+				if code == codes.OK {
+					return zapcore.DebugLevel
+				}
+				return grpc_zap.DefaultClientCodeToLevel(code)
+			})),
 			grpc_prometheus.UnaryServerInterceptor),
 	)
 	a.grpcServer = s

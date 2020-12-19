@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package gmqtt.auth.api;
+option go_package = ".;auth";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+message ListAccountsRequest {
+    uint32 page_size = 1;
+    uint32 page = 2;
+}
+
+message ListAccountsResponse {
+    repeated Account accounts = 1;
+    uint32 total_count = 2;
+}
+
+message GetAccountRequest {
+    string username = 1;
+}
+
+message GetAccountResponse {
+    Account account =1;
+}
+
+message UpdateAccountRequest {
+    string username = 1;
+    string password = 2;
+}
+
+message Account {
+    string username = 1;
+    string password = 2;
+}
+
+message DeleteAccountRequest {
+    string username = 1;
+}
+
+service AccountService {
+    // List all accounts
+    rpc List (ListAccountsRequest) returns (ListAccountsResponse){
+        option (google.api.http) = {
+            get: "/v1/accounts"
+        };
+    }
+
+    // Get the account for given username.
+    // Return NotFound error when account not found.
+    rpc Get (GetAccountRequest) returns (GetAccountResponse){
+        option (google.api.http) = {
+            get: "/v1/accounts/{username}"
+        };
+    }
+    // Update the password for the account.
+    // This API will create the account if not exists.
+    rpc Update(UpdateAccountRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            post: "/v1/accounts/{username}"
+            body:"*"
+        };
+    }
+    // Delete the account for given username
+    rpc Delete (DeleteAccountRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            delete: "/v1/accounts/{username}"
+        };
+    }
+}

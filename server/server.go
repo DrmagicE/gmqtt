@@ -33,7 +33,6 @@ var (
 	ErrInvalWsMsgType    = errors.New("invalid websocket message type")
 	statusPanic          = "invalid server status"
 	plugins              = make(map[string]NewPlugin)
-	pluginOrder          []string
 	topicAliasMgrFactory = make(map[string]NewTopicAliasManager)
 	persistenceFactories = make(map[string]NewPersistence)
 )
@@ -57,10 +56,6 @@ func RegisterPlugin(name string, new NewPlugin) {
 		panic("duplicated plugin: " + name)
 	}
 	plugins[name] = new
-}
-
-func SetPluginOrder(order []string) {
-	pluginOrder = order
 }
 
 // Server status
@@ -1010,7 +1005,7 @@ func (srv *server) initPluginHooks() error {
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 	)
-	for _, v := range pluginOrder {
+	for _, v := range srv.config.PluginOrder {
 		plg, err := plugins[v](srv.config)
 		if err != nil {
 			return err
