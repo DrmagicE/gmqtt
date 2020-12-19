@@ -1,15 +1,15 @@
 listeners:
-    # bind address
-    - address: ":1883"
-      # tls setting
-#      tls:
-#        cert_file: "path_to_cert_file"
-#        key_file: "path_to_key_file"
+  # bind address
+  - address: ":1883"
+    # tls setting
+  #      tls:
+  #        cert_file: "path_to_cert_file"
+  #        key_file: "path_to_key_file"
 
-    - address: ":8883"
-      # websocket setting
-      websocket:
-        path: "/"
+  - address: ":8883"
+    # websocket setting
+    websocket:
+      path: "/"
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -71,10 +71,9 @@ plugins:
 
 # plugin loading orders
 plugin_order:
-  - auth
-  - prometheus
-  - admin
-
+  #- auth
+  #- prometheus
+  #- admin
 log:
   level: info # debug | info | warn | error
   format: text # json | text
