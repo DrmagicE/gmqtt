@@ -25,7 +25,7 @@ func (s *subscriptionService) mustEmbedUnimplementedSubscriptionServiceServer() 
 
 // List lists subscriptions in the broker.
 func (s *subscriptionService) List(ctx context.Context, req *ListSubscriptionRequest) (*ListSubscriptionResponse, error) {
-	page, pageSize := getPage(req.Page, req.PageSize)
+	page, pageSize := GetPage(req.Page, req.PageSize)
 	subs, total, err := s.a.store.GetSubscriptions(page, pageSize)
 	if err != nil {
 		return &ListSubscriptionResponse{}, err
@@ -56,7 +56,7 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 			i, err := strconv.Atoi(v)
 
 			if err != nil {
-				return nil, InvalidArgument("filter_type", err.Error())
+				return nil, ErrInvalidArgument("filter_type", err.Error())
 			}
 			switch SubFilterType(i) {
 
@@ -67,7 +67,7 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 			case SubFilterType_SUB_FILTER_TYPE_NON_SHARED:
 				iterType |= subscription.TypeNonShared
 			default:
-				return nil, InvalidArgument("filter_type", "")
+				return nil, ErrInvalidArgument("filter_type", "")
 			}
 		}
 	}
@@ -80,19 +80,19 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 		iterOpts.MatchType = subscription.MatchFilter
 	}
 	if iterOpts.TopicName == "" && iterOpts.MatchType != 0 {
-		return nil, InvalidArgument("topic_name", "cannot be empty while match_type set")
+		return nil, ErrInvalidArgument("topic_name", "cannot be empty while match_type Set")
 	}
 	if iterOpts.TopicName != "" && iterOpts.MatchType == 0 {
-		return nil, InvalidArgument("match_type", "cannot be empty while topic_name set")
+		return nil, ErrInvalidArgument("match_type", "cannot be empty while topic_name Set")
 	}
 	if iterOpts.TopicName != "" {
 		if !packets.ValidV5Topic([]byte(iterOpts.TopicName)) {
-			return nil, InvalidArgument("topic_name", "")
+			return nil, ErrInvalidArgument("topic_name", "")
 		}
 	}
 
 	if req.Limit > 1000 {
-		return nil, InvalidArgument("limit", fmt.Sprintf("limit too large, must <= 1000"))
+		return nil, ErrInvalidArgument("limit", fmt.Sprintf("limit too large, must <= 1000"))
 	}
 	if req.Limit == 0 {
 		req.Limit = 20
@@ -123,10 +123,10 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 // Subscribe makes subscriptions for the given client.
 func (s *subscriptionService) Subscribe(ctx context.Context, req *SubscribeRequest) (resp *SubscribeResponse, err error) {
 	if req.ClientId == "" {
-		return nil, InvalidArgument("client_id", "cannot be empty")
+		return nil, ErrInvalidArgument("client_id", "cannot be empty")
 	}
 	if len(req.Subscriptions) == 0 {
-		return nil, InvalidArgument("subscriptions", "zero length subscriptions")
+		return nil, ErrInvalidArgument("subIndexer", "zero length subIndexer")
 	}
 	var subs []*gmqtt.Subscription
 	for k, v := range req.Subscriptions {
@@ -142,7 +142,7 @@ func (s *subscriptionService) Subscribe(ctx context.Context, req *SubscribeReque
 		}
 		err := sub.Validate()
 		if err != nil {
-			return nil, InvalidArgument(fmt.Sprintf("subscriptions[%d]", k), err.Error())
+			return nil, ErrInvalidArgument(fmt.Sprintf("subIndexer[%d]", k), err.Error())
 		}
 		subs = append(subs, sub)
 	}
@@ -163,15 +163,15 @@ func (s *subscriptionService) Subscribe(ctx context.Context, req *SubscribeReque
 // Unsubscribe unsubscribe topic for the given client.
 func (s *subscriptionService) Unsubscribe(ctx context.Context, req *UnsubscribeRequest) (resp *empty.Empty, err error) {
 	if req.ClientId == "" {
-		return nil, InvalidArgument("client_id", "cannot be empty")
+		return nil, ErrInvalidArgument("client_id", "cannot be empty")
 	}
 	if len(req.Topics) == 0 {
-		return nil, InvalidArgument("topics", "zero length topics")
+		return nil, ErrInvalidArgument("topics", "zero length topics")
 	}
 
 	for k, v := range req.Topics {
 		if !packets.ValidV5Topic([]byte(v)) {
-			return nil, InvalidArgument(fmt.Sprintf("topics[%d]", k), "")
+			return nil, ErrInvalidArgument(fmt.Sprintf("topics[%d]", k), "")
 		}
 	}
 	err = s.a.store.subscriptionService.Unsubscribe(req.ClientId, req.Topics...)

@@ -56,19 +56,20 @@ message Client {
 
 
 service ClientService {
-    // lists clients
+    // List clients
     rpc List (ListClientRequest) returns (ListClientResponse){
         option (google.api.http) = {
             get: "/v1/clients"
         };
     }
     // Get the client for given client id.
+    // Return NotFound error when client not found.
     rpc Get (GetClientRequest) returns (GetClientResponse){
         option (google.api.http) = {
             get: "/v1/clients/{client_id}"
         };
     }
-    // disconnect the client for given client id.
+    // Disconnect the client for given client id.
     rpc Delete (DeleteClientRequest) returns (google.protobuf.Empty) {
         option (google.api.http) = {
             delete: "/v1/clients/{client_id}"

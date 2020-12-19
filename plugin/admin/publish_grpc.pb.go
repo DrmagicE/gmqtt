@@ -4,7 +4,6 @@ package admin
 
 import (
 	context "context"
-
 	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -19,7 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PublishServiceClient interface {
-	// publish message to broker
+	// Publish message to broker
 	Publish(ctx context.Context, in *PublishRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
@@ -44,7 +43,7 @@ func (c *publishServiceClient) Publish(ctx context.Context, in *PublishRequest, 
 // All implementations must embed UnimplementedPublishServiceServer
 // for forward compatibility
 type PublishServiceServer interface {
-	// publish message to broker
+	// Publish message to broker
 	Publish(context.Context, *PublishRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedPublishServiceServer()
 }

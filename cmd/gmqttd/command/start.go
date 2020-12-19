@@ -135,11 +135,14 @@ func NewStartCmd() *cobra.Command {
 			)
 			err = s.Init()
 			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
 				return
 			}
 			err = s.Run()
 			if err != nil {
 				fmt.Println(err)
+				os.Exit(1)
 				return
 			}
 			installSignal(s)

@@ -4,7 +4,6 @@ package admin
 
 import (
 	context "context"
-
 	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -19,11 +18,12 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ClientServiceClient interface {
-	// lists clients
+	// List clients
 	List(ctx context.Context, in *ListClientRequest, opts ...grpc.CallOption) (*ListClientResponse, error)
 	// Get the client for given client id.
+	// Return NotFound error when client not found.
 	Get(ctx context.Context, in *GetClientRequest, opts ...grpc.CallOption) (*GetClientResponse, error)
-	// disconnect the client for given client id.
+	// Disconnect the client for given client id.
 	Delete(ctx context.Context, in *DeleteClientRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
@@ -66,11 +66,12 @@ func (c *clientServiceClient) Delete(ctx context.Context, in *DeleteClientReques
 // All implementations must embed UnimplementedClientServiceServer
 // for forward compatibility
 type ClientServiceServer interface {
-	// lists clients
+	// List clients
 	List(context.Context, *ListClientRequest) (*ListClientResponse, error)
 	// Get the client for given client id.
+	// Return NotFound error when client not found.
 	Get(context.Context, *GetClientRequest) (*GetClientResponse, error)
-	// disconnect the client for given client id.
+	// Disconnect the client for given client id.
 	Delete(context.Context, *DeleteClientRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedClientServiceServer()
 }
