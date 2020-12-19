@@ -375,7 +375,7 @@ func RegisterSubscriptionServiceHandlerClient(ctx context.Context, mux *runtime.
 }
 
 var (
-	pattern_SubscriptionService_List_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "subIndexer"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_SubscriptionService_List_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "subscriptions"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_SubscriptionService_Filter_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "filter_subscriptions"}, "", runtime.AssumeColonVerbOpt(true)))
 

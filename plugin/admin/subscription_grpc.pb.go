@@ -4,7 +4,6 @@ package admin
 
 import (
 	context "context"
-
 	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -19,13 +18,13 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SubscriptionServiceClient interface {
-	// list subIndexer.
+	// List subscriptions.
 	List(ctx context.Context, in *ListSubscriptionRequest, opts ...grpc.CallOption) (*ListSubscriptionResponse, error)
-	// filter subIndexer, paging is not supported in this api.
+	// Filter subscriptions, paging is not supported in this API.
 	Filter(ctx context.Context, in *FilterSubscriptionRequest, opts ...grpc.CallOption) (*FilterSubscriptionResponse, error)
-	// subscribe topics for the client.
+	// Subscribe topics for the client.
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (*SubscribeResponse, error)
-	// unsubscribe topics for the client.
+	// Unsubscribe topics for the client.
 	Unsubscribe(ctx context.Context, in *UnsubscribeRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
@@ -77,13 +76,13 @@ func (c *subscriptionServiceClient) Unsubscribe(ctx context.Context, in *Unsubsc
 // All implementations must embed UnimplementedSubscriptionServiceServer
 // for forward compatibility
 type SubscriptionServiceServer interface {
-	// list subIndexer.
+	// List subscriptions.
 	List(context.Context, *ListSubscriptionRequest) (*ListSubscriptionResponse, error)
-	// filter subIndexer, paging is not supported in this api.
+	// Filter subscriptions, paging is not supported in this API.
 	Filter(context.Context, *FilterSubscriptionRequest) (*FilterSubscriptionResponse, error)
-	// subscribe topics for the client.
+	// Subscribe topics for the client.
 	Subscribe(context.Context, *SubscribeRequest) (*SubscribeResponse, error)
-	// unsubscribe topics for the client.
+	// Unsubscribe topics for the client.
 	Unsubscribe(context.Context, *UnsubscribeRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedSubscriptionServiceServer()
 }

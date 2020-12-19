@@ -13,7 +13,7 @@
   "paths": {
     "/v1/filter_subscriptions": {
       "get": {
-        "summary": "filter subscriptions, paging is not supported in this api.",
+        "summary": "Filter subscriptions, paging is not supported in this API.",
         "operationId": "Filter",
         "responses": {
           "200": {
@@ -80,7 +80,7 @@
     },
     "/v1/subscribe": {
       "post": {
-        "summary": "subscribe topics for the client.",
+        "summary": "Subscribe topics for the client.",
         "operationId": "Subscribe",
         "responses": {
           "200": {
@@ -113,7 +113,7 @@
     },
     "/v1/subscriptions": {
       "get": {
-        "summary": "list subscriptions.",
+        "summary": "List subscriptions.",
         "operationId": "List",
         "responses": {
           "200": {
@@ -152,7 +152,7 @@
     },
     "/v1/unsubscribe": {
       "post": {
-        "summary": "unsubscribe topics for the client.",
+        "summary": "Unsubscribe topics for the client.",
         "operationId": "Unsubscribe",
         "responses": {
           "200": {

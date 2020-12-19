@@ -23,7 +23,7 @@ func (s *subscriptionService) mustEmbedUnimplementedSubscriptionServiceServer() 
 	return
 }
 
-// List lists subIndexer in the broker.
+// List lists subscriptions in the broker.
 func (s *subscriptionService) List(ctx context.Context, req *ListSubscriptionRequest) (*ListSubscriptionResponse, error) {
 	page, pageSize := GetPage(req.Page, req.PageSize)
 	subs, total, err := s.a.store.GetSubscriptions(page, pageSize)
@@ -36,7 +36,7 @@ func (s *subscriptionService) List(ctx context.Context, req *ListSubscriptionReq
 	}, nil
 }
 
-// Filter filters subIndexer with the request params.
+// Filter filters subscriptions with the request params.
 // Paging is not supported, and the results are not sorted in any way.
 // Using huge req.Limit can impact performance.
 func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptionRequest) (resp *FilterSubscriptionResponse, err error) {
@@ -120,7 +120,7 @@ func (s *subscriptionService) Filter(ctx context.Context, req *FilterSubscriptio
 	return resp, nil
 }
 
-// Subscribe makes subIndexer for the given client.
+// Subscribe makes subscriptions for the given client.
 func (s *subscriptionService) Subscribe(ctx context.Context, req *SubscribeRequest) (resp *SubscribeResponse, err error) {
 	if req.ClientId == "" {
 		return nil, ErrInvalidArgument("client_id", "cannot be empty")

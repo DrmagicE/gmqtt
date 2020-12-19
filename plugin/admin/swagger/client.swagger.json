@@ -13,7 +13,7 @@
   "paths": {
     "/v1/clients": {
       "get": {
-        "summary": "lists clients",
+        "summary": "List clients",
         "operationId": "List",
         "responses": {
           "200": {
@@ -52,7 +52,7 @@
     },
     "/v1/clients/{client_id}": {
       "get": {
-        "summary": "Get the client for given client id.",
+        "summary": "Get the client for given client id.\nReturn NotFound error when client not found.",
         "operationId": "Get",
         "responses": {
           "200": {
@@ -81,7 +81,7 @@
         ]
       },
       "delete": {
-        "summary": "disconnect the client for given client id.",
+        "summary": "Disconnect the client for given client id.",
         "operationId": "Delete",
         "responses": {
           "200": {

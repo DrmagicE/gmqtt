@@ -33,7 +33,7 @@ func New(config config.Config) (server.Plugin, error) {
 
 var log *zap.Logger
 
-// GRPCGatewayRegister provides the ability to let other plugin to share the gRPC and HTTP server.
+// GRPCGatewayRegister provides the ability to share the gRPC and HTTP server to other plugins.
 type GRPCGatewayRegister interface {
 	GRPCRegister
 	HTTPRegister

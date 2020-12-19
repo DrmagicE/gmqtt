@@ -13,7 +13,7 @@
   "paths": {
     "/v1/publish": {
       "post": {
-        "summary": "publish message to broker",
+        "summary": "Publish message to broker",
         "operationId": "Publish",
         "responses": {
           "200": {

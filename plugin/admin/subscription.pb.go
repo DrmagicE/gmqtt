@@ -7,14 +7,13 @@
 package admin
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	proto "github.com/golang/protobuf/proto"
 	empty "github.com/golang/protobuf/ptypes/empty"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -189,7 +188,7 @@ type ListSubscriptionResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Subscriptions []*Subscription `protobuf:"bytes,1,rep,name=subIndexer,proto3" json:"subIndexer,omitempty"`
+	Subscriptions []*Subscription `protobuf:"bytes,1,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
 	TotalCount    uint32          `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
 }
 
@@ -244,7 +243,7 @@ type FilterSubscriptionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// If Set, only filter the subIndexer that belongs to the client.
+	// If set, only filter the subscriptions that belongs to the client.
 	ClientId string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
 	// filter_type indicates what kinds of topics are going to filter.
 	// If there are multiple types, use ',' to separate. e.g : 1,2
@@ -253,13 +252,13 @@ type FilterSubscriptionRequest struct {
 	// 2 = Shared Topic
 	// 3 = NonShared Topic
 	FilterType string `protobuf:"bytes,2,opt,name=filter_type,json=filterType,proto3" json:"filter_type,omitempty"`
-	// If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subIndexer which has the same topic name with request topic_name.
-	// If 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subIndexer which match the request topic_name .
-	// match_type must be Set when filter_type is not empty.
+	// If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subscriptions which has the same topic name with request topic_name.
+	// If 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subscriptions which match the request topic_name .
+	// match_type must be set when filter_type is not empty.
 	MatchType SubMatchType `protobuf:"varint,3,opt,name=match_type,json=matchType,proto3,enum=gmqtt.admin.api.SubMatchType" json:"match_type,omitempty"`
-	// topic_name must be Set when match_type is not zero.
+	// topic_name must be set when match_type is not zero.
 	TopicName string `protobuf:"bytes,4,opt,name=topic_name,json=topicName,proto3" json:"topic_name,omitempty"`
-	// The maximum subIndexer can be returned.
+	// The maximum subscriptions can be returned.
 	Limit int32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
 }
 
@@ -335,7 +334,7 @@ type FilterSubscriptionResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Subscriptions []*Subscription `protobuf:"bytes,1,rep,name=subIndexer,proto3" json:"subIndexer,omitempty"`
+	Subscriptions []*Subscription `protobuf:"bytes,1,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
 }
 
 func (x *FilterSubscriptionResponse) Reset() {
@@ -383,7 +382,7 @@ type SubscribeRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	ClientId      string          `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	Subscriptions []*Subscription `protobuf:"bytes,2,rep,name=subIndexer,proto3" json:"subIndexer,omitempty"`
+	Subscriptions []*Subscription `protobuf:"bytes,2,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
 }
 
 func (x *SubscribeRequest) Reset() {
@@ -778,10 +777,10 @@ var file_subscription_proto_goTypes = []interface{}{
 	(*empty.Empty)(nil),                // 10: google.protobuf.Empty
 }
 var file_subscription_proto_depIdxs = []int32{
-	9,  // 0: gmqtt.admin.api.ListSubscriptionResponse.subIndexer:type_name -> gmqtt.admin.api.Subscription
+	9,  // 0: gmqtt.admin.api.ListSubscriptionResponse.subscriptions:type_name -> gmqtt.admin.api.Subscription
 	1,  // 1: gmqtt.admin.api.FilterSubscriptionRequest.match_type:type_name -> gmqtt.admin.api.SubMatchType
-	9,  // 2: gmqtt.admin.api.FilterSubscriptionResponse.subIndexer:type_name -> gmqtt.admin.api.Subscription
-	9,  // 3: gmqtt.admin.api.SubscribeRequest.subIndexer:type_name -> gmqtt.admin.api.Subscription
+	9,  // 2: gmqtt.admin.api.FilterSubscriptionResponse.subscriptions:type_name -> gmqtt.admin.api.Subscription
+	9,  // 3: gmqtt.admin.api.SubscribeRequest.subscriptions:type_name -> gmqtt.admin.api.Subscription
 	2,  // 4: gmqtt.admin.api.SubscriptionService.List:input_type -> gmqtt.admin.api.ListSubscriptionRequest
 	4,  // 5: gmqtt.admin.api.SubscriptionService.Filter:input_type -> gmqtt.admin.api.FilterSubscriptionRequest
 	6,  // 6: gmqtt.admin.api.SubscriptionService.Subscribe:input_type -> gmqtt.admin.api.SubscribeRequest

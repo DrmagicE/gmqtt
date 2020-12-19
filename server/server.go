@@ -857,8 +857,7 @@ func (srv *server) init(opts ...Options) (err error) {
 		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
 
-	err = srv.loadPlugins()
-	return err
+	return srv.loadPlugins()
 }
 
 // Init initialises the options.
