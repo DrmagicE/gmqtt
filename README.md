@@ -61,6 +61,28 @@ persistence:
     database: 0
 ```
 
+## Authentication
+Gmqtt provides a simple username/password authentication mechanism. (Provided by [auth](https://github.com/DrmagicE/gmqtt/blob/master/plugin/auth) plugin).
+It is not enabled in default configuration, you can change the configuration to enable it:
+```yaml
+# plugin loading orders
+plugin_order:
+  - auth
+  - prometheus
+  - admin
+```
+When auth plugin enabled, every clients need an account to get connected.You can add accounts through the HTTP API: 
+```bash
+# Create: username = user1, password = user1pass
+$ curl -X POST -d '{"password":"user1pass"}' 127.0.0.1:8083/v1/accounts/user1
+{}
+# Query
+$ curl 127.0.0.1:8083/v1/accounts/user1
+{"account":{"username":"user1","password":"20a0db53bc1881a7f739cd956b740039"}}
+```
+API Doc [swagger](https://github.com/DrmagicE/gmqtt/blob/master/plugin/auth/swagger)
+
+
 ## Docker
 ```
 $ docker build -t gmqtt .

@@ -71,9 +71,10 @@ plugins:
 
 # plugin loading orders
 plugin_order:
+  # Uncomment auth to enable authentication.
   #- auth
-  #- prometheus
-  #- admin
+  - prometheus
+  - admin
 log:
   level: info # debug | info | warn | error
   format: text # json | text

@@ -51,6 +51,28 @@ persistence:
     database: 0
 ```
 
+## 配置鉴权
+Gmqtt内置了基于username/password的简单鉴权机制。(由 [auth](https://github.com/DrmagicE/gmqtt/blob/master/plugin/auth) 插件提供)。
+Gmqtt默认配置没有开启鉴权，可以通过修改配置文件来加载鉴权插件：
+```yaml
+# plugin loading orders
+plugin_order:
+  - auth
+  - prometheus
+  - admin
+```
+加载后，需要添加账户才可以连接，可以通过HTTP接口来添加账户：
+```bash
+# 创建： username = user1, password = user1pass
+$ curl -X POST -d '{"password":"user1pass"}' 127.0.0.1:8083/v1/accounts/user1
+{}
+# 查询：
+$ curl 127.0.0.1:8083/v1/accounts/user1
+{"account":{"username":"user1","password":"20a0db53bc1881a7f739cd956b740039"}}
+```
+API文档：[swagger](https://github.com/DrmagicE/gmqtt/blob/master/plugin/auth/swagger)
+
+
 ## Docker
 ```
 $ docker build -t gmqtt .
