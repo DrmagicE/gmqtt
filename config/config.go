@@ -14,7 +14,7 @@ var (
 	defaultPluginConfig = make(map[string]Configuration)
 )
 
-// Configuration is the interface that enable the implementation can parse config from the global config file.
+// Configuration is the interface that enable the implementation to parse config from the global config file.
 // Plugin admin and prometheus are two examples.
 type Configuration interface {
 	// Validate validates the configuration.
@@ -103,11 +103,15 @@ func (p pluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // Config is the configration for gmqttd.
 type Config struct {
-	Listeners         []*ListenerConfig `yaml:"listeners"`
-	MQTT              MQTT              `yaml:"mqtt,omitempty"`
-	Log               LogConfig         `yaml:"log"`
-	PidFile           string            `yaml:"pid_file"`
-	Plugins           pluginConfig      `yaml:"plugins"`
+	Listeners []*ListenerConfig `yaml:"listeners"`
+	MQTT      MQTT              `yaml:"mqtt,omitempty"`
+	Log       LogConfig         `yaml:"log"`
+	PidFile   string            `yaml:"pid_file"`
+	Plugins   pluginConfig      `yaml:"plugins"`
+	// PluginOrder is a slice that contains the name of the plugin which will be loaded.
+	// Giving a correct order to the slice is significant,
+	// because it represents the loading order which affect the behavior of the broker.
+	PluginOrder       []string          `yaml:"plugin_order"`
 	Persistence       Persistence       `yaml:"persistence"`
 	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
 }

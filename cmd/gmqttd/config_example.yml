@@ -62,6 +62,19 @@ plugins:
       addr: :8083
     grpc:
       addr: 8084
+  auth:
+    # Password hash type. (plain | md5 | sha256 | bcrypt)
+    # Default to MD5.
+    hash: md5
+    # The file to store password. Default to $HOME/gmqtt_password.yml
+    # password_file:
+
+# plugin loading orders
+plugin_order:
+  - auth
+  - prometheus
+  - admin
+
 log:
   level: info # debug | info | warn | error
   format: text # json | text

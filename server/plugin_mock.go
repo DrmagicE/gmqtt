@@ -5,36 +5,35 @@
 package server
 
 import (
-	reflect "reflect"
-
 	gomock "github.com/golang/mock/gomock"
+	reflect "reflect"
 )
 
-// MockPlugable is a mock of Plugin interface
-type MockPlugable struct {
+// MockPlugin is a mock of Plugin interface
+type MockPlugin struct {
 	ctrl     *gomock.Controller
-	recorder *MockPlugableMockRecorder
+	recorder *MockPluginMockRecorder
 }
 
-// MockPlugableMockRecorder is the mock recorder for MockPlugable
-type MockPlugableMockRecorder struct {
-	mock *MockPlugable
+// MockPluginMockRecorder is the mock recorder for MockPlugin
+type MockPluginMockRecorder struct {
+	mock *MockPlugin
 }
 
-// NewMockPlugable creates a new mock instance
-func NewMockPlugable(ctrl *gomock.Controller) *MockPlugable {
-	mock := &MockPlugable{ctrl: ctrl}
-	mock.recorder = &MockPlugableMockRecorder{mock}
+// NewMockPlugin creates a new mock instance
+func NewMockPlugin(ctrl *gomock.Controller) *MockPlugin {
+	mock := &MockPlugin{ctrl: ctrl}
+	mock.recorder = &MockPluginMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use
-func (m *MockPlugable) EXPECT() *MockPlugableMockRecorder {
+func (m *MockPlugin) EXPECT() *MockPluginMockRecorder {
 	return m.recorder
 }
 
 // Load mocks base method
-func (m *MockPlugable) Load(service Server) error {
+func (m *MockPlugin) Load(service Server) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Load", service)
 	ret0, _ := ret[0].(error)
@@ -42,13 +41,13 @@ func (m *MockPlugable) Load(service Server) error {
 }
 
 // Load indicates an expected call of Load
-func (mr *MockPlugableMockRecorder) Load(service interface{}) *gomock.Call {
+func (mr *MockPluginMockRecorder) Load(service interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Load", reflect.TypeOf((*MockPlugable)(nil).Load), service)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Load", reflect.TypeOf((*MockPlugin)(nil).Load), service)
 }
 
 // Unload mocks base method
-func (m *MockPlugable) Unload() error {
+func (m *MockPlugin) Unload() error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Unload")
 	ret0, _ := ret[0].(error)
@@ -56,13 +55,13 @@ func (m *MockPlugable) Unload() error {
 }
 
 // Unload indicates an expected call of Unload
-func (mr *MockPlugableMockRecorder) Unload() *gomock.Call {
+func (mr *MockPluginMockRecorder) Unload() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unload", reflect.TypeOf((*MockPlugable)(nil).Unload))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unload", reflect.TypeOf((*MockPlugin)(nil).Unload))
 }
 
 // HookWrapper mocks base method
-func (m *MockPlugable) HookWrapper() HookWrapper {
+func (m *MockPlugin) HookWrapper() HookWrapper {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HookWrapper")
 	ret0, _ := ret[0].(HookWrapper)
@@ -70,13 +69,13 @@ func (m *MockPlugable) HookWrapper() HookWrapper {
 }
 
 // HookWrapper indicates an expected call of HookWrapper
-func (mr *MockPlugableMockRecorder) HookWrapper() *gomock.Call {
+func (mr *MockPluginMockRecorder) HookWrapper() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HookWrapper", reflect.TypeOf((*MockPlugable)(nil).HookWrapper))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HookWrapper", reflect.TypeOf((*MockPlugin)(nil).HookWrapper))
 }
 
 // Name mocks base method
-func (m *MockPlugable) Name() string {
+func (m *MockPlugin) Name() string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Name")
 	ret0, _ := ret[0].(string)
@@ -84,7 +83,7 @@ func (m *MockPlugable) Name() string {
 }
 
 // Name indicates an expected call of Name
-func (mr *MockPlugableMockRecorder) Name() *gomock.Call {
+func (mr *MockPluginMockRecorder) Name() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockPlugable)(nil).Name))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockPlugin)(nil).Name))
 }
