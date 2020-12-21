@@ -711,15 +711,13 @@ func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions 
 }
 
 func (client *client) internalClose() {
-	client.server.unregisterClient(client)
-
-	putBufioReader(client.bufr)
-	putBufioWriter(client.bufw)
-
 	// OnClosed hooks
 	if client.server.hooks.OnClosed != nil {
 		client.server.hooks.OnClosed(context.Background(), client, client.err)
 	}
+	client.server.unregisterClient(client)
+	putBufioReader(client.bufr)
+	putBufioWriter(client.bufw)
 	client.server.statsManager.clientDisconnected(client.opts.ClientID)
 }
 
