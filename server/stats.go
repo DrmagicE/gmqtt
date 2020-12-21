@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -386,8 +385,6 @@ func (s *statsManager) addQueueLen(clientID string, delta uint64) {
 	sts := s.getClientStats(clientID)
 	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, delta)
 	atomic.AddUint64(&s.totalStats.MessageStats.QueuedCurrent, delta)
-	fmt.Println("1")
-
 }
 func (s *statsManager) decQueueLen(clientID string, delta uint64) {
 	s.clientMu.Lock()
