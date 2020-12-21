@@ -276,6 +276,26 @@ func collectClientStats(c *server.ConnectionStats, m chan<- prometheus.Metric) {
 		float64(atomic.LoadUint64(&c.ConnectedTotal)),
 	)
 	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricPrefix+"sessions_created_total", "", nil, nil),
+		prometheus.GaugeValue,
+		float64(atomic.LoadUint64(&c.SessionCreatedTotal)),
+	)
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
+		prometheus.GaugeValue,
+		float64(atomic.LoadUint64(&c.SessionTerminated.Expired)), "expired",
+	)
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
+		prometheus.GaugeValue,
+		float64(atomic.LoadUint64(&c.SessionTerminated.TakenOver)), "taken_over",
+	)
+	m <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
+		prometheus.GaugeValue,
+		float64(atomic.LoadUint64(&c.SessionTerminated.Normal)), "normal",
+	)
+	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"sessions_active_current", "", nil, nil),
 		prometheus.GaugeValue,
 		float64(atomic.LoadUint64(&c.ActiveCurrent)),
@@ -290,11 +310,6 @@ func collectClientStats(c *server.ConnectionStats, m chan<- prometheus.Metric) {
 		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.DisconnectedTotal)),
 	)
-	//m <- prometheus.MustNewConstMetric(
-	//	prometheus.NewDesc(metricPrefix+"sessions_expired_total", "", nil, nil),
-	//	prometheus.CounterValue,
-	//	float64(atomic.LoadUint64(&c.ExpiredTotal)),
-	//)
 }
 func collectMessageStats(ms *server.MessageStats, m chan<- prometheus.Metric) {
 	collectMessageStatsDropped(ms, m)
@@ -336,7 +351,7 @@ func collectMessageStatsDropped(ms *server.MessageStats, m chan<- prometheus.Met
 }
 
 func collectMessageStatsQueued(ms *server.MessageStats, m chan<- prometheus.Metric) {
-	metricName := "messages_queued_current"
+	metricName := metricPrefix + "messages_queued_current"
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricName, "", nil, nil),
 		prometheus.GaugeValue,
@@ -344,7 +359,7 @@ func collectMessageStatsQueued(ms *server.MessageStats, m chan<- prometheus.Metr
 	)
 }
 func collectMessageStatsReceived(ms *server.MessageStats, m chan<- prometheus.Metric) {
-	metricName := "messages_received_total"
+	metricName := metricPrefix + "messages_received_total"
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricName, "", []string{"qos"}, nil),
 		prometheus.CounterValue,
@@ -362,7 +377,7 @@ func collectMessageStatsReceived(ms *server.MessageStats, m chan<- prometheus.Me
 	)
 }
 func collectMessageStatsSent(ms *server.MessageStats, m chan<- prometheus.Metric) {
-	metricName := "messages_sent_total"
+	metricName := metricPrefix + "messages_sent_total"
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricName, "", []string{"qos"}, nil),
 		prometheus.CounterValue,

@@ -362,31 +362,42 @@ func (s *statsManager) addInflight(clientID string, delta uint64) {
 	defer s.clientMu.Unlock()
 	sts := s.getClientStats(clientID)
 	atomic.AddUint64(&sts.MessageStats.InflightCurrent, delta)
+	atomic.AddUint64(&s.totalStats.MessageStats.InflightCurrent, 1)
 }
 func (s *statsManager) decInflight(clientID string, delta uint64) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
 	sts := s.getClientStats(clientID)
+	// Avoid the counter to be negative.
+	// This could happen if the broker is start with persistence data loaded and send messages from the persistent queue.
+	// Because the statistic data is not persistent, the init value is always 0.
 	if atomic.LoadUint64(&sts.MessageStats.QueuedCurrent) == 0 {
 		return
 	}
 	atomic.AddUint64(&sts.MessageStats.InflightCurrent, ^uint64(delta-1))
+	atomic.AddUint64(&s.totalStats.MessageStats.InflightCurrent, ^uint64(delta-1))
 }
 
 func (s *statsManager) addQueueLen(clientID string, delta uint64) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
+
 	sts := s.getClientStats(clientID)
 	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, delta)
+	atomic.AddUint64(&s.totalStats.MessageStats.QueuedCurrent, delta)
 }
 func (s *statsManager) decQueueLen(clientID string, delta uint64) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
 	sts := s.getClientStats(clientID)
+	// Avoid the counter to be negative.
+	// This could happen if the broker is start with persistence data loaded and send messages from the persistent queue.
+	// Because the statistic data is not persistent, the init value is always 0.
 	if atomic.LoadUint64(&sts.MessageStats.QueuedCurrent) == 0 {
 		return
 	}
 	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, ^uint64(delta-1))
+	atomic.AddUint64(&s.totalStats.MessageStats.QueuedCurrent, ^uint64(delta-1))
 }
 
 func (m *MessageStats) copy() *MessageStats {
