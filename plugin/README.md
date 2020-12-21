@@ -1,5 +1,5 @@
 # Plugin
-
+[Gmqtt插件机制详解](https://juejin.cn/post/6908305981923409934)
 ## How to write plugins
 Gmqtt uses code generator to generate plugin template. 
 
@@ -17,9 +17,9 @@ Usage:
   gmqctl gen plugin [flags]
 
 Examples:
-The following command will generate a code template for the 'awesome' plugin, which makes use of OnConnect and OnSubscribe hook and enables the configuration in ./plugins directory.
+The following command will generate a code template for the 'awesome' plugin, which makes use of OnBasicAuth and OnSubscribe hook and enables the configuration in ./plugin directory.
 
-gmqctl gen plugin -n awesome -H OnConnect,OnSubscribe -c true -o ./plugins
+gmqctl gen plugin -n awesome -H OnBasicAuth,OnSubscribe -c true -o ./plugin
 
 Flags:
   -c, --config          Whether the plugin needs a configuration.
