@@ -120,6 +120,9 @@ See `/examples/hook` for details.
 ## How to write plugins
 [How to write plugins](https://github.com/DrmagicE/gmqtt/blob/master/plugin/README.md)
 
+# Contributing
+Contributions are always welcome, see [Contribution Guide](https://github.com/DrmagicE/gmqtt/blob/master/CONTRIBUTING.md) for a complete contributing guide.
+
 # Test
 ## Unit Test
 ```
