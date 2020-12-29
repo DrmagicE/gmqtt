@@ -46,7 +46,7 @@ clean:
 # remove all generated artifacts and clean all build artifacts
 clean-all:
 	go clean -i ./...
-	rm -fr rpc
+	rm -fr build
 
 # fetch and install all required tools
 tools:
@@ -103,7 +103,7 @@ run:
 
 # generate all grpc files and mocks and build the go code
 build:
-	go build -o $(BUILD_DIR)/gmqtt ./cmd/gmqttd
+	go build -o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
 
 # generate mocks and run short tests
 test: generate-mocks
@@ -128,4 +128,7 @@ test-all: test test-bench test-cover
 
 # Build Golang application binary with settings to enable it to run in a Docker scratch container.
 binary: generate-grpc
-	CGO_ENABLED=0 GOOS=linux go build  -ldflags '-s' -installsuffix cgo main.go
+	CGO_ENABLED=0 GOOS=linux go build  -ldflags '-s' -installsuffix cgo o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
+
+build-docker:
+	docker build -t gmqtt .

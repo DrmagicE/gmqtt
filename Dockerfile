@@ -1,23 +1,21 @@
-FROM golang:latest AS builder
+FROM golang:alpine AS builder
+
+RUN apk add make git
 
 ADD . /go/src/github.com/DrmagicE/gmqtt
-WORKDIR /go/src/github.com/DrmagicE/gmqtt/cmd/gmqttd
+WORKDIR /go/src/github.com/DrmagicE/gmqtt
 
 ENV GO111MODULE on
 ENV GOPROXY https://goproxy.cn
 
-EXPOSE 1883
-EXPOSE 8883
-EXPOSE 8082
-EXPOSE 8083
-EXPOSE 8084
+EXPOSE 1883 8883 8082 8083 8084
 
-RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o gmqttd .
+RUN make binary
 
 FROM alpine:3.12
 
 WORKDIR /gmqttd
-COPY --from=builder /go/src/github.com/DrmagicE/gmqtt/cmd/gmqttd/gmqttd .
+COPY --from=builder /go/src/github.com/DrmagicE/gmqtt/build/gmqttd .
 ENV PATH=$PATH:/gmqttd
 RUN chmod +x gmqttd
 ENTRYPOINT ["gmqttd","start"]
