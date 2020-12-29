@@ -52,7 +52,7 @@ clean-all:
 tools:
 	go get -u golang.org/x/tools/cmd/goimports
 	go get -u github.com/golang/lint/golint
-	go get -u github.com/matryer/moq
+	go get github.com/golang/mock/mockgen@v1.4.4
 	# Reqire when adding proto and grpc compilation
 	# go get -u github.com/golang/protobuf/protoc-gen-go
 	# go get -u github.com/mwitkow/go-proto-validators/protoc-gen-govalidators
@@ -61,7 +61,6 @@ tools:
 
 # format the go source files
 fmt:
-	go fmt ./...
 	goimports -w $(FILES)
 
 # run go lint on the source files
@@ -78,7 +77,7 @@ doc:
 
 # update golang dependencies
 update-dependencies:
-	dep ensure
+	go mod tidy
 
 # generate grpc, grpc-gw files and swagger docs
 generate-grpc: compile-proto generate-grpcgw generate-swagger
@@ -108,11 +107,7 @@ build:
 
 # generate mocks and run short tests
 test: generate-mocks
-	go test -v ./... -short
-
-# generate mocks and run all tests
-test-it: generate-mocks
-	go test -v ./...
+	go test -v -race ./... 
 
 # run benchmark tests
 test-bench: generate-mocks
