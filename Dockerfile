@@ -6,7 +6,7 @@ ADD . /go/src/github.com/DrmagicE/gmqtt
 WORKDIR /go/src/github.com/DrmagicE/gmqtt
 
 ENV GO111MODULE on
-ENV GOPROXY https://goproxy.cn
+#ENV GOPROXY https://goproxy.cn
 
 EXPOSE 1883 8883 8082 8083 8084
 

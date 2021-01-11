@@ -128,7 +128,7 @@ test-all: test test-bench test-cover
 
 # Build Golang application binary with settings to enable it to run in a Docker scratch container.
 binary: generate-grpc
-	CGO_ENABLED=0 GOOS=linux go build  -ldflags '-s' -installsuffix cgo o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
+	CGO_ENABLED=0 GOOS=linux go build  -ldflags '-s' -o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
 
 build-docker:
-	docker build -t gmqtt .
+	docker build -t gmqtt/gmqttd .
