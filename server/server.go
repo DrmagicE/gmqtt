@@ -364,6 +364,11 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		if err == nil {
 			client.session = sess
 			if sessionResume {
+				// If a new Network Connection to this Session is made before the Will Delay Interval has passed,
+				// the Server MUST NOT send the Will Message [MQTT-3.1.3-9].
+				if w, ok := srv.willMessage[client.opts.ClientID]; ok {
+					w.signal(false)
+				}
 				if srv.hooks.OnSessionResumed != nil {
 					srv.hooks.OnSessionResumed(context.Background(), client)
 				}
@@ -408,6 +413,10 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			if err != nil {
 				err = fmt.Errorf("session terminated fail: %w", err)
 				zaplog.Error("session terminated fail", zap.Error(err))
+			}
+			// Send will message because the previous session is ended.
+			if w, ok := srv.willMessage[client.opts.ClientID]; ok {
+				w.signal(true)
 			}
 		} else {
 			qs = srv.queueStore[client.opts.ClientID]
@@ -476,8 +485,17 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 }
 
 type willMsg struct {
-	msg    *gmqtt.Message
-	cancel chan struct{}
+	msg     *gmqtt.Message
+	// If true, send the msg.
+	// If false, discard the msg.
+	send chan bool
+}
+
+func (w *willMsg) signal(send bool) {
+	select {
+	case w.send<-send:
+	default:
+	}
 }
 
 func (srv *server) unregisterClient(client *client) {
@@ -506,20 +524,25 @@ func (srv *server) unregisterClient(client *client) {
 			msg := sess.Will.Copy()
 			if willDelayInterval != 0 && storeSession {
 				wm := &willMsg{
-					msg:    msg,
-					cancel: make(chan struct{}),
+					msg:  msg,
+					send: make(chan bool,1),
 				}
 				srv.willMessage[client.opts.ClientID] = wm
 				t := time.NewTimer(time.Duration(willDelayInterval) * time.Second)
 				go func(clientID string) {
+					var send bool
 					select {
-					case <-wm.cancel:
+					case send = <-wm.send:
 						t.Stop()
 					case <-t.C:
-						srv.mu.Lock()
-						srv.deliverMessageHandler(clientID, msg)
-						srv.mu.Unlock()
+						send = true
 					}
+					srv.mu.Lock()
+					defer srv.mu.Unlock()
+					if send {
+						srv.deliverMessageHandler(clientID, msg)
+					}
+					delete(srv.willMessage,clientID)
 				}(client.opts.ClientID)
 			} else {
 				srv.deliverMessageHandler(client.opts.ClientID, msg)
