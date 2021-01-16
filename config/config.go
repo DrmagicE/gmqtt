@@ -72,9 +72,11 @@ var DefaultListeners = []*ListenerConfig{
 // LogConfig is use to configure the log behaviors.
 type LogConfig struct {
 	// Level is the log level. Possible values: debug, info, warn, error
-	Level string
+	Level string `yaml:"level"`
 	// Format is the log format. Possible values: json, text
-	Format string
+	Format string `yaml:"format"`
+	// DumpPacket indicates whether to dump MQTT packet in debug level.
+	DumpPacket bool `yaml:"dump_packet"`
 }
 
 func (l LogConfig) Validate() error {

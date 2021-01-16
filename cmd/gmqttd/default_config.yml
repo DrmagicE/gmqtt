@@ -85,7 +85,8 @@ plugin_order:
 log:
   level: info # debug | info | warn | error
   format: text # json | text
-
+  # whether to dump MQTT packet in debug level
+  dump_packet: false
 
 
 
