@@ -6,10 +6,12 @@ require (
 	github.com/golang/mock v1.2.0
 	github.com/golang/protobuf v1.4.2
 	github.com/gomodule/redigo v1.8.2
+	github.com/google/uuid v1.1.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
+	github.com/hashicorp/serf v0.9.5
 	github.com/iancoleman/strcase v0.1.2
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/pkg/errors v0.8.1

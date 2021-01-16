@@ -1,15 +1,16 @@
+pid_file: gmqttd1.pid
 listeners:
   # bind address
-  - address: ":1883"
+  - address: ":1884"
     # tls setting
   #      tls:
   #        cert_file: "path_to_cert_file"
   #        key_file: "path_to_key_file"
 
-  - address: ":8883"
-    # websocket setting
-    websocket:
-      path: "/"
+#  - address: ":8883"
+#    # websocket setting
+#    websocket:
+#      path: "/"
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -69,11 +70,12 @@ plugins:
     # The file to store password. Default to $HOME/gmqtt_password.yml
     # password_file:
   federation:
-    node_name: node
-    fed_addr: 127.0.0.1:8081
-    gossip_addr: 127.0.0.1:7071
+    node_name: node1
+    fed_addr: 127.0.0.1:8080
+    gossip_addr: 127.0.0.1:7070
     join:
-      - 127.0.0.1:7070
+      - 127.0.0.1:7071
+
 
 # plugin loading orders
 plugin_order:

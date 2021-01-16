@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package gmqtt.federation.api;
+option go_package = ".;federation";
+
+
+message Event {
+    uint64 id = 1;
+    oneof Event {
+        Subscribe Subscribe = 2;
+        Message message = 3;
+        Unsubscribe unsubscribe = 4;
+    }
+}
+
+message Subscribe {
+    string share_name = 1;
+    string topic_filter=2;
+    uint32 id = 3;
+    uint32 qos = 4;
+    bool no_local = 5;
+    bool retain_as_published = 6;
+    uint32 retain_handling = 7;
+}
+
+message Message{
+    string topic_name = 1;
+    string payload = 2;
+    uint32 qos = 3;
+    bool retained = 4;
+    // the following fields are using in v5 client.
+    string content_type = 5;
+    string correlation_data = 6;
+    uint32 message_expiry = 7;
+    uint32 payload_format = 8;
+    string response_topic = 9;
+    repeated UserProperties user_properties = 10;
+}
+
+message UserProperties {
+    bytes K = 1;
+    bytes V = 2;
+}
+message Unsubscribe{
+    string topic_name = 1;
+}
+
+message Ack {
+    uint64 event_id = 1;
+}
+
+message ClientHello {
+    string session_id =1;
+}
+
+message ServerHello{
+    bool clean_start = 1;
+    uint64 next_event_id = 2;
+}
+
+service Federation {
+    rpc Hello( ClientHello) returns (ServerHello){}
+    rpc EventStream (stream Event) returns (stream Ack){}
+}
