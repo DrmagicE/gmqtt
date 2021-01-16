@@ -319,12 +319,14 @@ func (client *client) writeLoop() {
 }
 
 func (client *client) writePacket(packet packets.Packet) error {
-	if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
-		ce.Write(
-			zap.String("packet", packet.String()),
-			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-			zap.String("client_id", client.opts.ClientID),
-		)
+	if client.server.config.Log.DumpPacket {
+		if ce := zaplog.Check(zapcore.DebugLevel, "sending packet"); ce != nil {
+			ce.Write(
+				zap.String("packet", packet.String()),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+				zap.String("client_id", client.opts.ClientID),
+			)
+		}
 	}
 	err := client.packetWriter.WritePacket(packet)
 	if err != nil {
@@ -388,12 +390,14 @@ func (client *client) readLoop() {
 		client.in <- packet
 		<-client.connected
 		srv.statsManager.packetReceived(packet, client.opts.ClientID)
-		if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
-			ce.Write(
-				zap.String("packet", packet.String()),
-				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-				zap.String("client_id", client.opts.ClientID),
-			)
+		if client.server.config.Log.DumpPacket {
+			if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
+				ce.Write(
+					zap.String("packet", packet.String()),
+					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+					zap.String("client_id", client.opts.ClientID),
+				)
+			}
 		}
 	}
 }
