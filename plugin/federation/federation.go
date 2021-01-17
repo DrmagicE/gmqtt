@@ -33,14 +33,16 @@ func init() {
 
 func New(config config.Config) (server.Plugin, error) {
 	return &Federation{
-		config:      config.Plugins[Name].(*Config),
-		nodeName:    config.Plugins[Name].(*Config).NodeName,
-		serfEventCh: make(chan serf.Event, 10000),
-		members:     make(map[string]serf.Member),
-		sessions:    make(map[string]*session),
-		peers:       make(map[string]*peer),
-		exit:        make(chan struct{}),
-		wg:          &sync.WaitGroup{},
+		config:        config.Plugins[Name].(*Config),
+		nodeName:      config.Plugins[Name].(*Config).NodeName,
+		localSubStore: &localSubStore{},
+		feSubStore:    mem.NewStore(),
+		serfEventCh:   make(chan serf.Event, 10000),
+		members:       make(map[string]serf.Member),
+		sessions:      make(map[string]*session),
+		peers:         make(map[string]*peer),
+		exit:          make(chan struct{}),
+		wg:            &sync.WaitGroup{},
 	}, nil
 }
 
@@ -55,9 +57,7 @@ type Federation struct {
 	sessMu   sync.Mutex
 	sessions map[string]*session
 
-	// localSubStore is a copy of broker subscription tree, the difference is localSubStore will take local node name as clientID.
-	// If the remote node requests a full subscription state, the plugin will iterate it and send them to the node.
-	localSubStore server.SubscriptionService
+	localSubStore *localSubStore
 	// feSubStore store federation subscription tree which take nodeName as clientID, It is used to determine which node the incoming message should be routed to.
 	feSubStore    *mem.TrieDB
 	retainedStore retained.Store
@@ -66,6 +66,86 @@ type Federation struct {
 	exit          chan struct{}
 	mu            sync.Mutex
 	wg            *sync.WaitGroup
+}
+
+type localSubStore struct {
+	sync.Mutex
+	// [clientID][topicName]
+	index map[string]map[string]struct{}
+	// topics store the reference counter for each topic
+	topics map[string]uint64
+}
+
+func (l *localSubStore) init(sub server.SubscriptionService) {
+	l.index = make(map[string]map[string]struct{})
+	l.topics = make(map[string]uint64)
+	l.Lock()
+	defer l.Unlock()
+	// copy and convert subscription tree into localSubStore
+	sub.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+		l.subscribeLocked(clientID, sub.GetFullTopicName())
+		return true
+	}, subscription.IterationOptions{
+		Type: subscription.TypeAll,
+	})
+}
+
+func (l *localSubStore) subscribe(clientID string, topicName string) (new bool) {
+	l.Lock()
+	defer l.Unlock()
+	return l.subscribeLocked(clientID, topicName)
+}
+
+func (l *localSubStore) subscribeLocked(clientID string, topicName string) (new bool) {
+	if _, ok := l.index[clientID]; !ok {
+		l.index[clientID] = make(map[string]struct{})
+	}
+	if _, ok := l.index[clientID][topicName]; !ok {
+		l.index[clientID][topicName] = struct{}{}
+		l.topics[topicName]++
+		return true
+	}
+	return false
+}
+
+func (l *localSubStore) decTopicCounterLocked(topicName string) {
+	if _, ok := l.topics[topicName]; ok {
+		l.topics[topicName]--
+		if l.topics[topicName] <= 0 {
+			delete(l.topics, topicName)
+		}
+	}
+}
+
+func (l *localSubStore) unsubscribe(clientID string, topicName string) (remove bool) {
+	l.Lock()
+	defer l.Unlock()
+	if v, ok := l.index[clientID]; ok {
+		if _, ok := v[topicName]; ok {
+			delete(v, topicName)
+			l.decTopicCounterLocked(topicName)
+			if len(v) == 0 {
+				delete(l.index, clientID)
+			}
+			return l.topics[topicName] == 0
+		}
+	}
+	return false
+
+}
+
+func (l *localSubStore) unsubscribeAll(clientID string) (remove []string) {
+	l.Lock()
+	defer l.Unlock()
+
+	for topicName := range l.index[clientID] {
+		l.decTopicCounterLocked(topicName)
+		if l.topics[topicName] == 0 {
+			remove = append(remove, topicName)
+		}
+	}
+	delete(l.index, clientID)
+	return remove
 }
 
 type session struct {
@@ -90,6 +170,7 @@ func getNodeNameFromContext(ctx context.Context) (string, error) {
 	return nodeName, nil
 }
 
+// Hello is the handler for the handshake process before opening the event stream.
 func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerHello, err error) {
 	nodeName, err := getNodeNameFromContext(ctx)
 	if err != nil {
@@ -124,13 +205,8 @@ func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 	eventID := in.Id
 	if sub := in.GetSubscribe(); sub != nil {
 		_, _ = f.feSubStore.Subscribe(sess.nodeName, &gmqtt.Subscription{
-			ShareName:         sub.ShareName,
-			TopicFilter:       sub.TopicFilter,
-			ID:                sub.Id,
-			QoS:               byte(sub.Qos),
-			NoLocal:           sub.NoLocal,
-			RetainAsPublished: sub.RetainAsPublished,
-			RetainHandling:    byte(sub.RetainHandling),
+			ShareName:   sub.ShareName,
+			TopicFilter: sub.TopicFilter,
 		})
 		return &Ack{EventId: eventID}
 	}
@@ -156,7 +232,6 @@ func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 		if pubMsg.Retained {
 			f.retainedStore.AddOrReplace(pubMsg)
 		}
-
 		return &Ack{EventId: eventID}
 	}
 	if unsub := in.GetUnsubscribe(); unsub != nil {
@@ -199,12 +274,14 @@ func (f *Federation) EventStream(stream Federation_EventStreamServer) (err error
 		if err != nil {
 			return err
 		}
-		log.Info("event received", zap.String("event", in.String()))
+		log.Debug("event received", zap.String("event", in.String()))
 		ack := f.eventStreamHandler(sess, in)
+
 		err = stream.Send(ack)
 		if err != nil {
 			return err
 		}
+		log.Debug("event ack sent", zap.Uint64("id", ack.EventId))
 		sess.nextEventID = ack.EventId + 1
 	}
 }
@@ -214,19 +291,10 @@ func (f *Federation) mustEmbedUnimplementedFederationServer() {
 }
 
 func (f *Federation) Load(service server.Server) error {
-	// copy and convert subscription tree into localSubStore
-	service.SubscriptionService().Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
-		_, _ = f.localSubStore.Subscribe(f.nodeName, sub)
-		return true
-	}, subscription.IterationOptions{
-		Type: subscription.TypeAll,
-	})
+	f.localSubStore.init(service.SubscriptionService())
 	f.retainedStore = service.RetainedService()
 	f.publisher = service.Publisher()
-	f.feSubStore = mem.NewStore()
-	f.localSubStore = mem.NewStore()
 	log = server.LoggerWithField(zap.String("plugin", Name))
-	log.Info("local node", zap.String("node_name", f.nodeName))
 	srv := grpc.NewServer()
 	RegisterFederationServer(srv, f)
 	l, err := net.Listen("tcp", f.config.FedAddr)
@@ -250,18 +318,6 @@ func (f *Federation) Name() string {
 	return Name
 }
 
-func subscriptionToEvent(subscription *gmqtt.Subscription) *Subscribe {
-	return &Subscribe{
-		ShareName:         subscription.ShareName,
-		TopicFilter:       subscription.TopicFilter,
-		Id:                subscription.ID,
-		Qos:               uint32(subscription.QoS),
-		NoLocal:           subscription.NoLocal,
-		RetainAsPublished: subscription.RetainAsPublished,
-		RetainHandling:    uint32(subscription.RetainHandling),
-	}
-}
-
 func messageToEvent(msg *gmqtt.Message) *Message {
 	eventMsg := &Message{
 		TopicName:       msg.Topic,
@@ -275,7 +331,10 @@ func messageToEvent(msg *gmqtt.Message) *Message {
 		ResponseTopic:   msg.ResponseTopic,
 	}
 	for _, v := range msg.UserProperties {
-		ppt := &UserProperties{}
+		ppt := &UserProperty{
+			K: make([]byte, len(v.K)),
+			V: make([]byte, len(v.V)),
+		}
 		copy(ppt.K, v.K)
 		copy(ppt.V, v.V)
 		eventMsg.UserProperties = append(eventMsg.UserProperties, ppt)

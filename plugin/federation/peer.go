@@ -26,18 +26,29 @@ type peer struct {
 	exit      chan struct{}
 	// local session id
 	sessionID string
-	queue     *eventQueue
+	queue     queue
 	// client-side stream
 	stream *stream
 }
 
 type stream struct {
-	queue   *eventQueue
+	queue   queue
 	client  Federation_EventStreamClient
 	close   chan struct{}
 	errOnce sync.Once
 	err     error
 	wg      sync.WaitGroup
+}
+
+// interface for testing
+type queue interface {
+	clear()
+	close()
+	open()
+	setReadPosition(id uint64)
+	add(event *Event)
+	fetchEvents() []*Event
+	ack(id uint64)
 }
 
 // eventQueue store the events that are ready to send.
@@ -120,9 +131,8 @@ func (e *eventQueue) fetchEvents() []*Event {
 	}
 	ev := make([]*Event, 0)
 	var elem *list.Element
-
+	elem = e.nextRead
 	for i := 0; i < 100; i++ {
-		elem = e.nextRead
 		ev = append(ev, elem.Value.(*Event))
 		elem = elem.Next()
 		if elem == nil {
@@ -220,14 +230,18 @@ func (p *peer) serveStream(reconnectCount int, backoff *time.Timer) (err error) 
 	if sh.CleanStart {
 		p.queue.clear()
 		// sync full state
-		p.fed.localSubStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+		p.fed.localSubStore.Lock()
+		for k := range p.fed.localSubStore.topics {
+			shareName, topicFilter := subscription.SplitTopic(k)
 			p.queue.add(&Event{
-				Event: &Event_Subscribe{Subscribe: subscriptionToEvent(sub)},
+				Event: &Event_Subscribe{Subscribe: &Subscribe{
+					ShareName:   shareName,
+					TopicFilter: topicFilter,
+				}},
 			})
-			return true
-		}, subscription.IterationOptions{
-			Type: subscription.TypeAll,
-		})
+		}
+		p.fed.localSubStore.Unlock()
+
 		p.fed.retainedStore.Iterate(func(message *gmqtt.Message) bool {
 			p.queue.add(&Event{
 				Event: &Event_Message{
@@ -290,7 +304,7 @@ func (s *stream) readLoop() {
 				return
 			}
 			s.queue.ack(resp.EventId)
-			log.Info("event acked", zap.Uint64("id", resp.EventId))
+			log.Debug("event acked", zap.Uint64("id", resp.EventId))
 		}
 	}
 }
@@ -315,7 +329,7 @@ func (s *stream) sendEvents() {
 			if err != nil {
 				return
 			}
-			log.Info("event sent", zap.String("event", v.String()))
+			log.Debug("event sent", zap.String("event", v.String()))
 		}
 	}
 }

@@ -10,6 +10,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+var servePeerEventStream = func(p *peer) {
+	p.serveEventStream()
+}
+
 func (f *Federation) startSerf() error {
 	serfCfg := serf.DefaultConfig()
 	serfCfg.NodeName = f.config.NodeName
@@ -78,7 +82,7 @@ func (f *Federation) nodeJoin(member serf.MemberEvent) {
 				localName: f.nodeName,
 			}
 			f.peers[v.Name] = p
-			go p.serveEventStream()
+			go servePeerEventStream(p)
 		}
 	}
 }

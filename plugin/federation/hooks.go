@@ -10,9 +10,10 @@ import (
 
 func (f *Federation) HookWrapper() server.HookWrapper {
 	return server.HookWrapper{
-		OnSubscribedWrapper:   f.OnSubscribedWrapper,
-		OnUnsubscribedWrapper: f.OnUnsubscribedWrapper,
-		OnMsgArrivedWrapper:   f.OnMsgArrivedWrapper,
+		OnSubscribedWrapper:        f.OnSubscribedWrapper,
+		OnUnsubscribedWrapper:      f.OnUnsubscribedWrapper,
+		OnMsgArrivedWrapper:        f.OnMsgArrivedWrapper,
+		OnSessionTerminatedWrapper: f.OnSessionTerminatedWrapper,
 	}
 }
 
@@ -20,11 +21,17 @@ func (f *Federation) OnSubscribedWrapper(pre server.OnSubscribed) server.OnSubsc
 	return func(ctx context.Context, client server.Client, subscription *gmqtt.Subscription) {
 		pre(ctx, client, subscription)
 		if subscription != nil {
-			_, _ = f.localSubStore.Subscribe(f.nodeName, subscription)
+			if !f.localSubStore.subscribe(client.ClientOptions().ClientID, subscription.GetFullTopicName()) {
+				return
+			}
+			// only send new subscription
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			for _, v := range f.peers {
-				sub := subscriptionToEvent(subscription)
+				sub := &Subscribe{
+					ShareName:   subscription.ShareName,
+					TopicFilter: subscription.TopicFilter,
+				}
 				v.queue.add(&Event{
 					Event: &Event_Subscribe{
 						Subscribe: sub,
@@ -37,7 +44,10 @@ func (f *Federation) OnSubscribedWrapper(pre server.OnSubscribed) server.OnSubsc
 func (f *Federation) OnUnsubscribedWrapper(pre server.OnUnsubscribed) server.OnUnsubscribed {
 	return func(ctx context.Context, client server.Client, topicName string) {
 		pre(ctx, client, topicName)
-		_ = f.localSubStore.Unsubscribe(f.nodeName, topicName)
+		if !f.localSubStore.unsubscribe(client.ClientOptions().ClientID, topicName) {
+			return
+		}
+		// only unsubscribe topic if there is no local subscriber anymore.
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		for _, v := range f.peers {
@@ -73,14 +83,18 @@ func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgAr
 				return nil
 			}
 			// For not retained message , send it to the nodes which have matched topics.
-			// TODO The delivery mode is Overlap, make it configurable.
-			f.feSubStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
-				if p, ok := f.peers[clientID]; ok {
+			sent := make(map[string]struct{})
+			f.feSubStore.Iterate(func(nodeName string, sub *gmqtt.Subscription) bool {
+				if _, ok := sent[nodeName]; ok {
+					return true
+				}
+				if p, ok := f.peers[nodeName]; ok {
 					msg := messageToEvent(req.Message)
 					p.queue.add(&Event{
 						Event: &Event_Message{
 							Message: msg,
 						}})
+					sent[nodeName] = struct{}{}
 				}
 				return true
 			}, subscription.IterationOptions{
@@ -91,6 +105,28 @@ func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgAr
 
 		}
 		return nil
+	}
+
+}
+
+func (f *Federation) OnSessionTerminatedWrapper(pre server.OnSessionTerminated) server.OnSessionTerminated {
+	return func(ctx context.Context, clientID string, reason server.SessionTerminatedReason) {
+		pre(ctx, clientID, reason)
+		if unsubs := f.localSubStore.unsubscribeAll(clientID); len(unsubs) != 0 {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			for _, v := range f.peers {
+				for _, topicName := range unsubs {
+					unsub := &Unsubscribe{
+						TopicName: topicName,
+					}
+					v.queue.add(&Event{
+						Event: &Event_Unsubscribe{
+							Unsubscribe: unsub,
+						}})
+				}
+			}
+		}
 	}
 
 }

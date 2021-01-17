@@ -13,14 +13,11 @@ message Event {
     }
 }
 
+// Subscribe represents the subscription for a node, it is used to route message among nodes,
+// so only shared_name and topic_filter is required.
 message Subscribe {
     string share_name = 1;
-    string topic_filter=2;
-    uint32 id = 3;
-    uint32 qos = 4;
-    bool no_local = 5;
-    bool retain_as_published = 6;
-    uint32 retain_handling = 7;
+    string topic_filter = 2;
 }
 
 message Message{
@@ -34,10 +31,10 @@ message Message{
     uint32 message_expiry = 7;
     uint32 payload_format = 8;
     string response_topic = 9;
-    repeated UserProperties user_properties = 10;
+    repeated UserProperty user_properties = 10;
 }
 
-message UserProperties {
+message UserProperty {
     bytes K = 1;
     bytes V = 2;
 }
