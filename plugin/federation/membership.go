@@ -72,7 +72,7 @@ func (f *Federation) nodeJoin(member serf.MemberEvent) {
 			continue
 		}
 		log.Info("member joined", zap.String("node_name", v.Name))
-		if _, ok := f.members[v.Name]; !ok {
+		if _, ok := f.peers[v.Name]; !ok {
 			p := &peer{
 				fed:       f,
 				member:    v,

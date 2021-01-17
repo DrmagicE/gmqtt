@@ -65,7 +65,8 @@ func TestLocalSubStore_sub_unsub(t *testing.T) {
 		},
 	}, l.index)
 
-	a.True(l.subscribe("client2", "topic1"))
+	// test duplicated subscribe
+	a.False(l.subscribe("client2", "topic1"))
 	a.Equal(map[string]uint64{
 		"topic1": 2,
 	}, l.topics)

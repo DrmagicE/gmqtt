@@ -38,7 +38,6 @@ func New(config config.Config) (server.Plugin, error) {
 		localSubStore: &localSubStore{},
 		feSubStore:    mem.NewStore(),
 		serfEventCh:   make(chan serf.Event, 10000),
-		members:       make(map[string]serf.Member),
 		sessions:      make(map[string]*session),
 		peers:         make(map[string]*peer),
 		exit:          make(chan struct{}),
@@ -52,7 +51,6 @@ type Federation struct {
 	config      *Config
 	nodeName    string
 	serfEventCh chan serf.Event
-	members     map[string]serf.Member
 
 	sessMu   sync.Mutex
 	sessions map[string]*session
@@ -103,7 +101,9 @@ func (l *localSubStore) subscribeLocked(clientID string, topicName string) (new 
 	if _, ok := l.index[clientID][topicName]; !ok {
 		l.index[clientID][topicName] = struct{}{}
 		l.topics[topicName]++
-		return true
+		if l.topics[topicName] == 1 {
+			return true
+		}
 	}
 	return false
 }
@@ -123,10 +123,10 @@ func (l *localSubStore) unsubscribe(clientID string, topicName string) (remove b
 	if v, ok := l.index[clientID]; ok {
 		if _, ok := v[topicName]; ok {
 			delete(v, topicName)
-			l.decTopicCounterLocked(topicName)
 			if len(v) == 0 {
 				delete(l.index, clientID)
 			}
+			l.decTopicCounterLocked(topicName)
 			return l.topics[topicName] == 0
 		}
 	}
