@@ -96,8 +96,7 @@ generate-swagger:
 
 # generate mock code
 generate-mocks:
-	go generate ./...
-
+	@./mock_gen.sh
 run:
 	go run ./cmd/gmqttd start -c ./cmd/gmqttd/default_config.yml
 

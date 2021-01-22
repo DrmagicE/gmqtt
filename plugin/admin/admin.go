@@ -2,16 +2,11 @@ package admin
 
 import (
 	"context"
-	"net"
 	"net/http"
 
-	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/server"
@@ -35,40 +30,25 @@ func New(config config.Config) (server.Plugin, error) {
 
 var log *zap.Logger
 
-// GRPCGatewayRegister provides the ability to share the gRPC and HTTP server to other plugins.
-type GRPCGatewayRegister interface {
-	GRPCRegister
-	HTTPRegister
-}
-
-// GRPCRegister is the interface that enable the implement to expose gRPC endpoint.
-type GRPCRegister interface {
-	// RegisterGRPC registers the gRPC handler into gRPC server which created by admin plugin.
-	RegisterGRPC(s grpc.ServiceRegistrar)
-}
-
-// HTTPRegister is the interface that enable the implement to expose HTTP endpoint.
-type HTTPRegister interface {
-	// RegisterHTTP registers the http handler into http server which created by admin plugin.
-	RegisterHTTP(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error)
-}
-
 // Admin providers gRPC and HTTP API that enables the external system to interact with the broker.
 type Admin struct {
 	config        Config
 	httpServer    *http.Server
-	grpcServer    *grpc.Server
 	statsReader   server.StatsReader
 	publisher     server.Publisher
 	clientService server.ClientService
 	store         *store
 }
 
+var ABC = func(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+}
+
+// TODO
 func (a *Admin) registerHTTP(mux *runtime.ServeMux) (err error) {
 	err = RegisterClientServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
-		a.config.GRPC.Addr,
+		"unix:./gmqttd.sock",
 		[]grpc.DialOption{grpc.WithInsecure()},
 	)
 	if err != nil {
@@ -78,7 +58,7 @@ func (a *Admin) registerHTTP(mux *runtime.ServeMux) (err error) {
 	err = RegisterSubscriptionServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
-		a.config.GRPC.Addr,
+		"unix:./gmqttd.sock",
 		[]grpc.DialOption{grpc.WithInsecure()},
 	)
 	if err != nil {
@@ -87,7 +67,7 @@ func (a *Admin) registerHTTP(mux *runtime.ServeMux) (err error) {
 	err = RegisterPublishServiceHandlerFromEndpoint(
 		context.Background(),
 		mux,
-		a.config.GRPC.Addr,
+		"unix:./gmqttd.sock",
 		[]grpc.DialOption{grpc.WithInsecure()},
 	)
 
@@ -109,22 +89,13 @@ func (a *Admin) registerHTTP(mux *runtime.ServeMux) (err error) {
 }
 
 func (a *Admin) Load(service server.Server) error {
-	log = server.LoggerWithField(zap.String("plugin", Name))
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			grpc_zap.UnaryServerInterceptor(log, grpc_zap.WithLevels(func(code codes.Code) zapcore.Level {
-				if code == codes.OK {
-					return zapcore.DebugLevel
-				}
-				return grpc_zap.DefaultClientCodeToLevel(code)
-			})),
-			grpc_prometheus.UnaryServerInterceptor),
-	)
-	a.grpcServer = s
+	gRPCReg := service.GRPCRegistrar()
 
-	RegisterClientServiceServer(s, &clientService{a: a})
-	RegisterSubscriptionServiceServer(s, &subscriptionService{a: a})
-	RegisterPublishServiceServer(s, &publisher{a: a})
+	log = server.LoggerWithField(zap.String("plugin", Name))
+
+	RegisterClientServiceServer(gRPCReg, &clientService{a: a})
+	RegisterSubscriptionServiceServer(gRPCReg, &subscriptionService{a: a})
+	RegisterPublishServiceServer(gRPCReg, &publisher{a: a})
 	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{OrigName: true, EmitDefaults: true}))
 	if a.config.HTTP.Enable {
 		err := a.registerHTTP(mux)
@@ -133,46 +104,34 @@ func (a *Admin) Load(service server.Server) error {
 		}
 	}
 
-	for _, v := range service.Plugins() {
-		if v, ok := v.(GRPCRegister); ok {
-			v.RegisterGRPC(s)
-		}
-
-		if v, ok := v.(HTTPRegister); a.config.HTTP.Enable && ok {
-			err := v.RegisterHTTP(context.Background(),
-				mux,
-				a.config.GRPC.Addr,
-				[]grpc.DialOption{grpc.WithInsecure()})
-			if err != nil {
-				return err
-			}
-		}
-
-	}
-	l, err := net.Listen("tcp", a.config.GRPC.Addr)
-	if err != nil {
-		return err
-	}
-	grpc_prometheus.Register(s)
+	//for _, v := range service.Plugins() {
+	//	if v, ok := v.(GRPCRegister); ok {
+	//		v.RegisterGRPC(s)
+	//	}
+	//
+	//	if v, ok := v.(HTTPRegister); a.config.HTTP.Enable && ok {
+	//		err := v.RegisterHTTP(context.Background(),
+	//			mux,
+	//			a.config.GRPC.Addr,
+	//			[]grpc.DialOption{grpc.WithInsecure()})
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+	//
+	//}
 	a.statsReader = service.StatsManager()
 	a.store = newStore(a.statsReader)
 	a.store.subscriptionService = service.SubscriptionService()
 	a.publisher = service.Publisher()
 	a.clientService = service.ClientService()
-	go func() {
-		err := s.Serve(l)
-		if err != nil {
-			panic(err)
-		}
-	}()
-	return err
+	return nil
 }
 
 func (a *Admin) Unload() error {
 	if a.httpServer != nil {
 		_ = a.httpServer.Shutdown(context.Background())
 	}
-	a.grpcServer.Stop()
 	return nil
 }
 

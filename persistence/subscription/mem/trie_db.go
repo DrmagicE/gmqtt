@@ -315,6 +315,8 @@ func (db *TrieDB) UnsubscribeLocked(clientID string, topics ...string) {
 		shareName, topic := subscription.SplitTopic(topic)
 		if shareName != "" {
 			topicTrie = db.sharedTrie
+			// TODO
+			index = db.sharedIndex
 		} else if isSystemTopic(topic) {
 			index = db.systemIndex
 			topicTrie = db.systemTrie

@@ -13,7 +13,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/config"
@@ -26,6 +31,7 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/retained"
+	gcodes "google.golang.org/grpc/codes"
 )
 
 var (
@@ -96,6 +102,20 @@ type Server interface {
 	RetainedService() RetainedService
 	// Plugins returns all enabled plugins
 	Plugins() []Plugin
+
+	GRPCRegistrar() grpc.ServiceRegistrar
+
+	APIService() APIService
+}
+
+type APIService interface {
+	GRPCRegistrar() grpc.ServiceRegistrar
+	HTTPServeMux() *runtime.ServeMux
+}
+
+type HTTPRegistrar interface {
+	RegisterGRPCGateway(func(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error))
+	RegisterHandler(handler http.Handler)
 }
 
 type clientService struct {
@@ -185,6 +205,12 @@ type server struct {
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 
 	clientService *clientService
+
+	grpcServer *grpc.Server
+}
+
+func (srv *server) GRPCRegistrar() grpc.ServiceRegistrar {
+	return srv.grpcServer
 }
 
 func (srv *server) Plugins() []Plugin {
@@ -485,7 +511,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 }
 
 type willMsg struct {
-	msg     *gmqtt.Message
+	msg *gmqtt.Message
 	// If true, send the msg.
 	// If false, discard the msg.
 	send chan bool
@@ -493,7 +519,7 @@ type willMsg struct {
 
 func (w *willMsg) signal(send bool) {
 	select {
-	case w.send<-send:
+	case w.send <- send:
 	default:
 	}
 }
@@ -525,7 +551,7 @@ func (srv *server) unregisterClient(client *client) {
 			if willDelayInterval != 0 && storeSession {
 				wm := &willMsg{
 					msg:  msg,
-					send: make(chan bool,1),
+					send: make(chan bool, 1),
 				}
 				srv.willMessage[client.opts.ClientID] = wm
 				t := time.NewTimer(time.Duration(willDelayInterval) * time.Second)
@@ -542,7 +568,7 @@ func (srv *server) unregisterClient(client *client) {
 					if send {
 						srv.deliverMessageHandler(clientID, msg)
 					}
-					delete(srv.willMessage,clientID)
+					delete(srv.willMessage, clientID)
 				}(client.opts.ClientID)
 			} else {
 				srv.deliverMessageHandler(client.opts.ClientID, msg)
@@ -874,6 +900,17 @@ func (srv *server) init(opts ...Options) (err error) {
 	} else {
 		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
+
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			grpc_zap.UnaryServerInterceptor(zaplog, grpc_zap.WithLevels(func(code gcodes.Code) zapcore.Level {
+				if code == gcodes.OK {
+					return zapcore.DebugLevel
+				}
+				return grpc_zap.DefaultClientCodeToLevel(code)
+			})),
+			grpc_prometheus.UnaryServerInterceptor))
+	srv.grpcServer = grpcServer
 
 	return srv.loadPlugins()
 }
@@ -1270,11 +1307,12 @@ func (srv *server) Run() (err error) {
 	for _, v := range srv.websocketServer {
 		ws = append(ws, v.Server.Addr)
 	}
-	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
+	zaplog.Info("gmqtt server started", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
 
 	srv.status = serverStatusStarted
-	srv.wg.Add(1)
+	srv.wg.Add(2)
 	go srv.eventLoop()
+	go srv.serveGRPC()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
 	}

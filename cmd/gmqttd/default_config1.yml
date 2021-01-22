@@ -1,6 +1,7 @@
+pid_file: ./gmqttd1.pid
 listeners:
   # bind address
-  - address: ":1883"
+  - address: ":1884"
     # tls setting
   #      tls:
   #        cert_file: "path_to_cert_file"
@@ -10,14 +11,6 @@ listeners:
 #    # websocket setting
 #    websocket:
 #      path: "/"
-
-gRPC:
-  endpoint: "unix://./gmqttd.sock"
-  # /var/run
-
-api:
-
-
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -32,7 +25,7 @@ mqtt:
   maximum_qos: 2
   retain_available: true
   max_queued_messages: 10000
-  max_inflight: 1000
+  max_inflight: 100
   queue_qos0_messages: true
   delivery_mode: onlyonce # overlap or onlyonce
   allow_zero_length_clientid: true
@@ -69,7 +62,7 @@ plugins:
       enable: true
       addr: :8083
     grpc:
-      #addr: 'unix://./gmqttd.sock'
+      addr: 8084
   auth:
     # Password hash type. (plain | md5 | sha256 | bcrypt)
     # Default to MD5.
@@ -77,21 +70,21 @@ plugins:
     # The file to store password. Default to $HOME/gmqtt_password.yml
     # password_file:
   federation:
-    node_name: node
-    fed_addr: 127.0.0.1:8081
-    gossip_addr: 127.0.0.1:7071
+    node_name: node1
+    fed_addr: 127.0.0.1:8080
+    gossip_addr: 127.0.0.1:7070
     join:
-      - 127.0.0.1:7070
+      - 127.0.0.1:7071
 
 # plugin loading orders
 plugin_order:
   # Uncomment auth to enable authentication.
   #- auth
   #- prometheus
-  - admin
-  #- federation
+  #- admin
+  - federation
 log:
-  level: info # debug | info | warn | error
+  level: warn # debug | info | warn | error
   format: text # json | text
   # whether to dump MQTT packet in debug level
   dump_packet: false

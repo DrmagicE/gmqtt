@@ -197,33 +197,14 @@ func (p *peer) serveEventStream() {
 	}
 }
 
-func (p *peer) serveStream(reconnectCount int, backoff *time.Timer) (err error) {
-	defer func() {
-		if err != nil {
-			du := time.Duration(0)
-			if reconnectCount != 0 {
-				du = time.Duration(reconnectCount) * 500 * time.Millisecond
-			}
-			if max := 2 * time.Second; du > max {
-				du = max
-			}
-			backoff.Reset(du)
-		}
-	}()
-	addr := p.member.Tags["fed_addr"]
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
-	if err != nil {
-		return err
-	}
-	client := NewFederationClient(conn)
+func (p *peer) initStream(client FederationClient) (s *stream, err error) {
 	helloMD := metadata.Pairs("node_name", p.localName)
 	helloCtx := metadata.NewOutgoingContext(context.Background(), helloMD)
-
 	sh, err := client.Hello(helloCtx, &ClientHello{
 		SessionId: p.sessionID,
 	})
 	if err != nil {
-		return fmt.Errorf("handshake error: %s", err.Error())
+		return nil, fmt.Errorf("handshake error: %s", err.Error())
 	}
 	log.Info("handshake succeed", zap.String("remote_node", p.member.Name), zap.Bool("clean_start", sh.CleanStart))
 
@@ -243,6 +224,7 @@ func (p *peer) serveStream(reconnectCount int, backoff *time.Timer) (err error) 
 		p.fed.localSubStore.Unlock()
 
 		p.fed.retainedStore.Iterate(func(message *gmqtt.Message) bool {
+			// TODO add timestamp to retained message and use Last Write Wins (LWW) to resolve write conflicts.
 			p.queue.add(&Event{
 				Event: &Event_Message{
 					Message: messageToEvent(message.Copy()),
@@ -256,15 +238,45 @@ func (p *peer) serveStream(reconnectCount int, backoff *time.Timer) (err error) 
 	ctx := metadata.NewOutgoingContext(context.Background(), md)
 	c, err := client.EventStream(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	p.queue.open()
-	s := &stream{
+	s = &stream{
 		queue:  p.queue,
 		client: c,
 		close:  make(chan struct{}),
 	}
 	p.stream = s
+	return s, nil
+}
+
+func (p *peer) serveStream(reconnectCount int, backoff *time.Timer) (err error) {
+	defer func() {
+		if err != nil {
+			du := time.Duration(0)
+			if reconnectCount != 0 {
+				du = time.Duration(reconnectCount) * 500 * time.Millisecond
+			}
+			if max := 2 * time.Second; du > max {
+				du = max
+			}
+			backoff.Reset(du)
+		}
+	}()
+	addr := p.member.Tags["fed_addr"]
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		return err
+	}
+	client := NewFederationClient(conn)
+	s, err := p.initStream(client)
+	if err != nil {
+		return err
+	}
+	return s.serve()
+}
+
+func (s *stream) serve() error {
 	s.wg.Add(2)
 	go s.readLoop()
 	go s.sendEvents()

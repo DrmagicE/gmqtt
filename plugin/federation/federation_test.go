@@ -3,11 +3,13 @@ package federation
 import (
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/subscription/mem"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/DrmagicE/gmqtt/server"
 )
 
 func TestLocalSubStore_init(t *testing.T) {
@@ -185,5 +187,86 @@ func TestMessageToEvent(t *testing.T) {
 	for _, v := range tt {
 		a.Equal(v.expected, messageToEvent(v.msg))
 	}
+
+}
+
+func TestLRUCache(t *testing.T) {
+	a := assert.New(t)
+	lcache := newLRUCache(1)
+	a.False(lcache.set(1))
+	a.True(lcache.set(1))
+	a.False(lcache.set(2))
+	a.Len(lcache.items, 1)
+	a.Equal(1, lcache.l.Len())
+}
+
+func TestFederation_eventStreamHandler(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+
+	pub := server.NewMockPublisher(ctrl)
+	f.publisher = pub
+
+	sess := &session{
+		id:          "abc",
+		nodeName:    "node1",
+		nextEventID: 0,
+		seenEvents:  newLRUCache(3),
+	}
+	var ack *Ack
+	ack = f.eventStreamHandler(sess, &Event{
+		Id: 0,
+		Event: &Event_Subscribe{
+			Subscribe: &Subscribe{
+				ShareName:   "",
+				TopicFilter: "a",
+			},
+		},
+	})
+	a.EqualValues(0, ack.EventId)
+	sts, _ := f.feSubStore.GetClientStats("node1")
+	a.EqualValues(1, sts.SubscriptionsCurrent)
+
+	msgEvent := &Event_Message{
+		Message: &Message{
+			TopicName: "a",
+			Payload:   "b",
+			Qos:       1,
+		},
+	}
+	pub.EXPECT().Publish(eventToMessage(msgEvent.Message))
+	ack = f.eventStreamHandler(sess, &Event{
+		Id:    1,
+		Event: msgEvent,
+	})
+	a.EqualValues(1, ack.EventId)
+	ack = f.eventStreamHandler(sess, &Event{
+		Id: 2,
+		Event: &Event_Unsubscribe{
+			Unsubscribe: &Unsubscribe{
+				TopicName: "a",
+			},
+		},
+	})
+	sts, _ = f.feSubStore.GetClientStats("node1")
+	a.EqualValues(0, sts.SubscriptionsCurrent)
+	a.EqualValues(2, ack.EventId)
+
+	// send duplicated event
+	ack = f.eventStreamHandler(sess, &Event{
+		Id: 0,
+		Event: &Event_Subscribe{
+			Subscribe: &Subscribe{
+				ShareName:   "",
+				TopicFilter: "a",
+			},
+		},
+	})
+	a.EqualValues(0, ack.EventId)
+	sts, _ = f.feSubStore.GetClientStats("node1")
+	a.EqualValues(0, sts.SubscriptionsCurrent)
 
 }

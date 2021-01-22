@@ -107,6 +107,7 @@ func (p pluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 type Config struct {
 	Listeners []*ListenerConfig `yaml:"listeners"`
 	MQTT      MQTT              `yaml:"mqtt,omitempty"`
+	GRPC      GRPC              `yaml:"gRPC"`
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
 	Plugins   pluginConfig      `yaml:"plugins"`
@@ -116,6 +117,10 @@ type Config struct {
 	PluginOrder       []string          `yaml:"plugin_order"`
 	Persistence       Persistence       `yaml:"persistence"`
 	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
+}
+
+type GRPC struct {
+	Endpoint string `yaml:"endpoint"`
 }
 
 type TLSOptions struct {

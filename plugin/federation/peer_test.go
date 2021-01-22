@@ -1,1 +1,150 @@
 package federation
+
+import (
+	"testing"
+
+	"github.com/golang/mock/gomock"
+	"github.com/hashicorp/serf/serf"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription/mem"
+	"github.com/DrmagicE/gmqtt/retained"
+	"github.com/DrmagicE/gmqtt/retained/trie"
+)
+
+func TestPeer_initStream_CleanStart(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockQueue := NewMockqueue(ctrl)
+
+	ls := &localSubStore{}
+	ls.init(mem.NewStore())
+
+	retained := trie.NewStore()
+	p := &peer{
+		fed: &Federation{
+			localSubStore: ls,
+			retainedStore: retained,
+		},
+		localName: "",
+		member: serf.Member{
+			Name: "node2",
+		},
+		exit:      nil,
+		sessionID: "sessionID",
+		queue:     mockQueue,
+		stream:    nil,
+	}
+	ls.subscribe("c1", "topicA")
+	ls.subscribe("c2", "topicB")
+
+	m1 := &gmqtt.Message{
+		Topic: "topicA",
+	}
+	m2 := &gmqtt.Message{
+		Topic: "topicB",
+	}
+	retained.AddOrReplace(m1)
+	retained.AddOrReplace(m2)
+
+	client := NewMockFederationClient(ctrl)
+
+	client.EXPECT().Hello(gomock.Any(), &ClientHello{
+		SessionId: p.sessionID,
+	}).Return(&ServerHello{
+		CleanStart:  true,
+		NextEventId: 0,
+	}, nil)
+
+	gomock.InOrder(
+		mockQueue.EXPECT().clear(),
+		mockQueue.EXPECT().setReadPosition(uint64(0)),
+		mockQueue.EXPECT().open(),
+	)
+
+	mockQueue.EXPECT().add(&Event{
+		Event: &Event_Subscribe{
+			Subscribe: &Subscribe{
+				TopicFilter: "topicA",
+			},
+		},
+	})
+	mockQueue.EXPECT().add(&Event{
+		Event: &Event_Subscribe{
+			Subscribe: &Subscribe{
+				TopicFilter: "topicB",
+			},
+		},
+	})
+
+	mockQueue.EXPECT().add(&Event{
+		Event: &Event_Message{
+			Message: messageToEvent(m1),
+		},
+	})
+
+	mockQueue.EXPECT().add(&Event{
+		Event: &Event_Message{
+			Message: messageToEvent(m2),
+		},
+	})
+
+	client.EXPECT().EventStream(gomock.Any())
+
+	_, err := p.initStream(client)
+	a.NoError(err)
+
+}
+
+func TestPeer_initStream_CleanStartFalse(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockQueue := NewMockqueue(ctrl)
+
+	ls := &localSubStore{}
+	ls.init(mem.NewStore())
+
+	rt := retained.NewMockStore(ctrl)
+	p := &peer{
+		fed: &Federation{
+			localSubStore: ls,
+			retainedStore: rt,
+		},
+		localName: "",
+		member: serf.Member{
+			Name: "node2",
+		},
+		exit:      nil,
+		sessionID: "sessionID",
+		queue:     mockQueue,
+		stream:    nil,
+	}
+
+	client := NewMockFederationClient(ctrl)
+	client.EXPECT().Hello(gomock.Any(), &ClientHello{
+		SessionId: p.sessionID,
+	}).Return(&ServerHello{
+		CleanStart:  false,
+		NextEventId: 10,
+	}, nil)
+
+	gomock.InOrder(
+		mockQueue.EXPECT().setReadPosition(uint64(10)),
+		mockQueue.EXPECT().open(),
+	)
+
+	client.EXPECT().EventStream(gomock.Any())
+
+	_, err := p.initStream(client)
+	a.NoError(err)
+
+}
+
+func TestEventQueue(t *testing.T) {
+
+}

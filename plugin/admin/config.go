@@ -47,7 +47,7 @@ var DefaultConfig = Config{
 		Addr:   "127.0.0.1:8083",
 	},
 	GRPC: GRPCConfig{
-		Addr: "127.0.0.1:8084",
+		Addr: "unix://./gmqttd.sock",
 	},
 }
 

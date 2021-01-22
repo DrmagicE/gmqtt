@@ -1,6 +1,7 @@
 package federation
 
 import (
+	"container/list"
 	"context"
 	"io"
 	"net"
@@ -56,7 +57,8 @@ type Federation struct {
 	sessions map[string]*session
 
 	localSubStore *localSubStore
-	// feSubStore store federation subscription tree which take nodeName as clientID, It is used to determine which node the incoming message should be routed to.
+	// feSubStore store federation subscription tree which take nodeName as clientID.
+	// It is used to determine which node the incoming message should be routed to.
 	feSubStore    *mem.TrieDB
 	retainedStore retained.Store
 	peers         map[string]*peer
@@ -152,6 +154,37 @@ type session struct {
 	id          string
 	nodeName    string
 	nextEventID uint64
+	// cache recently seen events to prevent duplicated.
+	seenEvents *lruCache
+}
+
+// lruCache is the cache for recently seen events.
+type lruCache struct {
+	l     *list.List
+	items map[uint64]struct{}
+	size  int
+}
+
+func newLRUCache(size int) *lruCache {
+	return &lruCache{
+		l:     list.New(),
+		items: make(map[uint64]struct{}),
+		size:  size,
+	}
+}
+
+func (l *lruCache) set(id uint64) (exist bool) {
+	if _, ok := l.items[id]; ok {
+		return true
+	}
+	if l.size == len(l.items) {
+		elem := l.l.Front()
+		delete(l.items, elem.Value.(uint64))
+		l.l.Remove(elem)
+	}
+	l.items[id] = struct{}{}
+	l.l.PushBack(id)
+	return false
 }
 
 func getNodeNameFromContext(ctx context.Context) (string, error) {
@@ -188,8 +221,10 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 	}
 	if cleanStart == true {
 		f.sessions[nodeName] = &session{
-			id:          req.SessionId,
-			nodeName:    nodeName,
+			id:       req.SessionId,
+			nodeName: nodeName,
+			// TODO config
+			seenEvents:  newLRUCache(100),
 			nextEventID: 0,
 		}
 	}
@@ -203,6 +238,13 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 
 func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 	eventID := in.Id
+	// duplicated event, ignore it
+	if sess.seenEvents.set(eventID) {
+		log.Warn("ignore duplicated event", zap.String("event", in.String()))
+		return &Ack{
+			EventId: eventID,
+		}
+	}
 	if sub := in.GetSubscribe(); sub != nil {
 		_, _ = f.feSubStore.Subscribe(sess.nodeName, &gmqtt.Subscription{
 			ShareName:   sub.ShareName,
@@ -211,23 +253,7 @@ func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 		return &Ack{EventId: eventID}
 	}
 	if msg := in.GetMessage(); msg != nil {
-		pubMsg := &gmqtt.Message{
-			QoS:             byte(msg.Qos),
-			Retained:        msg.Retained,
-			Topic:           msg.TopicName,
-			Payload:         []byte(msg.Payload),
-			ContentType:     msg.ContentType,
-			CorrelationData: []byte(msg.CorrelationData),
-			MessageExpiry:   msg.MessageExpiry,
-			PayloadFormat:   packets.PayloadFormat(msg.PayloadFormat),
-			ResponseTopic:   msg.ResponseTopic,
-		}
-		for _, v := range msg.UserProperties {
-			pubMsg.UserProperties = append(pubMsg.UserProperties, packets.UserProperty{
-				K: v.K,
-				V: v.V,
-			})
-		}
+		pubMsg := eventToMessage(msg)
 		f.publisher.Publish(pubMsg)
 		if pubMsg.Retained {
 			f.retainedStore.AddOrReplace(pubMsg)
@@ -340,4 +366,25 @@ func messageToEvent(msg *gmqtt.Message) *Message {
 		eventMsg.UserProperties = append(eventMsg.UserProperties, ppt)
 	}
 	return eventMsg
+}
+
+func eventToMessage(event *Message) *gmqtt.Message {
+	pubMsg := &gmqtt.Message{
+		QoS:             byte(event.Qos),
+		Retained:        event.Retained,
+		Topic:           event.TopicName,
+		Payload:         []byte(event.Payload),
+		ContentType:     event.ContentType,
+		CorrelationData: []byte(event.CorrelationData),
+		MessageExpiry:   event.MessageExpiry,
+		PayloadFormat:   packets.PayloadFormat(event.PayloadFormat),
+		ResponseTopic:   event.ResponseTopic,
+	}
+	for _, v := range event.UserProperties {
+		pubMsg.UserProperties = append(pubMsg.UserProperties, packets.UserProperty{
+			K: v.K,
+			V: v.V,
+		})
+	}
+	return pubMsg
 }

@@ -34,6 +34,7 @@ func (f *Federation) startSerf() error {
 		return err
 	}
 	s.Join(f.config.Join, true)
+
 	go f.eventHandler()
 	return nil
 }
