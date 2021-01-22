@@ -106,9 +106,8 @@ func newClientInfo(client server.Client) *Client {
 func (s *store) getClientByIDLocked(clientID string) *Client {
 	if i := s.clientIndexer.GetByID(clientID); i != nil {
 		return i.Value.(*Client)
-	} else {
-		return nil
 	}
+	return nil
 }
 
 func fillClientInfo(c *Client, stsReader server.StatsReader) {

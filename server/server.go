@@ -96,6 +96,7 @@ type Server interface {
 	RetainedService() RetainedService
 	// Plugins returns all enabled plugins
 	Plugins() []Plugin
+	APIRegistrar() APIRegistrar
 }
 
 type clientService struct {
@@ -185,6 +186,11 @@ type server struct {
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 
 	clientService *clientService
+	apiRegistrar  *apiRegistrar
+}
+
+func (srv *server) APIRegistrar() APIRegistrar {
+	return srv.apiRegistrar
 }
 
 func (srv *server) Plugins() []Plugin {
@@ -485,7 +491,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 }
 
 type willMsg struct {
-	msg     *gmqtt.Message
+	msg *gmqtt.Message
 	// If true, send the msg.
 	// If false, discard the msg.
 	send chan bool
@@ -493,7 +499,7 @@ type willMsg struct {
 
 func (w *willMsg) signal(send bool) {
 	select {
-	case w.send<-send:
+	case w.send <- send:
 	default:
 	}
 }
@@ -525,7 +531,7 @@ func (srv *server) unregisterClient(client *client) {
 			if willDelayInterval != 0 && storeSession {
 				wm := &willMsg{
 					msg:  msg,
-					send: make(chan bool,1),
+					send: make(chan bool, 1),
 				}
 				srv.willMessage[client.opts.ClientID] = wm
 				t := time.NewTimer(time.Duration(willDelayInterval) * time.Second)
@@ -542,7 +548,7 @@ func (srv *server) unregisterClient(client *client) {
 					if send {
 						srv.deliverMessageHandler(clientID, msg)
 					}
-					delete(srv.willMessage,clientID)
+					delete(srv.willMessage, clientID)
 				}(client.opts.ClientID)
 			} else {
 				srv.deliverMessageHandler(client.opts.ClientID, msg)
@@ -874,8 +880,20 @@ func (srv *server) init(opts ...Options) (err error) {
 	} else {
 		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
-
+	srv.initAPIRegistrar()
 	return srv.loadPlugins()
+}
+
+func (srv *server) initAPIRegistrar() {
+	registrar := &apiRegistrar{}
+	for _, v := range srv.config.API.HTTP {
+		registrar.httpServers = append(registrar.httpServers, buildHTTPServer(v))
+
+	}
+	for _, v := range srv.config.API.GRPC {
+		registrar.gRPCServers = append(registrar.gRPCServers, buildGRPCServer(v))
+	}
+	srv.apiRegistrar = registrar
 }
 
 // Init initialises the options.
@@ -1273,8 +1291,9 @@ func (srv *server) Run() (err error) {
 	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
 
 	srv.status = serverStatusStarted
-	srv.wg.Add(1)
+	srv.wg.Add(2)
 	go srv.eventLoop()
+	go srv.serveAPIServer()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
 	}
@@ -1311,9 +1330,7 @@ func (srv *server) Stop(ctx context.Context) error {
 	for _, ws := range srv.websocketServer {
 		ws.Server.Shutdown(ctx)
 	}
-
-	//关闭所有的client
-	//closing all idle clients
+	// close all idle clients
 	srv.mu.Lock()
 	wgs := make([]*sync.WaitGroup, len(srv.clients))
 	i := 0

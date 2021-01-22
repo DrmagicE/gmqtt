@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,10 +11,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
-	"google.golang.org/grpc"
 	"gopkg.in/yaml.v2"
 
 	"github.com/DrmagicE/gmqtt/config"
@@ -119,14 +116,15 @@ func (a *Auth) validate(username, password string) (permitted bool, err error) {
 	return hashedPassword == hex.EncodeToString(rs), nil
 }
 
-func (a *Auth) RegisterGRPC(s grpc.ServiceRegistrar) {
-	RegisterAccountServiceServer(s, a)
-}
-func (a *Auth) RegisterHTTP(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
-	return RegisterAccountServiceHandlerFromEndpoint(ctx, mux, endpoint, opts)
+var registerAPI = func(service server.Server, a *Auth) error {
+	apiRegistrar := service.APIRegistrar()
+	RegisterAccountServiceServer(apiRegistrar, a)
+	err := apiRegistrar.RegisterHTTPHandler(RegisterAccountServiceHandlerFromEndpoint)
+	return err
 }
 
 func (a *Auth) Load(service server.Server) error {
+	err := registerAPI(service, a)
 	log = server.LoggerWithField(zap.String("plugin", Name))
 	f, err := os.OpenFile(a.config.PasswordFile, os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil {

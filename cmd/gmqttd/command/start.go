@@ -69,15 +69,15 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 				Path:   v.Websocket.Path,
 			}
 			if v.TLSOptions != nil {
-				ws.KeyFile = v.KeyFile
-				ws.CertFile = v.CertFile
+				ws.KeyFile = v.Key
+				ws.CertFile = v.Cert
 			}
 			websockets = append(websockets, ws)
 			continue
 		}
 		if v.TLSOptions != nil {
 			var cert tls.Certificate
-			cert, err = tls.LoadX509KeyPair(v.CertFile, v.KeyFile)
+			cert, err = tls.LoadX509KeyPair(v.Cert, v.Key)
 			if err != nil {
 				return
 			}

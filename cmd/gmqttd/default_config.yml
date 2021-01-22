@@ -1,15 +1,25 @@
 listeners:
   # bind address
   - address: ":1883"
-    # tls setting
-  #      tls:
-  #        cert_file: "path_to_cert_file"
-  #        key_file: "path_to_key_file"
+  # tls setting
+#    tls:
+#      cert: "path_to_cert_file"
+#      key: "path_to_key_file"
 
   - address: ":8883"
     # websocket setting
     websocket:
       path: "/"
+
+# api default values:
+#api:
+#  grpc:
+#    - address: "unix:///var/run/gmqttd.sock" # The gRPC server listen address.
+#  http:
+#    - address: "tcp://127.0.0.1:8084" # The gRPC server listen address.
+#      map: "unix:///var/run/gmqttd.sock" # The backend gRPC server endpoint
+
+
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -56,12 +66,6 @@ plugins:
   prometheus:
     path: "/metrics"
     listen_address: ":8082"
-  admin:
-    http:
-      enable: true
-      addr: :8083
-    grpc:
-      addr: 8084
   auth:
     # Password hash type. (plain | md5 | sha256 | bcrypt)
     # Default to MD5.

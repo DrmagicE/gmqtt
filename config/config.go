@@ -39,6 +39,7 @@ func DefaultConfig() Config {
 	c := Config{
 		Listeners: DefaultListeners,
 		MQTT:      DefaultMQTTConfig,
+		API:       DefaultAPI,
 		Log: LogConfig{
 			Level:  "info",
 			Format: "text",
@@ -106,6 +107,7 @@ func (p pluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // Config is the configration for gmqttd.
 type Config struct {
 	Listeners []*ListenerConfig `yaml:"listeners"`
+	API       API               `yaml:"api"`
 	MQTT      MQTT              `yaml:"mqtt,omitempty"`
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
@@ -119,9 +121,14 @@ type Config struct {
 }
 
 type TLSOptions struct {
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
+	// CACert is the trust CA certificate file.
+	CACert string `yaml:"cacert"`
+	// Cert is the path to certificate file.
+	Cert string `yaml:"cert"`
+	// Key is the path to key file.
+	Key string `yaml:"key"`
 }
+
 type ListenerConfig struct {
 	Address     string `yaml:"address"`
 	*TLSOptions `yaml:"tls"`
@@ -160,6 +167,10 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 func (c Config) Validate() (err error) {
 	err = c.Log.Validate()
+	if err != nil {
+		return err
+	}
+	err = c.API.Validate()
 	if err != nil {
 		return err
 	}
