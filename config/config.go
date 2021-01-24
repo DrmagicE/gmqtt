@@ -127,6 +127,8 @@ type TLSOptions struct {
 	Cert string `yaml:"cert"`
 	// Key is the path to key file.
 	Key string `yaml:"key"`
+	// Verify indicates whether to verify client cert.
+	Verify bool `yaml:"verify"`
 }
 
 type ListenerConfig struct {

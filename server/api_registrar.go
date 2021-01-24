@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
@@ -13,6 +16,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	gcodes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/DrmagicE/gmqtt/config"
 )
@@ -31,12 +35,14 @@ type apiRegistrar struct {
 	httpServers []*httpServer
 }
 
+// RegisterService implements APIRegistrar interface
 func (a *apiRegistrar) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 	for _, v := range a.gRPCServers {
 		v.server.RegisterService(desc, impl)
 	}
 }
 
+// RegisterHTTPHandler implements APIRegistrar interface
 func (a *apiRegistrar) RegisterHTTPHandler(fn HTTPHandler) error {
 	var err error
 	for _, v := range a.httpServers {
@@ -67,6 +73,7 @@ type httpServer struct {
 	gRPCEndpoint string
 	endpoint     string
 	mux          *runtime.ServeMux
+	tlsCfg       *tls.Config
 	serve        func(errChan chan error) error
 	shutdown     func()
 }
@@ -82,8 +89,42 @@ func splitEndpoint(endpoint string) (schema string, addr string) {
 	return epParts[0], epParts[1]
 }
 
-func buildGRPCServer(endpoint *config.Endpoint) *gRPCServer {
+func buildTLSConfig(cfg *config.TLSOptions) (*tls.Config, error) {
+	c, err := tls.LoadX509KeyPair(cfg.Cert, cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	certPool := x509.NewCertPool()
+	if cfg.CACert != "" {
+		b, err := ioutil.ReadFile(cfg.CACert)
+		if err != nil {
+			return nil, err
+		}
+		certPool.AppendCertsFromPEM(b)
+	}
+	var cliAuthType tls.ClientAuthType
+	if cfg.Verify {
+		cliAuthType = tls.RequireAndVerifyClientCert
+	}
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{c},
+		ClientCAs:    certPool,
+		ClientAuth:   cliAuthType,
+	}
+	return tlsCfg, nil
+}
+
+func buildGRPCServer(endpoint *config.Endpoint) (*gRPCServer, error) {
+	var cred credentials.TransportCredentials
+	if cfg := endpoint.TLS; cfg != nil {
+		tlsCfg, err := buildTLSConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
+		cred = credentials.NewTLS(tlsCfg)
+	}
 	server := grpc.NewServer(
+		grpc.Creds(cred),
 		grpc.ChainUnaryInterceptor(
 			grpc_zap.UnaryServerInterceptor(zaplog, grpc_zap.WithLevels(func(code gcodes.Code) zapcore.Level {
 				if code == gcodes.OK {
@@ -117,10 +158,18 @@ func buildGRPCServer(endpoint *config.Endpoint) *gRPCServer {
 		serve:    serve,
 		shutdown: shutdown,
 		endpoint: endpoint.Address,
-	}
+	}, nil
 }
 
-func buildHTTPServer(endpoint *config.Endpoint) *httpServer {
+func buildHTTPServer(endpoint *config.Endpoint) (*httpServer, error) {
+	var tlsCfg *tls.Config
+	var err error
+	if cfg := endpoint.TLS; cfg != nil {
+		tlsCfg, err = buildTLSConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
 	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{OrigName: true, EmitDefaults: true}))
 	server := &http.Server{
 		Handler: mux,
@@ -134,13 +183,15 @@ func buildHTTPServer(endpoint *config.Endpoint) *httpServer {
 		if err != nil {
 			return err
 		}
+		if tlsCfg != nil {
+			l = tls.NewListener(l, tlsCfg)
+		}
 		go func() {
 			select {
 			case errChan <- server.Serve(l):
 			default:
 			}
 		}()
-
 		return nil
 	}
 
@@ -150,7 +201,7 @@ func buildHTTPServer(endpoint *config.Endpoint) *httpServer {
 		serve:        serve,
 		shutdown:     shutdown,
 		endpoint:     endpoint.Address,
-	}
+	}, nil
 }
 
 func (srv *server) serveAPIServer() {

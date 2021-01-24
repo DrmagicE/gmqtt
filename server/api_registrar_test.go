@@ -2,7 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"io/ioutil"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +14,8 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+
+	"github.com/DrmagicE/gmqtt/config"
 )
 
 func TestAPIRegistrar_serveAPIServer(t *testing.T) {
@@ -210,4 +216,58 @@ func TestApiRegistrar_RegisterHTTPHandler(t *testing.T) {
 		a.Equal("127.0.0.1:1234", endpoint)
 		return nil
 	}))
+}
+
+func TestBuildTLSConfig(t *testing.T) {
+
+	t.Run("verify_false", func(t *testing.T) {
+		a := assert.New(t)
+		cfg := &config.TLSOptions{
+			CACert: "",
+			Cert:   "./testdata/server-cert.pem",
+			Key:    "./testdata/server-key.pem",
+			Verify: false,
+		}
+		tlsCfg, err := buildTLSConfig(cfg)
+		a.NoError(err)
+		a.EqualValues(0, tlsCfg.ClientAuth)
+		a.Len(tlsCfg.Certificates, 1)
+	})
+
+	t.Run("verify_true", func(t *testing.T) {
+		a := assert.New(t)
+		cfg := &config.TLSOptions{
+			CACert: "",
+			Cert:   "./testdata/server-cert.pem",
+			Key:    "./testdata/server-key.pem",
+			Verify: true,
+		}
+		tlsCfg, err := buildTLSConfig(cfg)
+		a.NoError(err)
+		a.EqualValues(tls.RequireAndVerifyClientCert, tlsCfg.ClientAuth)
+		a.Len(tlsCfg.Certificates, 1)
+	})
+
+	t.Run("add_cacert", func(t *testing.T) {
+		a := assert.New(t)
+		cfg := &config.TLSOptions{
+			CACert: "./testdata/ca.pem",
+			Cert:   "./testdata/server-cert.pem",
+			Key:    "./testdata/server-key.pem",
+		}
+		tlsCfg, err := buildTLSConfig(cfg)
+		a.NoError(err)
+		a.Len(tlsCfg.Certificates, 1)
+		opts := x509.VerifyOptions{
+			DNSName: "drmagic.local",
+			Roots:   tlsCfg.ClientCAs,
+		}
+		certPEM, err := ioutil.ReadFile("./testdata/server-cert.pem")
+		a.NoError(err)
+		block, _ := pem.Decode(certPEM)
+		cert, err := x509.ParseCertificate(block.Bytes)
+		_, err = cert.Verify(opts)
+		a.Nil(err)
+	})
+
 }

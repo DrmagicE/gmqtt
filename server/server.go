@@ -880,20 +880,32 @@ func (srv *server) init(opts ...Options) (err error) {
 	} else {
 		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
-	srv.initAPIRegistrar()
+	err = srv.initAPIRegistrar()
+	if err != nil {
+		return err
+	}
 	return srv.loadPlugins()
 }
 
-func (srv *server) initAPIRegistrar() {
+func (srv *server) initAPIRegistrar() error {
 	registrar := &apiRegistrar{}
 	for _, v := range srv.config.API.HTTP {
-		registrar.httpServers = append(registrar.httpServers, buildHTTPServer(v))
+		server, err := buildHTTPServer(v)
+		if err != nil {
+			return err
+		}
+		registrar.httpServers = append(registrar.httpServers, server)
 
 	}
 	for _, v := range srv.config.API.GRPC {
-		registrar.gRPCServers = append(registrar.gRPCServers, buildGRPCServer(v))
+		server, err := buildGRPCServer(v)
+		if err != nil {
+			return err
+		}
+		registrar.gRPCServers = append(registrar.gRPCServers, server)
 	}
 	srv.apiRegistrar = registrar
+	return nil
 }
 
 // Init initialises the options.

@@ -108,7 +108,7 @@ func NewStartCmd() *cobra.Command {
 					fmt.Println(err)
 					return
 				}
-				// if config file not exist, use default configration.
+				// if config file not exist, use default configuration.
 				c = cfg
 				useDefault = true
 			} else {
