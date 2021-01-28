@@ -168,12 +168,14 @@ func main() {
 		server.WithLogger(l),
 		server.WithConfig(config.DefaultConfig()),
 	)
+	go func() {
+		signalCh := make(chan os.Signal, 1)
+		signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+		<-signalCh
+		s.Stop(context.Background())
+	}()
 	err = s.Run()
 	if err != nil {
 		panic(err)
 	}
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
-	<-signalCh
-	s.Stop(context.Background())
 }

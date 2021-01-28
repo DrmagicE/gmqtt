@@ -148,7 +148,7 @@ func (c *clientService) TerminateSession(clientID string) {
 }
 
 // server represents a mqtt server instance.
-// Create a server by using NewServer()
+// Create a server by using New()
 type server struct {
 	wg       sync.WaitGroup
 	initOnce sync.Once
@@ -162,6 +162,8 @@ type server struct {
 	willMessage     map[string]*willMsg
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket serverStop
+	errOnce         sync.Once
+	err             error
 	exitChan        chan struct{}
 
 	retainedDB      retained.Store
@@ -791,7 +793,6 @@ func defaultServer() *server {
 
 // New returns a gmqtt server instance with the given options
 func New(opts ...Options) *server {
-	// statistics
 	srv := defaultServer()
 	for _, fn := range opts {
 		fn(srv)
@@ -1006,8 +1007,8 @@ func (srv *server) serveWebSocket(ws *WsServer) {
 	} else {
 		err = ws.Server.ListenAndServe()
 	}
-	if err != http.ErrServerClosed {
-		panic(err.Error())
+	if err != nil && err != http.ErrServerClosed {
+		srv.setError(fmt.Errorf("serveWebSocket error: %s", err.Error()))
 	}
 }
 
@@ -1286,7 +1287,14 @@ func (srv *server) wsHandler() http.HandlerFunc {
 	}
 }
 
-// Run starts the mqtt server. This method is non-blocking
+func (srv *server) setError(err error) {
+	srv.errOnce.Do(func() {
+		srv.err = err
+		srv.exit()
+	})
+}
+
+// Run starts the mqtt server.
 func (srv *server) Run() (err error) {
 	err = srv.Init()
 	if err != nil {
@@ -1315,7 +1323,8 @@ func (srv *server) Run() (err error) {
 		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
-	return nil
+	srv.wg.Wait()
+	return srv.err
 }
 
 // Stop gracefully stops the mqtt server by the following steps:
@@ -1329,13 +1338,9 @@ func (srv *server) Stop(ctx context.Context) error {
 		zaplog.Info("server stopped")
 		//zaplog.Sync()
 	}()
-	select {
-	case <-srv.exitChan:
-		return nil
-	default:
-		close(srv.exitChan)
-	}
+	srv.exit()
 	srv.wg.Wait()
+
 	for _, l := range srv.tcpListener {
 		l.Close()
 	}

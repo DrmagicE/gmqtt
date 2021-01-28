@@ -52,8 +52,10 @@ func installSignal(srv server.Server) {
 			srv.ApplyConfig(c)
 			logger.Info("gmqtt reloaded")
 		case <-stopSignalCh:
-			srv.Stop(context.Background())
-			return
+			err := srv.Stop(context.Background())
+			if err != nil {
+				fmt.Fprint(os.Stderr, err.Error())
+			}
 		}
 	}
 
@@ -129,13 +131,13 @@ func NewStartCmd() *cobra.Command {
 				os.Exit(1)
 				return
 			}
+			go installSignal(s)
 			err = s.Run()
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprint(os.Stderr, err.Error())
 				os.Exit(1)
 				return
 			}
-			installSignal(s)
 		},
 	}
 	return cmd

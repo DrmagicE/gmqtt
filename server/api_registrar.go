@@ -204,17 +204,25 @@ func buildHTTPServer(endpoint *config.Endpoint) (*httpServer, error) {
 	}, nil
 }
 
+func (srv *server) exit() {
+	select {
+	case <-srv.exitChan:
+	default:
+		close(srv.exitChan)
+	}
+}
+
 func (srv *server) serveAPIServer() {
+	var err error
 	defer func() {
 		srv.wg.Done()
-		srv.Stop(context.Background())
-	}()
-	var err error
-	errChan := make(chan error, 1)
-	defer func() {
 		if err != nil {
 			zaplog.Error("serveAPIServer error", zap.Error(err))
+			srv.setError(err)
 		}
+	}()
+	errChan := make(chan error, 1)
+	defer func() {
 		for _, v := range srv.apiRegistrar.gRPCServers {
 			v.shutdown()
 		}
@@ -242,10 +250,7 @@ func (srv *server) serveAPIServer() {
 		select {
 		case <-srv.exitChan:
 			return
-		case err := <-errChan:
-			if err != nil {
-				zaplog.Error("gRPC server stop error", zap.Error(err))
-			}
+		case err = <-errChan:
 			return
 		}
 
