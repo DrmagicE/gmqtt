@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -36,14 +38,19 @@ func RegisterDefaultPluginConfig(name string, config Configuration) {
 // DefaultConfig return the default configuration.
 // If config file is not provided, gmqttd will start with DefaultConfig.
 func DefaultConfig() Config {
+	pidFile, err := getDefaultPidFile()
+	if err != nil {
+		panic(err)
+	}
 	c := Config{
 		Listeners: DefaultListeners,
 		MQTT:      DefaultMQTTConfig,
+		API:       DefaultAPI,
 		Log: LogConfig{
 			Level:  "info",
 			Format: "text",
 		},
-		PidFile:           getDefaultPidFile(),
+		PidFile:           pidFile,
 		Plugins:           make(pluginConfig),
 		Persistence:       DefaultPersistenceConfig,
 		TopicAliasManager: DefaultTopicAliasManager,
@@ -106,9 +113,11 @@ func (p pluginConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // Config is the configration for gmqttd.
 type Config struct {
 	Listeners []*ListenerConfig `yaml:"listeners"`
+	API       API               `yaml:"api"`
 	MQTT      MQTT              `yaml:"mqtt,omitempty"`
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
+	ConfigDir string            `yaml:"config_dir"`
 	Plugins   pluginConfig      `yaml:"plugins"`
 	// PluginOrder is a slice that contains the name of the plugin which will be loaded.
 	// Giving a correct order to the slice is significant,
@@ -119,9 +128,16 @@ type Config struct {
 }
 
 type TLSOptions struct {
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
+	// CACert is the trust CA certificate file.
+	CACert string `yaml:"cacert"`
+	// Cert is the path to certificate file.
+	Cert string `yaml:"cert"`
+	// Key is the path to key file.
+	Key string `yaml:"key"`
+	// Verify indicates whether to verify client cert.
+	Verify bool `yaml:"verify"`
 }
+
 type ListenerConfig struct {
 	Address     string `yaml:"address"`
 	*TLSOptions `yaml:"tls"`
@@ -159,7 +175,14 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 func (c Config) Validate() (err error) {
+	if c.PidFile == "" {
+		return errors.New("empty pid_file")
+	}
 	err = c.Log.Validate()
+	if err != nil {
+		return err
+	}
+	err = c.API.Validate()
 	if err != nil {
 		return err
 	}
@@ -193,6 +216,7 @@ func ParseConfig(filePath string) (c Config, err error) {
 	if err != nil {
 		return c, err
 	}
+	c.ConfigDir = path.Dir(filePath)
 	err = c.Validate()
 	if err != nil {
 		return Config{}, err

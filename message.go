@@ -115,9 +115,8 @@ func (m *Message) TotalBytes(version packets.Version) uint32 {
 		return 3 + uint32(remainLenght)
 	} else if remainLenght <= 2097151 {
 		return 4 + uint32(remainLenght)
-	} else {
-		return 5 + uint32(remainLenght)
 	}
+	return 5 + uint32(remainLenght)
 }
 
 // MessageFromPublish create the Message instance from  publish packets

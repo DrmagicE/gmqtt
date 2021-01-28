@@ -1,15 +1,35 @@
+# Path to pid file, default to /var/run/gmqttd.pid
+# pid_file:
+
 listeners:
   # bind address
   - address: ":1883"
-    # tls setting
-  #      tls:
-  #        cert_file: "path_to_cert_file"
-  #        key_file: "path_to_key_file"
+#    tls:
+#      cacert: "path_to_ca_cert_file"
+#      cert: "path_to_cert_file"
+#      key: "path_to_key_file"
 
   - address: ":8883"
     # websocket setting
     websocket:
       path: "/"
+
+api:
+  grpc:
+    - address: "unix:///var/run/gmqttd.sock" # The gRPC server listen address.
+#      tls:
+#        cacert: "path_to_ca_cert_file"
+#        cert: "path_to_cert_file"
+#        key: "path_to_key_file"
+  http:
+      # The HTTP server listen address. This is a reverse-proxy server in front of gRPC server.
+    - address: "tcp://127.0.0.1:8083"
+      map: "unix:///var/run/gmqttd.sock" # The backend gRPC server endpoint,
+#      tls:
+#        cacert: "path_to_ca_cert_file"
+#        cert: "path_to_cert_file"
+#        key: "path_to_key_file"
+
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -56,23 +76,19 @@ plugins:
   prometheus:
     path: "/metrics"
     listen_address: ":8082"
-  admin:
-    http:
-      enable: true
-      addr: :8083
-    grpc:
-      addr: 8084
   auth:
     # Password hash type. (plain | md5 | sha256 | bcrypt)
     # Default to MD5.
     hash: md5
-    # The file to store password. Default to $HOME/gmqtt_password.yml
+    # The file to store password. If it is a relative path, it locates in the same directory as the config file.
+    # (e.g: ./gmqtt_password => /etc/gmqtt/gmqtt_password.yml)
+    # Default to ./gmqtt_password.yml
     # password_file:
 
 # plugin loading orders
 plugin_order:
   # Uncomment auth to enable authentication.
-  #- auth
+  # - auth
   - prometheus
   - admin
 log:

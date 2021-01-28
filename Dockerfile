@@ -16,6 +16,8 @@ FROM alpine:3.12
 
 WORKDIR /gmqttd
 COPY --from=builder /go/src/github.com/DrmagicE/gmqtt/build/gmqttd .
+RUN mkdir /etc/gmqtt
+COPY ./cmd/gmqttd/default_config.yml /etc/gmqtt/gmqttd.yml
 ENV PATH=$PATH:/gmqttd
 RUN chmod +x gmqttd
 ENTRYPOINT ["gmqttd","start"]

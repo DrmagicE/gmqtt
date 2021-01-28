@@ -1,7 +1,7 @@
-// +build !windows,!darwin
+// +build !windows
 
 package config
 
-func getDefaultPidFile() string {
-	return "/var/run/gmqttd.pid"
+func getDefaultPidFile() (string, error) {
+	return "/var/run/gmqttd.pid", nil
 }

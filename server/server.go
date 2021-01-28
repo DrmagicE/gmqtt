@@ -96,6 +96,7 @@ type Server interface {
 	RetainedService() RetainedService
 	// Plugins returns all enabled plugins
 	Plugins() []Plugin
+	APIRegistrar() APIRegistrar
 }
 
 type clientService struct {
@@ -147,7 +148,7 @@ func (c *clientService) TerminateSession(clientID string) {
 }
 
 // server represents a mqtt server instance.
-// Create a server by using NewServer()
+// Create a server by using New()
 type server struct {
 	wg       sync.WaitGroup
 	initOnce sync.Once
@@ -161,6 +162,8 @@ type server struct {
 	willMessage     map[string]*willMsg
 	tcpListener     []net.Listener //tcp listeners
 	websocketServer []*WsServer    //websocket serverStop
+	errOnce         sync.Once
+	err             error
 	exitChan        chan struct{}
 
 	retainedDB      retained.Store
@@ -185,6 +188,11 @@ type server struct {
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
 
 	clientService *clientService
+	apiRegistrar  *apiRegistrar
+}
+
+func (srv *server) APIRegistrar() APIRegistrar {
+	return srv.apiRegistrar
 }
 
 func (srv *server) Plugins() []Plugin {
@@ -485,7 +493,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 }
 
 type willMsg struct {
-	msg     *gmqtt.Message
+	msg *gmqtt.Message
 	// If true, send the msg.
 	// If false, discard the msg.
 	send chan bool
@@ -493,7 +501,7 @@ type willMsg struct {
 
 func (w *willMsg) signal(send bool) {
 	select {
-	case w.send<-send:
+	case w.send <- send:
 	default:
 	}
 }
@@ -525,7 +533,7 @@ func (srv *server) unregisterClient(client *client) {
 			if willDelayInterval != 0 && storeSession {
 				wm := &willMsg{
 					msg:  msg,
-					send: make(chan bool,1),
+					send: make(chan bool, 1),
 				}
 				srv.willMessage[client.opts.ClientID] = wm
 				t := time.NewTimer(time.Duration(willDelayInterval) * time.Second)
@@ -542,7 +550,7 @@ func (srv *server) unregisterClient(client *client) {
 					if send {
 						srv.deliverMessageHandler(clientID, msg)
 					}
-					delete(srv.willMessage,clientID)
+					delete(srv.willMessage, clientID)
 				}(client.opts.ClientID)
 			} else {
 				srv.deliverMessageHandler(client.opts.ClientID, msg)
@@ -785,7 +793,6 @@ func defaultServer() *server {
 
 // New returns a gmqtt server instance with the given options
 func New(opts ...Options) *server {
-	// statistics
 	srv := defaultServer()
 	for _, fn := range opts {
 		fn(srv)
@@ -874,8 +881,32 @@ func (srv *server) init(opts ...Options) (err error) {
 	} else {
 		return fmt.Errorf("topic alias manager : %s not found", srv.config.TopicAliasManager.Type)
 	}
-
+	err = srv.initAPIRegistrar()
+	if err != nil {
+		return err
+	}
 	return srv.loadPlugins()
+}
+
+func (srv *server) initAPIRegistrar() error {
+	registrar := &apiRegistrar{}
+	for _, v := range srv.config.API.HTTP {
+		server, err := buildHTTPServer(v)
+		if err != nil {
+			return err
+		}
+		registrar.httpServers = append(registrar.httpServers, server)
+
+	}
+	for _, v := range srv.config.API.GRPC {
+		server, err := buildGRPCServer(v)
+		if err != nil {
+			return err
+		}
+		registrar.gRPCServers = append(registrar.gRPCServers, server)
+	}
+	srv.apiRegistrar = registrar
+	return nil
 }
 
 // Init initialises the options.
@@ -976,8 +1007,8 @@ func (srv *server) serveWebSocket(ws *WsServer) {
 	} else {
 		err = ws.Server.ListenAndServe()
 	}
-	if err != http.ErrServerClosed {
-		panic(err.Error())
+	if err != nil && err != http.ErrServerClosed {
+		srv.setError(fmt.Errorf("serveWebSocket error: %s", err.Error()))
 	}
 }
 
@@ -1256,7 +1287,14 @@ func (srv *server) wsHandler() http.HandlerFunc {
 	}
 }
 
-// Run starts the mqtt server. This method is non-blocking
+func (srv *server) setError(err error) {
+	srv.errOnce.Do(func() {
+		srv.err = err
+		srv.exit()
+	})
+}
+
+// Run starts the mqtt server.
 func (srv *server) Run() (err error) {
 	err = srv.Init()
 	if err != nil {
@@ -1273,8 +1311,9 @@ func (srv *server) Run() (err error) {
 	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
 
 	srv.status = serverStatusStarted
-	srv.wg.Add(1)
+	srv.wg.Add(2)
 	go srv.eventLoop()
+	go srv.serveAPIServer()
 	for _, ln := range srv.tcpListener {
 		go srv.serveTCP(ln)
 	}
@@ -1284,7 +1323,8 @@ func (srv *server) Run() (err error) {
 		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
-	return nil
+	srv.wg.Wait()
+	return srv.err
 }
 
 // Stop gracefully stops the mqtt server by the following steps:
@@ -1298,22 +1338,16 @@ func (srv *server) Stop(ctx context.Context) error {
 		zaplog.Info("server stopped")
 		//zaplog.Sync()
 	}()
-	select {
-	case <-srv.exitChan:
-		return nil
-	default:
-		close(srv.exitChan)
-	}
+	srv.exit()
 	srv.wg.Wait()
+
 	for _, l := range srv.tcpListener {
 		l.Close()
 	}
 	for _, ws := range srv.websocketServer {
 		ws.Server.Shutdown(ctx)
 	}
-
-	//关闭所有的client
-	//closing all idle clients
+	// close all idle clients
 	srv.mu.Lock()
 	wgs := make([]*sync.WaitGroup, len(srv.clients))
 	i := 0

@@ -12,6 +12,11 @@ import (
 	"github.com/DrmagicE/gmqtt/server"
 )
 
+func init() {
+	registerAPI = func(service server.Server, a *Auth) error {
+		return nil
+	}
+}
 func TestAuth_validate(t *testing.T) {
 	var tt = []struct {
 		name     string

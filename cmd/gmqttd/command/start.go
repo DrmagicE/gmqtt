@@ -19,14 +19,13 @@ import (
 )
 
 var (
-	DefaultConfigFile string
-	ConfigFile        string
-	logger            *zap.Logger
+	ConfigFile string
+	logger     *zap.Logger
 )
 
 func must(err error) {
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprint(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -53,8 +52,10 @@ func installSignal(srv server.Server) {
 			srv.ApplyConfig(c)
 			logger.Info("gmqtt reloaded")
 		case <-stopSignalCh:
-			srv.Stop(context.Background())
-			return
+			err := srv.Stop(context.Background())
+			if err != nil {
+				fmt.Fprint(os.Stderr, err.Error())
+			}
 		}
 	}
 
@@ -69,15 +70,15 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 				Path:   v.Websocket.Path,
 			}
 			if v.TLSOptions != nil {
-				ws.KeyFile = v.KeyFile
-				ws.CertFile = v.CertFile
+				ws.KeyFile = v.Key
+				ws.CertFile = v.Cert
 			}
 			websockets = append(websockets, ws)
 			continue
 		}
 		if v.TLSOptions != nil {
 			var cert tls.Certificate
-			cert, err = tls.LoadX509KeyPair(v.CertFile, v.KeyFile)
+			cert, err = tls.LoadX509KeyPair(v.Cert, v.Key)
 			if err != nil {
 				return
 			}
@@ -94,7 +95,6 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 
 // NewStartCmd creates a *cobra.Command object for start command.
 func NewStartCmd() *cobra.Command {
-	cfg := config.DefaultConfig()
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start gmqtt broker",
@@ -102,31 +102,23 @@ func NewStartCmd() *cobra.Command {
 			var err error
 			must(err)
 			c, err := config.ParseConfig(ConfigFile)
-			var useDefault bool
 			if os.IsNotExist(err) {
-				if DefaultConfigFile != ConfigFile {
-					fmt.Println(err)
-					return
-				}
-				// if config file not exist, use default configration.
-				c = cfg
-				useDefault = true
+				must(err)
 			} else {
 				must(err)
 			}
 			err = c.Validate()
 			must(err)
 			pid, err := pidfile.New(c.PidFile)
-			must(err)
+			if err != nil {
+				must(fmt.Errorf("open pid file failed: %s", err))
+			}
 			defer pid.Remove()
 			tcpListeners, websockets, err := GetListeners(c)
 			must(err)
 			l, err := c.GetLogger(c.Log)
 			must(err)
 			logger = l
-			if useDefault {
-				l.Warn("config file not exist, use default configration")
-			}
 			s := server.New(
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
@@ -139,13 +131,13 @@ func NewStartCmd() *cobra.Command {
 				os.Exit(1)
 				return
 			}
+			go installSignal(s)
 			err = s.Run()
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprint(os.Stderr, err.Error())
 				os.Exit(1)
 				return
 			}
-			installSignal(s)
 		},
 	}
 	return cmd
