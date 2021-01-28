@@ -5,8 +5,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 
 	"github.com/DrmagicE/gmqtt/cmd/gmqttd/command"
@@ -25,17 +25,16 @@ var (
 
 func must(err error) {
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprint(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }
 
 func init() {
-	d, err := homedir.Dir()
+	configDir, err := getDefaultConfigDir()
 	must(err)
-	command.DefaultConfigFile = d + "/gmqtt.yml"
-	rootCmd.PersistentFlags().StringVarP(&command.ConfigFile, "config", "c", command.DefaultConfigFile, "The configuration file path")
-
+	command.ConfigFile = path.Join(configDir, "gmqttd.yml")
+	rootCmd.PersistentFlags().StringVarP(&command.ConfigFile, "config", "c", command.ConfigFile, "The configuration file path")
 	rootCmd.AddCommand(command.NewStartCmd())
 	rootCmd.AddCommand(command.NewReloadCommand())
 }
@@ -51,7 +50,7 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		fmt.Fprint(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }

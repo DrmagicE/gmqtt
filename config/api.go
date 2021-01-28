@@ -31,23 +31,6 @@ type Endpoint struct {
 	TLS *TLSOptions `yaml:"tls"`
 }
 
-func init() {
-	// TODO windows
-	DefaultAPI = API{
-		GRPC: []*Endpoint{
-			{
-				Address: "unix:///var/run/gmqttd.sock",
-			},
-		},
-		HTTP: []*Endpoint{
-			{
-				Address: "tcp://127.0.0.1:8083",
-				Map:     "unix:///var/run/gmqttd.sock",
-			},
-		},
-	}
-}
-
 var DefaultAPI API
 
 func (a API) validateAddress(address string, fieldName string) error {

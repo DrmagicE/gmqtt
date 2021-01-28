@@ -19,14 +19,13 @@ import (
 )
 
 var (
-	DefaultConfigFile string
-	ConfigFile        string
-	logger            *zap.Logger
+	ConfigFile string
+	logger     *zap.Logger
 )
 
 func must(err error) {
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprint(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -94,7 +93,6 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 
 // NewStartCmd creates a *cobra.Command object for start command.
 func NewStartCmd() *cobra.Command {
-	cfg := config.DefaultConfig()
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start gmqtt broker",
@@ -102,31 +100,23 @@ func NewStartCmd() *cobra.Command {
 			var err error
 			must(err)
 			c, err := config.ParseConfig(ConfigFile)
-			var useDefault bool
 			if os.IsNotExist(err) {
-				if DefaultConfigFile != ConfigFile {
-					fmt.Println(err)
-					return
-				}
-				// if config file not exist, use default configuration.
-				c = cfg
-				useDefault = true
+				must(err)
 			} else {
 				must(err)
 			}
 			err = c.Validate()
 			must(err)
 			pid, err := pidfile.New(c.PidFile)
-			must(err)
+			if err != nil {
+				must(fmt.Errorf("open pid file failed: %s", err))
+			}
 			defer pid.Remove()
 			tcpListeners, websockets, err := GetListeners(c)
 			must(err)
 			l, err := c.GetLogger(c.Log)
 			must(err)
 			logger = l
-			if useDefault {
-				l.Warn("config file not exist, use default configration")
-			}
 			s := server.New(
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),

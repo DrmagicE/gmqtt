@@ -9,6 +9,7 @@ import (
 	"hash"
 	"io/ioutil"
 	"os"
+	"path"
 	"sync"
 
 	"go.uber.org/zap"
@@ -33,6 +34,7 @@ func New(config config.Config) (server.Plugin, error) {
 	a := &Auth{
 		config:  config.Plugins[Name].(*Config),
 		indexer: admin.NewIndexer(),
+		pwdDir:  config.ConfigDir,
 	}
 	a.saveFile = a.saveFileHandler
 	return a, nil
@@ -44,6 +46,7 @@ var log *zap.Logger
 // The authentication data is persist in config.PasswordFile.
 type Auth struct {
 	config *Config
+	pwdDir string
 	// gard indexer
 	mu sync.RWMutex
 	// store username/password
@@ -126,7 +129,14 @@ var registerAPI = func(service server.Server, a *Auth) error {
 func (a *Auth) Load(service server.Server) error {
 	err := registerAPI(service, a)
 	log = server.LoggerWithField(zap.String("plugin", Name))
-	f, err := os.OpenFile(a.config.PasswordFile, os.O_CREATE|os.O_RDONLY, 0666)
+
+	var pwdFile string
+	if path.IsAbs(a.config.PasswordFile) {
+		pwdFile = a.config.PasswordFile
+	} else {
+		pwdFile = path.Join(a.pwdDir, a.config.PasswordFile)
+	}
+	f, err := os.OpenFile(pwdFile, os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil {
 		return err
 	}
@@ -143,7 +153,7 @@ func (a *Auth) Load(service server.Server) error {
 	log.Info("authentication data loaded",
 		zap.String("hash", a.config.Hash),
 		zap.Int("account_nums", len(acts)),
-		zap.String("password_file", a.config.PasswordFile))
+		zap.String("password_file", pwdFile))
 
 	dup := make(map[string]struct{})
 	for _, v := range acts {

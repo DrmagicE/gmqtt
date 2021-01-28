@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -36,6 +38,10 @@ func RegisterDefaultPluginConfig(name string, config Configuration) {
 // DefaultConfig return the default configuration.
 // If config file is not provided, gmqttd will start with DefaultConfig.
 func DefaultConfig() Config {
+	pidFile, err := getDefaultPidFile()
+	if err != nil {
+		panic(err)
+	}
 	c := Config{
 		Listeners: DefaultListeners,
 		MQTT:      DefaultMQTTConfig,
@@ -44,7 +50,7 @@ func DefaultConfig() Config {
 			Level:  "info",
 			Format: "text",
 		},
-		PidFile:           getDefaultPidFile(),
+		PidFile:           pidFile,
 		Plugins:           make(pluginConfig),
 		Persistence:       DefaultPersistenceConfig,
 		TopicAliasManager: DefaultTopicAliasManager,
@@ -111,6 +117,7 @@ type Config struct {
 	MQTT      MQTT              `yaml:"mqtt,omitempty"`
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
+	ConfigDir string            `yaml:"config_dir"`
 	Plugins   pluginConfig      `yaml:"plugins"`
 	// PluginOrder is a slice that contains the name of the plugin which will be loaded.
 	// Giving a correct order to the slice is significant,
@@ -168,6 +175,9 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 func (c Config) Validate() (err error) {
+	if c.PidFile == "" {
+		return errors.New("empty pid_file")
+	}
 	err = c.Log.Validate()
 	if err != nil {
 		return err
@@ -206,6 +216,7 @@ func ParseConfig(filePath string) (c Config, err error) {
 	if err != nil {
 		return c, err
 	}
+	c.ConfigDir = path.Dir(filePath)
 	err = c.Validate()
 	if err != nil {
 		return Config{}, err
