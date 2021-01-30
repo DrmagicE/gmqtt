@@ -299,6 +299,12 @@ func TestFederation_getSerfConfig(t *testing.T) {
 	a.Equal(host, serfCfg.MemberlistConfig.BindAddr)
 	portNumber, _ := strconv.Atoi(port)
 	a.EqualValues(portNumber, serfCfg.MemberlistConfig.BindPort)
+
+	host, port, _ = net.SplitHostPort(cfg.AdvertiseGossipAddr)
+	a.Equal(host, serfCfg.MemberlistConfig.AdvertiseAddr)
+	portNumber, _ = strconv.Atoi(port)
+	a.EqualValues(portNumber, serfCfg.MemberlistConfig.AdvertisePort)
+
 	a.Equal(cfg.SnapshotPath, serfCfg.SnapshotPath)
 	a.Equal(cfg.RejoinAfterLeave, serfCfg.RejoinAfterLeave)
 }
