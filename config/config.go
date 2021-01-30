@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -38,10 +37,6 @@ func RegisterDefaultPluginConfig(name string, config Configuration) {
 // DefaultConfig return the default configuration.
 // If config file is not provided, gmqttd will start with DefaultConfig.
 func DefaultConfig() Config {
-	pidFile, err := getDefaultPidFile()
-	if err != nil {
-		panic(err)
-	}
 	c := Config{
 		Listeners: DefaultListeners,
 		MQTT:      DefaultMQTTConfig,
@@ -50,7 +45,6 @@ func DefaultConfig() Config {
 			Level:  "info",
 			Format: "text",
 		},
-		PidFile:           pidFile,
 		Plugins:           make(pluginConfig),
 		Persistence:       DefaultPersistenceConfig,
 		TopicAliasManager: DefaultTopicAliasManager,
@@ -115,6 +109,7 @@ type Config struct {
 	Listeners []*ListenerConfig `yaml:"listeners"`
 	API       API               `yaml:"api"`
 	MQTT      MQTT              `yaml:"mqtt,omitempty"`
+	GRPC      GRPC              `yaml:"gRPC"`
 	Log       LogConfig         `yaml:"log"`
 	PidFile   string            `yaml:"pid_file"`
 	ConfigDir string            `yaml:"config_dir"`
@@ -125,6 +120,10 @@ type Config struct {
 	PluginOrder       []string          `yaml:"plugin_order"`
 	Persistence       Persistence       `yaml:"persistence"`
 	TopicAliasManager TopicAliasManager `yaml:"topic_alias_manager"`
+}
+
+type GRPC struct {
+	Endpoint string `yaml:"endpoint"`
 }
 
 type TLSOptions struct {
@@ -175,9 +174,6 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 func (c Config) Validate() (err error) {
-	if c.PidFile == "" {
-		return errors.New("empty pid_file")
-	}
 	err = c.Log.Validate()
 	if err != nil {
 		return err

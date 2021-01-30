@@ -8,6 +8,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
+	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
 var (
@@ -148,13 +149,118 @@ func testAddSubscribe(t *testing.T, store subscription.Store) {
 	}
 }
 
-func TestSuite(t *testing.T, store subscription.Store) {
+func testGetStatus(t *testing.T, store subscription.Store) {
 	a := assert.New(t)
+	var err error
+	tt := []struct {
+		clientID string
+		topic    packets.Topic
+	}{
+		{clientID: "id0", topic: packets.Topic{Name: "name0", SubOptions: packets.SubOptions{Qos: packets.Qos0}}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", SubOptions: packets.SubOptions{Qos: packets.Qos1}}},
+		{clientID: "id2", topic: packets.Topic{Name: "name2", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id3", topic: packets.Topic{Name: "name3", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id4", topic: packets.Topic{Name: "name3", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id4", topic: packets.Topic{Name: "name4", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		// test $share and system topic
+		{clientID: "id4", topic: packets.Topic{Name: "$share/abc/name4", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id4", topic: packets.Topic{Name: "$SYS/abc/def", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+	}
+	for _, v := range tt {
+		_, err = store.Subscribe(v.clientID, subscription.FromTopic(v.topic, 0))
+		a.NoError(err)
+	}
+	stats := store.GetStats()
+	expectedTotal, expectedCurrent := len(tt), len(tt)
+
+	a.EqualValues(expectedTotal, stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+
+	// If subscribe duplicated topic, total and current statistics should not increase
+	_, err = store.Subscribe("id0", subscription.FromTopic(packets.Topic{SubOptions: packets.SubOptions{Qos: packets.Qos0}, Name: "name0"}, 0))
+	a.NoError(err)
+	_, err = store.Subscribe("id4", subscription.FromTopic(packets.Topic{SubOptions: packets.SubOptions{Qos: packets.Qos2}, Name: "$share/abc/name4"}, 0))
+	a.NoError(err)
+
+	stats = store.GetStats()
+	a.EqualValues(expectedTotal, stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+
+	utt := []struct {
+		clientID string
+		topic    packets.Topic
+	}{
+		{clientID: "id0", topic: packets.Topic{Name: "name0", SubOptions: packets.SubOptions{Qos: packets.Qos0}}},
+		{clientID: "id1", topic: packets.Topic{Name: "name1", SubOptions: packets.SubOptions{Qos: packets.Qos1}}},
+	}
+	expectedCurrent -= 2
+	for _, v := range utt {
+		a.NoError(store.Unsubscribe(v.clientID, v.topic.Name))
+	}
+	stats = store.GetStats()
+	a.EqualValues(expectedTotal, stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+
+	//if unsubscribe not exists topic, current statistics should not decrease
+	a.NoError(store.Unsubscribe("id0", "name555"))
+	stats = store.GetStats()
+	a.EqualValues(len(tt), stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+
+	a.NoError(store.Unsubscribe("id4", "$share/abc/name4"))
+
+	expectedCurrent -= 1
+	stats = store.GetStats()
+	a.EqualValues(expectedTotal, stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+
+	a.NoError(store.UnsubscribeAll("id4"))
+	expectedCurrent -= 3
+	stats = store.GetStats()
+	a.EqualValues(len(tt), stats.SubscriptionsTotal)
+	a.EqualValues(expectedCurrent, stats.SubscriptionsCurrent)
+}
+
+func testGetClientStats(t *testing.T, store subscription.Store) {
+	a := assert.New(t)
+	var err error
+	tt := []struct {
+		clientID string
+		topic    packets.Topic
+	}{
+		{clientID: "id0", topic: packets.Topic{Name: "name0", SubOptions: packets.SubOptions{Qos: packets.Qos0}}},
+		{clientID: "id0", topic: packets.Topic{Name: "name1", SubOptions: packets.SubOptions{Qos: packets.Qos1}}},
+		// test $share and system topic
+		{clientID: "id0", topic: packets.Topic{Name: "$share/abc/name5", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id0", topic: packets.Topic{Name: "$SYS/a/b/c", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+
+		{clientID: "id1", topic: packets.Topic{Name: "name0", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id1", topic: packets.Topic{Name: "$share/abc/name5", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id2", topic: packets.Topic{Name: "$SYS/a/b/c", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+		{clientID: "id2", topic: packets.Topic{Name: "name5", SubOptions: packets.SubOptions{Qos: packets.Qos2}}},
+	}
+	for _, v := range tt {
+		_, err = store.Subscribe(v.clientID, subscription.FromTopic(v.topic, 0))
+		a.NoError(err)
+	}
+	stats, _ := store.GetClientStats("id0")
+	a.EqualValues(4, stats.SubscriptionsTotal)
+	a.EqualValues(4, stats.SubscriptionsCurrent)
+
+	a.NoError(store.UnsubscribeAll("id0"))
+	stats, _ = store.GetClientStats("id0")
+	a.EqualValues(4, stats.SubscriptionsTotal)
+	a.EqualValues(0, stats.SubscriptionsCurrent)
+}
+
+func TestSuite(t *testing.T, new func() subscription.Store) {
+	a := assert.New(t)
+	store := new()
 	a.Nil(store.Init(nil))
 	defer store.Close()
 	for i := 0; i <= 1; i++ {
 		testAddSubscribe(t, store)
-		t.Run("GetTopic"+strconv.Itoa(i), func(t *testing.T) {
+		t.Run("testGetTopic"+strconv.Itoa(i), func(t *testing.T) {
 			testGetTopic(t, store)
 		})
 		t.Run("testTopicMatch"+strconv.Itoa(i), func(t *testing.T) {
@@ -167,6 +273,20 @@ func TestSuite(t *testing.T, store subscription.Store) {
 			testUnsubscribe(t, store)
 		})
 	}
+
+	store2 := new()
+	a.Nil(store2.Init(nil))
+	defer store2.Close()
+	t.Run("testGetStatus", func(t *testing.T) {
+		testGetStatus(t, store2)
+	})
+
+	store3 := new()
+	a.Nil(store3.Init(nil))
+	defer store3.Close()
+	t.Run("testGetStatus", func(t *testing.T) {
+		testGetClientStats(t, store3)
+	})
 }
 func testGetTopic(t *testing.T, store subscription.Store) {
 	a := assert.New(t)
@@ -478,5 +598,4 @@ func testIterateSystem(t *testing.T, store subscription.Store) {
 	})
 	a.ElementsMatch([]*gmqtt.Subscription{systemTopicA}, got["client1"])
 	a.Len(got["client2"], 0)
-
 }

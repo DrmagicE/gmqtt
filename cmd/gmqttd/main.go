@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"path"
+	//"runtime/pprof"
+	_ "runtime/pprof"
 
 	"github.com/spf13/cobra"
 
@@ -40,12 +41,12 @@ func init() {
 }
 
 func main() {
-	//	f, err := os.Create("cpu.profile")
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	pprof.StartCPUProfile(f)
-	//	defer pprof.StopCPUProfile()
+	//f, err := os.Create("cpu.profile")
+	//if err != nil {
+	//	panic(err)
+	//}
+	//pprof.StartCPUProfile(f)
+	//defer pprof.StopCPUProfile()
 	go func() {
 		http.ListenAndServe(":6060", nil)
 	}()

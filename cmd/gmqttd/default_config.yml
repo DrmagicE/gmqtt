@@ -1,5 +1,6 @@
-# Path to pid file, default to /var/run/gmqttd.pid
-# pid_file:
+# Path to pid file.
+# If not set, there will be no pid file.
+# pid_file: /var/run/gmqttd.pid
 
 listeners:
   # bind address
@@ -16,7 +17,9 @@ listeners:
 
 api:
   grpc:
-    - address: "unix:///var/run/gmqttd.sock" # The gRPC server listen address.
+    # The gRPC server listen address. Supports unix socket and tcp socket.
+    - address: "tcp://127.0.0.1:8084"
+    #- address: "unix:///var/run/gmqttd.sock"
 #      tls:
 #        cacert: "path_to_ca_cert_file"
 #        cert: "path_to_cert_file"
@@ -24,7 +27,7 @@ api:
   http:
       # The HTTP server listen address. This is a reverse-proxy server in front of gRPC server.
     - address: "tcp://127.0.0.1:8083"
-      map: "unix:///var/run/gmqttd.sock" # The backend gRPC server endpoint,
+      map: "tcp://127.0.0.1:8084" # The backend gRPC server endpoint,
 #      tls:
 #        cacert: "path_to_ca_cert_file"
 #        cert: "path_to_cert_file"
@@ -43,8 +46,8 @@ mqtt:
   shared_subscription_available: true
   maximum_qos: 2
   retain_available: true
-  max_queued_messages: 1000
-  max_inflight: 100
+  max_queued_messages: 10000
+  max_inflight: 1000
   queue_qos0_messages: true
   delivery_mode: onlyonce # overlap or onlyonce
   allow_zero_length_clientid: true
@@ -82,8 +85,33 @@ plugins:
     hash: md5
     # The file to store password. If it is a relative path, it locates in the same directory as the config file.
     # (e.g: ./gmqtt_password => /etc/gmqtt/gmqtt_password.yml)
-    # Default to ./gmqtt_password.yml
+    # Defaults to ./gmqtt_password.yml
     # password_file:
+  federation:
+    # node_name is the unique identifier for the node in the federation. Defaults to hostname.
+    # node_name:
+    # fed_addr is the gRPC server listening address for the federation internal communication. Defaults to :8901
+    fed_addr: :8901
+    # advertise_fed_addr is used to change the federation gRPC server address that we advertise to other nodes in the cluster.
+    # Defaults to "fed_addr".However, in some cases, there may be a routable address that cannot be bound.
+    # If the port is missing, the default federation port (8901) will be used.
+    advertise_fed_addr: :8901
+    # gossip_addr is the address that the gossip will listen on, It is used for both UDP and TCP gossip. Defaults to :8902
+    gossip_addr: :8902
+    # retry_join is the address of other nodes to join upon starting up.
+    # If port is missing, the default gossip port (8902) will be used.
+    #retry_join:
+    #  - 127.0.0.1:8902
+
+    # rejoin_after_leave will be pass to "RejoinAfterLeave" in serf configuration.
+    # It controls our interaction with the snapshot file.
+    # When set to false (default), a leave causes a Serf to not rejoin the cluster until an explicit join is received.
+    # If this is set to true, we ignore the leave, and rejoin the cluster on start.
+    rejoin_after_leave: false
+    # snapshot_path will be pass to "SnapshotPath" in serf configuration.
+    # When Serf is started with a snapshot,it will attempt to join all the previously known nodes until one
+    # succeeds and will also avoid replaying old user events.
+    snapshot_path:
 
 # plugin loading orders
 plugin_order:
@@ -91,6 +119,7 @@ plugin_order:
   # - auth
   - prometheus
   - admin
+  - federation
 log:
   level: info # debug | info | warn | error
   format: text # json | text

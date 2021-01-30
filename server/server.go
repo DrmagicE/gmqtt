@@ -1308,7 +1308,7 @@ func (srv *server) Run() (err error) {
 	for _, v := range srv.websocketServer {
 		ws = append(ws, v.Server.Addr)
 	}
-	zaplog.Info("starting gmqtt server", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
+	zaplog.Info("gmqtt server started", zap.Strings("tcp server listen on", tcps), zap.Strings("websocket server listen on", ws))
 
 	srv.status = serverStatusStarted
 	srv.wg.Add(2)
