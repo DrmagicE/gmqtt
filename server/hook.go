@@ -248,7 +248,7 @@ type OnSessionTerminated func(ctx context.Context, clientID string, reason Sessi
 
 type OnSessionTerminatedWrapper func(OnSessionTerminated) OnSessionTerminated
 
-//  OnDelivered will be called when publishing a message to a client.
+// OnDelivered will be called when publishing a message to a client.
 type OnDelivered func(ctx context.Context, client Client, msg *gmqtt.Message)
 
 type OnDeliveredWrapper func(OnDelivered) OnDelivered

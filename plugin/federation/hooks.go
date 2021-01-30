@@ -25,8 +25,8 @@ func (f *Federation) OnSubscribedWrapper(pre server.OnSubscribed) server.OnSubsc
 				return
 			}
 			// only send new subscription
-			f.mu.Lock()
-			defer f.mu.Unlock()
+			f.memberMu.Lock()
+			defer f.memberMu.Unlock()
 			for _, v := range f.peers {
 				sub := &Subscribe{
 					ShareName:   subscription.ShareName,
@@ -48,8 +48,8 @@ func (f *Federation) OnUnsubscribedWrapper(pre server.OnUnsubscribed) server.OnU
 			return
 		}
 		// only unsubscribe topic if there is no local subscriber anymore.
-		f.mu.Lock()
-		defer f.mu.Unlock()
+		f.memberMu.Lock()
+		defer f.memberMu.Unlock()
 		for _, v := range f.peers {
 			unsub := &Unsubscribe{
 				TopicName: topicName,
@@ -69,8 +69,8 @@ func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgAr
 			return err
 		}
 		if req.Message != nil {
-			f.mu.Lock()
-			defer f.mu.Unlock()
+			f.memberMu.Lock()
+			defer f.memberMu.Unlock()
 			// If it is a retained message, broadcasts the message to all nodes to update their local retained store.
 			if req.Message.Retained {
 				msg := messageToEvent(req.Message)
@@ -83,6 +83,7 @@ func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgAr
 				return nil
 			}
 			// For not retained message , send it to the nodes which have matched topics.
+			// TODO for shared subscription, we should either only send the message to local subscriber or only send the message to one node.
 			sent := make(map[string]struct{})
 			f.feSubStore.Iterate(func(nodeName string, sub *gmqtt.Subscription) bool {
 				if _, ok := sent[nodeName]; ok {
@@ -113,8 +114,8 @@ func (f *Federation) OnSessionTerminatedWrapper(pre server.OnSessionTerminated) 
 	return func(ctx context.Context, clientID string, reason server.SessionTerminatedReason) {
 		pre(ctx, clientID, reason)
 		if unsubs := f.localSubStore.unsubscribeAll(clientID); len(unsubs) != 0 {
-			f.mu.Lock()
-			defer f.mu.Unlock()
+			f.memberMu.Lock()
+			defer f.memberMu.Unlock()
 			for _, v := range f.peers {
 				for _, topicName := range unsubs {
 					unsub := &Unsubscribe{

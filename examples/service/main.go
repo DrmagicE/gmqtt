@@ -39,13 +39,13 @@ func main() {
 	err = srv.Init(server.WithHook(server.Hooks{
 		OnConnected: func(ctx context.Context, client server.Client) {
 			// add subscription for a client when it is connected
-			subService = srv.SubscriptionService()
 			subService.Subscribe(client.ClientOptions().ClientID, &gmqtt.Subscription{
 				TopicFilter: "topic",
 				QoS:         packets.Qos0,
 			})
 		},
 	}))
+	subService = srv.SubscriptionService()
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -67,12 +67,6 @@ func main() {
 	})
 
 	// publish service
-
-	err = srv.Run()
-	if err != nil {
-		panic(err)
-	}
-
 	go func() {
 		for {
 			<-time.NewTimer(5 * time.Second).C
@@ -93,8 +87,16 @@ func main() {
 		}
 
 	}()
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
-	<-signalCh
-	srv.Stop(context.Background())
+
+	go func() {
+		signalCh := make(chan os.Signal, 1)
+		signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+		<-signalCh
+		srv.Stop(context.Background())
+	}()
+	err = srv.Run()
+	if err != nil {
+		panic(err)
+	}
+
 }

@@ -18,6 +18,11 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 )
 
+const (
+	peerStateStopped = iota + 1
+	peerStateStreaming
+)
+
 // peer represents a remote node which act as the event stream server.
 type peer struct {
 	fed       *Federation
@@ -28,7 +33,9 @@ type peer struct {
 	sessionID string
 	queue     queue
 	// client-side stream
-	stream *stream
+	stateMu sync.Mutex
+	state   int
+	stream  *stream
 }
 
 type stream struct {
@@ -168,7 +175,12 @@ func (p *peer) stop() {
 	default:
 		close(p.exit)
 	}
-	_ = p.stream.client.CloseSend()
+	p.stateMu.Lock()
+	if p.state == peerStateStreaming {
+		_ = p.stream.client.CloseSend()
+	}
+	p.state = peerStateStopped
+	p.stateMu.Unlock()
 	p.stream.wg.Wait()
 }
 
@@ -198,6 +210,16 @@ func (p *peer) serveEventStream() {
 }
 
 func (p *peer) initStream(client FederationClient) (s *stream, err error) {
+	p.stateMu.Lock()
+	defer func() {
+		if err == nil {
+			p.state = peerStateStreaming
+		}
+		p.stateMu.Unlock()
+	}()
+	if p.state == peerStateStopped {
+		return nil, errors.New("peer has been stopped")
+	}
 	helloMD := metadata.Pairs("node_name", p.localName)
 	helloCtx := metadata.NewOutgoingContext(context.Background(), helloMD)
 	sh, err := client.Hello(helloCtx, &ClientHello{
@@ -246,6 +268,7 @@ func (p *peer) initStream(client FederationClient) (s *stream, err error) {
 		client: c,
 		close:  make(chan struct{}),
 	}
+	//TODO DATA RACE
 	p.stream = s
 	return s, nil
 }

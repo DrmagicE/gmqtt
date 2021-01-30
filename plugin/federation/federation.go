@@ -3,12 +3,20 @@ package federation
 import (
 	"container/list"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/hashicorp/logutils"
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -32,10 +40,52 @@ func init() {
 	config.RegisterDefaultPluginConfig(Name, &DefaultConfig)
 }
 
+func getSerfLogger(level string) (io.Writer, error) {
+	logLevel := strings.ToUpper(level)
+	var zapLevel zapcore.Level
+	err := zapLevel.UnmarshalText([]byte(logLevel))
+	if err != nil {
+		return nil, err
+	}
+	zp, err := zap.NewStdLogAt(log, zapLevel)
+	if err != nil {
+		return nil, err
+	}
+	filter := &logutils.LevelFilter{
+		Levels:   []logutils.LogLevel{"DEBUG", "INFO", "WARN", "ERROR"},
+		MinLevel: logutils.LogLevel(logLevel),
+		Writer:   zp.Writer(),
+	}
+	return filter, nil
+}
+
+func getSerfConfig(cfg *Config, eventCh chan serf.Event, logOut io.Writer) *serf.Config {
+	serfCfg := serf.DefaultConfig()
+	serfCfg.SnapshotPath = cfg.SnapshotPath
+	serfCfg.RejoinAfterLeave = cfg.RejoinAfterLeave
+	serfCfg.NodeName = cfg.NodeName
+	serfCfg.EventCh = eventCh
+	host, port, _ := net.SplitHostPort(cfg.GossipAddr)
+	if host != "" {
+		serfCfg.MemberlistConfig.BindAddr = host
+	}
+	p, _ := strconv.Atoi(port)
+	serfCfg.MemberlistConfig.BindPort = p
+	serfCfg.Tags = map[string]string{"fed_addr": cfg.AdvertiseFedAddr}
+	serfCfg.LogOutput = logOut
+	serfCfg.MemberlistConfig.LogOutput = logOut
+	return serfCfg
+}
+
 func New(config config.Config) (server.Plugin, error) {
-	return &Federation{
-		config:        config.Plugins[Name].(*Config),
-		nodeName:      config.Plugins[Name].(*Config).NodeName,
+	log = server.LoggerWithField(zap.String("plugin", Name))
+	cfg := config.Plugins[Name].(*Config)
+	if cfg.AdvertiseFedAddr == "" {
+		cfg.AdvertiseFedAddr = cfg.FedAddr
+	}
+	f := &Federation{
+		config:        cfg,
+		nodeName:      cfg.NodeName,
 		localSubStore: &localSubStore{},
 		feSubStore:    mem.NewStore(),
 		serfEventCh:   make(chan serf.Event, 10000),
@@ -43,7 +93,18 @@ func New(config config.Config) (server.Plugin, error) {
 		peers:         make(map[string]*peer),
 		exit:          make(chan struct{}),
 		wg:            &sync.WaitGroup{},
-	}, nil
+	}
+	logOut, err := getSerfLogger(config.Log.Level)
+	if err != nil {
+		return nil, err
+	}
+	serfCfg := getSerfConfig(cfg, f.serfEventCh, logOut)
+	s, err := serf.Create(serfCfg)
+	if err != nil {
+		return nil, err
+	}
+	f.serf = s
+	return f, nil
 }
 
 var log *zap.Logger
@@ -51,21 +112,82 @@ var log *zap.Logger
 type Federation struct {
 	config      *Config
 	nodeName    string
+	serfMu      sync.Mutex
+	serf        iSerf
 	serfEventCh chan serf.Event
 
 	sessMu   sync.Mutex
 	sessions map[string]*session
-
+	// localSubStore store the subscriptions for the local node.
+	// The local node will only broadcast "new subscriptions" to other nodes.
+	// "New subscription" is the first subscription for a topic name.
+	// It means that if two client in the local node subscribe the same topic, only the first subscription will be broadcast.
 	localSubStore *localSubStore
-	// feSubStore store federation subscription tree which take nodeName as clientID.
+	// feSubStore store federation subscription tree which take nodeName as the subscriber identifier.
 	// It is used to determine which node the incoming message should be routed to.
-	feSubStore    *mem.TrieDB
+	feSubStore *mem.TrieDB
+	// retainedStore store is the retained store of the gmqtt core.
+	// Retained message will be broadcast to other nodes in the federation.
 	retainedStore retained.Store
 	peers         map[string]*peer
 	publisher     server.Publisher
 	exit          chan struct{}
-	mu            sync.Mutex
+	memberMu      sync.Mutex
 	wg            *sync.WaitGroup
+}
+
+// ForceLeave force forces a member of a Serf cluster to enter the "left" state.
+// Note that if the member is still actually alive, it will eventually rejoin the cluster.
+// The true purpose of this method is to force remove "failed" nodes
+// See https://www.serf.io/docs/commands/force-leave.html for details.
+func (f *Federation) ForceLeave(ctx context.Context, req *ForceLeaveRequest) (*empty.Empty, error) {
+	if req.NodeName == "" {
+		return nil, errors.New("host can not be empty")
+	}
+	return &empty.Empty{}, f.serf.RemoveFailedNode(req.NodeName)
+}
+
+// ListMembers lists all known members in the Serf cluster.
+func (f *Federation) ListMembers(ctx context.Context, req *empty.Empty) (resp *ListMembersResponse, err error) {
+	resp = &ListMembersResponse{}
+	for _, v := range f.serf.Members() {
+		resp.Members = append(resp.Members, &Member{
+			Name:   v.Name,
+			Addr:   net.JoinHostPort(v.Addr.String(), strconv.Itoa(int(v.Port))),
+			Tags:   v.Tags,
+			Status: Status(v.Status),
+		})
+	}
+	return resp, nil
+}
+
+// Leave triggers a graceful leave for the local node.
+// This is used to ensure other nodes see the node as "left" instead of "failed".
+// Note that a leaved node cannot re-join the cluster unless you restart the leaved node.
+func (f *Federation) Leave(ctx context.Context, req *empty.Empty) (resp *empty.Empty, err error) {
+	return &empty.Empty{}, f.serf.Leave()
+}
+
+func (f *Federation) mustEmbedUnimplementedMembershipServer() {
+	return
+}
+
+// Join tells the local node to join the an existing cluster.
+// See https://www.serf.io/docs/commands/join.html for details.
+func (f *Federation) Join(ctx context.Context, req *JoinRequest) (resp *empty.Empty, err error) {
+	for k, v := range req.Hosts {
+		err := validAddrAndSet(v, DefaultGossipAddr, "hosts", func(addr string) {
+			req.Hosts[k] = addr
+		})
+		if err != nil {
+			return &empty.Empty{}, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	_, err = f.serf.Join(req.Hosts, true)
+	if err != nil {
+		return nil, err
+	}
+	return &empty.Empty{}, nil
 }
 
 type localSubStore struct {
@@ -76,6 +198,7 @@ type localSubStore struct {
 	topics map[string]uint64
 }
 
+// init loads all subscriptions from gmqtt core into federation plugin.
 func (l *localSubStore) init(sub server.SubscriptionService) {
 	l.index = make(map[string]map[string]struct{})
 	l.topics = make(map[string]uint64)
@@ -90,6 +213,8 @@ func (l *localSubStore) init(sub server.SubscriptionService) {
 	})
 }
 
+// subscribe subscribe the topicName for the client and increase the reference counter of the topicName.
+// It returns whether the subscription is new
 func (l *localSubStore) subscribe(clientID string, topicName string) (new bool) {
 	l.Lock()
 	defer l.Unlock()
@@ -119,6 +244,8 @@ func (l *localSubStore) decTopicCounterLocked(topicName string) {
 	}
 }
 
+// unsubscribe unsubscribe the topicName for the client and decrease the reference counter of the topicName.
+// It returns whether the topicName is removed (reference counter == 0)
 func (l *localSubStore) unsubscribe(clientID string, topicName string) (remove bool) {
 	l.Lock()
 	defer l.Unlock()
@@ -136,10 +263,12 @@ func (l *localSubStore) unsubscribe(clientID string, topicName string) (remove b
 
 }
 
+// unsubscribeAll unsubscribes all topics for the given client.
+// Typically, this function is called when the client session has terminated.
+// It returns any topic that is removed。
 func (l *localSubStore) unsubscribeAll(clientID string) (remove []string) {
 	l.Lock()
 	defer l.Unlock()
-
 	for topicName := range l.index[clientID] {
 		l.decTopicCounterLocked(topicName)
 		if l.topics[topicName] == 0 {
@@ -219,7 +348,7 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 		// v.id != req.SessionId indicates that the client side may recover from crash and need to rebuild the full state.
 		cleanStart = true
 	}
-	if cleanStart == true {
+	if cleanStart {
 		f.sessions[nodeName] = &session{
 			id:       req.SessionId,
 			nodeName: nodeName,
@@ -227,13 +356,17 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 			seenEvents:  newLRUCache(100),
 			nextEventID: 0,
 		}
+		err := f.feSubStore.UnsubscribeAll(nodeName)
+		if err != nil {
+			return &ServerHello{}, err
+		}
 	}
+
 	resp = &ServerHello{
 		CleanStart:  cleanStart,
 		NextEventId: nextID,
 	}
 	return resp, nil
-
 }
 
 func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
@@ -316,11 +449,21 @@ func (f *Federation) mustEmbedUnimplementedFederationServer() {
 	return
 }
 
+var registerAPI = func(service server.Server, f *Federation) error {
+	apiRegistrar := service.APIRegistrar()
+	RegisterMembershipServer(apiRegistrar, f)
+	err := apiRegistrar.RegisterHTTPHandler(RegisterMembershipHandlerFromEndpoint)
+	return err
+}
+
 func (f *Federation) Load(service server.Server) error {
+	err := registerAPI(service, f)
+	if err != nil {
+		return err
+	}
 	f.localSubStore.init(service.SubscriptionService())
 	f.retainedStore = service.RetainedService()
 	f.publisher = service.Publisher()
-	log = server.LoggerWithField(zap.String("plugin", Name))
 	srv := grpc.NewServer()
 	RegisterFederationServer(srv, f)
 	l, err := net.Listen("tcp", f.config.FedAddr)
@@ -333,11 +476,34 @@ func (f *Federation) Load(service server.Server) error {
 			panic(err)
 		}
 	}()
-	return f.startSerf()
+	t := time.NewTimer(0)
+	timeout := time.NewTimer(f.config.RetryTimeout)
+	for {
+		select {
+		case <-timeout.C:
+			log.Error("retry timeout", zap.Error(err))
+			if err != nil {
+				err = fmt.Errorf("retry timeout: %s", err.Error())
+				return err
+			}
+			return errors.New("retry timeout")
+		case <-t.C:
+			err = f.startSerf(t)
+			if err == nil {
+				log.Info("retry join succeed")
+				return nil
+			}
+			log.Info("retry join failed", zap.Error(err))
+		}
+	}
 }
 
 func (f *Federation) Unload() error {
-	return nil
+	err := f.serf.Leave()
+	if err != nil {
+		return err
+	}
+	return f.serf.Shutdown()
 }
 
 func (f *Federation) Name() string {

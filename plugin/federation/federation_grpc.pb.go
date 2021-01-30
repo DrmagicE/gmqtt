@@ -4,6 +4,7 @@ package federation
 
 import (
 	context "context"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -12,6 +13,217 @@ import (
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion7
+
+// MembershipClient is the client API for Membership service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type MembershipClient interface {
+	// Join tells the local node to join the an existing cluster.
+	// See https://www.serf.io/docs/commands/join.html for details.
+	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	// Leave triggers a graceful leave for the local node.
+	// This is used to ensure other nodes see the node as "left" instead of "failed".
+	// Note that a leaved node cannot re-join the cluster unless you restart the leaved node.
+	Leave(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*empty.Empty, error)
+	// ForceLeave force forces a member of a Serf cluster to enter the "left" state.
+	// Note that if the member is still actually alive, it will eventually rejoin the cluster.
+	// The true purpose of this method is to force remove "failed" nodes
+	// See https://www.serf.io/docs/commands/force-leave.html for details.
+	ForceLeave(ctx context.Context, in *ForceLeaveRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	// ListMembers lists all known members in the Serf cluster.
+	ListMembers(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*ListMembersResponse, error)
+}
+
+type membershipClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewMembershipClient(cc grpc.ClientConnInterface) MembershipClient {
+	return &membershipClient{cc}
+}
+
+func (c *membershipClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/gmqtt.federation.api.Membership/Join", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *membershipClient) Leave(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/gmqtt.federation.api.Membership/Leave", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *membershipClient) ForceLeave(ctx context.Context, in *ForceLeaveRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/gmqtt.federation.api.Membership/ForceLeave", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *membershipClient) ListMembers(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*ListMembersResponse, error) {
+	out := new(ListMembersResponse)
+	err := c.cc.Invoke(ctx, "/gmqtt.federation.api.Membership/ListMembers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// MembershipServer is the server API for Membership service.
+// All implementations must embed UnimplementedMembershipServer
+// for forward compatibility
+type MembershipServer interface {
+	// Join tells the local node to join the an existing cluster.
+	// See https://www.serf.io/docs/commands/join.html for details.
+	Join(context.Context, *JoinRequest) (*empty.Empty, error)
+	// Leave triggers a graceful leave for the local node.
+	// This is used to ensure other nodes see the node as "left" instead of "failed".
+	// Note that a leaved node cannot re-join the cluster unless you restart the leaved node.
+	Leave(context.Context, *empty.Empty) (*empty.Empty, error)
+	// ForceLeave force forces a member of a Serf cluster to enter the "left" state.
+	// Note that if the member is still actually alive, it will eventually rejoin the cluster.
+	// The true purpose of this method is to force remove "failed" nodes
+	// See https://www.serf.io/docs/commands/force-leave.html for details.
+	ForceLeave(context.Context, *ForceLeaveRequest) (*empty.Empty, error)
+	// ListMembers lists all known members in the Serf cluster.
+	ListMembers(context.Context, *empty.Empty) (*ListMembersResponse, error)
+	mustEmbedUnimplementedMembershipServer()
+}
+
+// UnimplementedMembershipServer must be embedded to have forward compatible implementations.
+type UnimplementedMembershipServer struct {
+}
+
+func (UnimplementedMembershipServer) Join(context.Context, *JoinRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Join not implemented")
+}
+func (UnimplementedMembershipServer) Leave(context.Context, *empty.Empty) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Leave not implemented")
+}
+func (UnimplementedMembershipServer) ForceLeave(context.Context, *ForceLeaveRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForceLeave not implemented")
+}
+func (UnimplementedMembershipServer) ListMembers(context.Context, *empty.Empty) (*ListMembersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMembers not implemented")
+}
+func (UnimplementedMembershipServer) mustEmbedUnimplementedMembershipServer() {}
+
+// UnsafeMembershipServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MembershipServer will
+// result in compilation errors.
+type UnsafeMembershipServer interface {
+	mustEmbedUnimplementedMembershipServer()
+}
+
+func RegisterMembershipServer(s grpc.ServiceRegistrar, srv MembershipServer) {
+	s.RegisterService(&_Membership_serviceDesc, srv)
+}
+
+func _Membership_Join_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MembershipServer).Join(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gmqtt.federation.api.Membership/Join",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MembershipServer).Join(ctx, req.(*JoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Membership_Leave_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MembershipServer).Leave(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gmqtt.federation.api.Membership/Leave",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MembershipServer).Leave(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Membership_ForceLeave_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForceLeaveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MembershipServer).ForceLeave(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gmqtt.federation.api.Membership/ForceLeave",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MembershipServer).ForceLeave(ctx, req.(*ForceLeaveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Membership_ListMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MembershipServer).ListMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gmqtt.federation.api.Membership/ListMembers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MembershipServer).ListMembers(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Membership_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "gmqtt.federation.api.Membership",
+	HandlerType: (*MembershipServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Join",
+			Handler:    _Membership_Join_Handler,
+		},
+		{
+			MethodName: "Leave",
+			Handler:    _Membership_Leave_Handler,
+		},
+		{
+			MethodName: "ForceLeave",
+			Handler:    _Membership_ForceLeave_Handler,
+		},
+		{
+			MethodName: "ListMembers",
+			Handler:    _Membership_ListMembers_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "federation.proto",
+}
 
 // FederationClient is the client API for Federation service.
 //

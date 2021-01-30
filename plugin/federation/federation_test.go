@@ -1,10 +1,16 @@
 package federation
 
 import (
+	"context"
+	"net"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/hashicorp/serf/serf"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/subscription/mem"
@@ -269,4 +275,174 @@ func TestFederation_eventStreamHandler(t *testing.T) {
 	sts, _ = f.feSubStore.GetClientStats("node1")
 	a.EqualValues(0, sts.SubscriptionsCurrent)
 
+}
+
+func TestFederation_getSerfConfig(t *testing.T) {
+	a := assert.New(t)
+
+	cfg := &Config{
+		NodeName:         "node",
+		FedAddr:          "127.0.0.1:1234",
+		AdvertiseFedAddr: "127.0.0.1:1235",
+		GossipAddr:       "127.0.0.1:1236",
+		RetryInterval:    5 * time.Second,
+		RetryTimeout:     10 * time.Second,
+		SnapshotPath:     "./path",
+		RejoinAfterLeave: true,
+	}
+
+	serfCfg := getSerfConfig(cfg, nil, nil)
+
+	a.Equal(cfg.NodeName, serfCfg.NodeName)
+	a.Equal(cfg.AdvertiseFedAddr, serfCfg.Tags["fed_addr"])
+	host, port, _ := net.SplitHostPort(cfg.GossipAddr)
+	a.Equal(host, serfCfg.MemberlistConfig.BindAddr)
+	portNumber, _ := strconv.Atoi(port)
+	a.EqualValues(portNumber, serfCfg.MemberlistConfig.BindPort)
+	a.Equal(cfg.SnapshotPath, serfCfg.SnapshotPath)
+	a.Equal(cfg.RejoinAfterLeave, serfCfg.RejoinAfterLeave)
+}
+
+func TestFederation_ListMembers(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+
+	mockSerf := NewMockiSerf(ctrl)
+	f.serf = mockSerf
+	mockSerf.EXPECT().Members().Return([]serf.Member{
+		{
+			Name:   "node1",
+			Addr:   net.ParseIP("127.0.0.1"),
+			Port:   1234,
+			Tags:   map[string]string{"k": "v"},
+			Status: serf.StatusAlive,
+		}, {
+			Name:   "node2",
+			Addr:   net.ParseIP("127.0.0.2"),
+			Port:   1234,
+			Tags:   map[string]string{"k": "v"},
+			Status: serf.StatusAlive,
+		},
+	})
+	resp, err := f.ListMembers(context.Background(), nil)
+	a.NoError(err)
+	a.Equal([]*Member{
+		{
+			Name:   "node1",
+			Addr:   "127.0.0.1:1234",
+			Tags:   map[string]string{"k": "v"},
+			Status: Status_STATUS_ALIVE,
+		}, {
+			Name:   "node2",
+			Addr:   "127.0.0.2:1234",
+			Tags:   map[string]string{"k": "v"},
+			Status: Status_STATUS_ALIVE,
+		},
+	}, resp.Members)
+}
+
+func TestFederation_Join(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+
+	mockSerf := NewMockiSerf(ctrl)
+	f.serf = mockSerf
+	mockSerf.EXPECT().Join([]string{"127.0.0.1" + DefaultGossipAddr, "127.0.0.2:1234"}, true).Return(2, nil)
+	_, err := f.Join(context.Background(), &JoinRequest{
+		Hosts: []string{
+			"127.0.0.1",
+			"127.0.0.2:1234",
+		},
+	})
+	a.NoError(err)
+}
+
+func TestFederation_Leave(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+	mockSerf := NewMockiSerf(ctrl)
+	f.serf = mockSerf
+	mockSerf.EXPECT().Leave()
+	_, err := f.Leave(context.Background(), nil)
+	a.NoError(err)
+}
+
+func TestFederation_ForceLeave(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+	mockSerf := NewMockiSerf(ctrl)
+	f.serf = mockSerf
+	mockSerf.EXPECT().RemoveFailedNode("node1")
+	_, err := f.ForceLeave(context.Background(), &ForceLeaveRequest{
+		NodeName: "node1",
+	})
+	a.NoError(err)
+}
+
+func mockMetaContext(nodeName string) context.Context {
+	ctx := context.Background()
+	md := metadata.New(map[string]string{
+		"node_name": nodeName,
+	})
+	return metadata.NewIncomingContext(ctx, md)
+}
+
+func TestFederation_Hello(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	p, _ := New(testConfig)
+	f := p.(*Federation)
+	clientNodeName := "node1"
+	clientSid := "session_id"
+	f.feSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
+		TopicFilter: "topicA",
+	})
+	ctx := mockMetaContext(clientNodeName)
+	resp, err := f.Hello(ctx, &ClientHello{
+		SessionId: clientSid,
+	})
+	a.NoError(err)
+	// cleanStart == true on first time
+	a.True(resp.CleanStart)
+	a.Zero(resp.NextEventId)
+	// clean subscription tree if cleanStart == true
+	a.EqualValues(0, f.feSubStore.GetStats().SubscriptionsCurrent)
+
+	f.feSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
+		TopicFilter: "topicA",
+	})
+	resp, err = f.Hello(ctx, &ClientHello{
+		SessionId: clientSid,
+	})
+	a.NoError(err)
+	// cleanStart == true on second time
+	a.False(resp.CleanStart)
+	a.Zero(resp.NextEventId)
+	a.EqualValues(1, f.feSubStore.GetStats().SubscriptionsCurrent)
+	a.Equal(clientNodeName, f.sessions[clientNodeName].nodeName)
+	a.Equal(clientSid, f.sessions[clientNodeName].id)
+	a.EqualValues(f.sessions[clientNodeName].nextEventID, 0)
+
+	// test next eventID
+	f.sessions[clientNodeName].nextEventID = 2
+
+	resp, err = f.Hello(ctx, &ClientHello{
+		SessionId: clientSid,
+	})
+	a.NoError(err)
+
+	a.EqualValues(2, resp.NextEventId)
 }

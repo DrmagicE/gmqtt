@@ -3,18 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"path"
-
-	"github.com/mitchellh/go-homedir"
 )
-
-func init() {
-	d, err := homedir.Dir()
-	if err != nil {
-		panic(fmt.Sprintf("cannot get home dir: %s", err))
-	}
-	DefaultConfig.PasswordFile = path.Join(d, "gmqtt_password.yml")
-}
 
 type hashType = string
 
@@ -53,7 +42,8 @@ func (c *Config) Validate() error {
 
 // DefaultConfig is the default configuration.
 var DefaultConfig = Config{
-	Hash: MD5,
+	Hash:         MD5,
+	PasswordFile: "./gmqtt_password.yml",
 }
 
 func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {

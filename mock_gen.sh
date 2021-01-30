@@ -8,6 +8,7 @@ mockgen -source=pkg/packets/packets.go -destination=./pkg/packets/packets_mock.g
 mockgen -source=plugin/auth/account_grpc.pb.go -destination=./plugin/auth/account_grpc.pb_mock.go -package=auth -self_package=github.com/DrmagicE/gmqtt/auth
 mockgen -source=plugin/federation/federation.pb.go -destination=./plugin/federation/federation.pb_mock.go -package=federation -self_package=github.com/DrmagicE/gmqtt/federation
 mockgen -source=plugin/federation/peer.go -destination=./plugin/federation/peer_mock.go -package=federation -self_package=github.com/DrmagicE/gmqtt/federation
+mockgen -source=plugin/federation/membership.go -destination=./plugin/federation/membership_mock.go -package=federation -self_package=github.com/DrmagicE/gmqtt/federation
 mockgen -source=retained/interface.go -destination=./retained/interface_mock.go -package=retained -self_package=github.com/DrmagicE/gmqtt/retained
 mockgen -source=server/client.go -destination=./server/client_mock.go -package=server -self_package=github.com/DrmagicE/gmqtt/server
 mockgen -source=server/persistence.go -destination=./server/persistence_mock.go -package=server -self_package=github.com/DrmagicE/gmqtt/server

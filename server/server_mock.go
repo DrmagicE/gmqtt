@@ -157,3 +157,17 @@ func (mr *MockServerMockRecorder) Plugins() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Plugins", reflect.TypeOf((*MockServer)(nil).Plugins))
 }
+
+// APIRegistrar mocks base method
+func (m *MockServer) APIRegistrar() APIRegistrar {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "APIRegistrar")
+	ret0, _ := ret[0].(APIRegistrar)
+	return ret0
+}
+
+// APIRegistrar indicates an expected call of APIRegistrar
+func (mr *MockServerMockRecorder) APIRegistrar() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "APIRegistrar", reflect.TypeOf((*MockServer)(nil).APIRegistrar))
+}
