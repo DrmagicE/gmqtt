@@ -30,6 +30,10 @@ type Config struct {
 	AdvertiseFedAddr string `yaml:"advertise_fed_addr"`
 	// GossipAddr is the address that the gossip will listen on, It is used for both UDP and TCP gossip. Defaults to :8902
 	GossipAddr string `yaml:"gossip_addr"`
+	// AdvertiseGossipAddr is used to change the gossip server address that we advertise to other nodes in the cluster.
+	// Defaults to "GossipAddr".
+	// If the port is missing, the default gossip port (8902) will be used.
+	AdvertiseGossipAddr string `yaml:"advertise_gossip_addr"`
 	// RetryJoin is the address of other nodes to join upon starting up.
 	// If port is missing, the default gossip port (8902) will be used.
 	RetryJoin []string `yaml:"retry_join"`
@@ -114,14 +118,26 @@ func (c *Config) Validate() (err error) {
 	if err != nil {
 		return err
 	}
-	if c.AdvertiseFedAddr != "" {
-		err = validAddrAndSet(c.AdvertiseFedAddr, DefaultFedAddr, "advertise_fed_addr", func(addr string) {
-			c.AdvertiseFedAddr = addr
-		})
-		if err != nil {
-			return err
-		}
+	if c.AdvertiseFedAddr == "" {
+		c.AdvertiseFedAddr = c.FedAddr
 	}
+	err = validAddrAndSet(c.AdvertiseFedAddr, DefaultFedAddr, "advertise_fed_addr", func(addr string) {
+		c.AdvertiseFedAddr = addr
+	})
+	if err != nil {
+		return err
+	}
+
+	if c.AdvertiseGossipAddr == "" {
+		c.AdvertiseGossipAddr = c.GossipAddr
+	}
+	err = validAddrAndSet(c.AdvertiseGossipAddr, DefaultGossipAddr, "advertise_gossip_addr", func(addr string) {
+		c.AdvertiseGossipAddr = addr
+	})
+	if err != nil {
+		return err
+	}
+
 	for k, v := range c.RetryJoin {
 		err = validAddrAndSet(v, DefaultGossipAddr, "retry_join", func(addr string) {
 			c.RetryJoin[k] = addr

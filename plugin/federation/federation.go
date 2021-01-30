@@ -71,6 +71,15 @@ func getSerfConfig(cfg *Config, eventCh chan serf.Event, logOut io.Writer) *serf
 	}
 	p, _ := strconv.Atoi(port)
 	serfCfg.MemberlistConfig.BindPort = p
+
+	// set advertise
+	host, port, _ = net.SplitHostPort(cfg.AdvertiseGossipAddr)
+	if host != "" {
+		serfCfg.MemberlistConfig.AdvertiseAddr = host
+	}
+	p, _ = strconv.Atoi(port)
+	serfCfg.MemberlistConfig.AdvertisePort = p
+
 	serfCfg.Tags = map[string]string{"fed_addr": cfg.AdvertiseFedAddr}
 	serfCfg.LogOutput = logOut
 	serfCfg.MemberlistConfig.LogOutput = logOut
@@ -80,9 +89,6 @@ func getSerfConfig(cfg *Config, eventCh chan serf.Event, logOut io.Writer) *serf
 func New(config config.Config) (server.Plugin, error) {
 	log = server.LoggerWithField(zap.String("plugin", Name))
 	cfg := config.Plugins[Name].(*Config)
-	if cfg.AdvertiseFedAddr == "" {
-		cfg.AdvertiseFedAddr = cfg.FedAddr
-	}
 	f := &Federation{
 		config:        cfg,
 		nodeName:      cfg.NodeName,
