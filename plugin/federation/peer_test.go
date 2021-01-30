@@ -1,6 +1,7 @@
 package federation
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -65,37 +66,62 @@ func TestPeer_initStream_CleanStart(t *testing.T) {
 		mockQueue.EXPECT().open(),
 	)
 
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Subscribe{
-			Subscribe: &Subscribe{
-				TopicFilter: "topicA",
+	// The order of the events is not significant and also is not grantee to be sorted in any way.
+	// So we had to collect them into map.
+	subEvents := make(map[string]string)
+	msgEvents := make(map[string]string)
+
+	expectedSubEvents := map[string]*Event{
+		"topicA": {
+			Event: &Event_Subscribe{
+				Subscribe: &Subscribe{
+					TopicFilter: "topicA",
+				},
 			},
 		},
-	})
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Subscribe{
-			Subscribe: &Subscribe{
-				TopicFilter: "topicB",
+		"topicB": {
+			Event: &Event_Subscribe{
+				Subscribe: &Subscribe{
+					TopicFilter: "topicB",
+				},
 			},
 		},
-	})
-
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Message{
-			Message: messageToEvent(m1),
+	}
+	expectedMsgEvents := map[string]*Event{
+		"topicA": {
+			Event: &Event_Message{
+				Message: messageToEvent(m1),
+			},
 		},
-	})
-
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Message{
-			Message: messageToEvent(m2),
+		"topicB": {
+			Event: &Event_Message{
+				Message: messageToEvent(m2),
+			},
 		},
-	})
+	}
+	mockQueue.EXPECT().add(gomock.Any()).Do(func(event *Event) {
+		switch event.Event.(type) {
+		case *Event_Subscribe:
+			sub := event.Event.(*Event_Subscribe)
+			subEvents[sub.Subscribe.TopicFilter] = event.String()
+		case *Event_Message:
+			msg := event.Event.(*Event_Message)
+			msgEvents[msg.Message.TopicName] = event.String()
+		default:
+			a.FailNow("unexpected event type: %s", reflect.TypeOf(event.Event))
+		}
+	}).Times(4)
 
 	client.EXPECT().EventStream(gomock.Any())
-
 	_, err := p.initStream(client)
+
 	a.NoError(err)
+	for k, v := range msgEvents {
+		a.Equal(expectedMsgEvents[k].String(), v)
+	}
+	for k, v := range subEvents {
+		a.Equal(expectedSubEvents[k].String(), v)
+	}
 
 }
 
