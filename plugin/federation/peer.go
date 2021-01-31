@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
@@ -268,7 +269,6 @@ func (p *peer) initStream(client FederationClient) (s *stream, err error) {
 		client: c,
 		close:  make(chan struct{}),
 	}
-	//TODO DATA RACE
 	p.stream = s
 	return s, nil
 }
@@ -339,7 +339,9 @@ func (s *stream) readLoop() {
 				return
 			}
 			s.queue.ack(resp.EventId)
-			log.Debug("event acked", zap.Uint64("id", resp.EventId))
+			if ce := log.Check(zapcore.DebugLevel, "event acked"); ce != nil {
+				ce.Write(zap.Uint64("id", resp.EventId))
+			}
 		}
 	}
 }
@@ -364,7 +366,9 @@ func (s *stream) sendEvents() {
 			if err != nil {
 				return
 			}
-			log.Debug("event sent", zap.String("event", v.String()))
+			if ce := log.Check(zapcore.DebugLevel, "event sent"); ce != nil {
+				ce.Write(zap.String("event", v.String()))
+			}
 		}
 	}
 }

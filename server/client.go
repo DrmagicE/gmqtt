@@ -328,11 +328,8 @@ func (client *client) writePacket(packet packets.Packet) error {
 			)
 		}
 	}
-	err := client.packetWriter.WritePacket(packet)
-	if err != nil {
-		return err
-	}
-	return client.packetWriter.Flush()
+
+	return client.packetWriter.WriteAndFlush(packet)
 }
 
 func (client *client) addServerQuota() {
