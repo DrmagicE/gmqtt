@@ -439,14 +439,18 @@ func (f *Federation) EventStream(stream Federation_EventStreamServer) (err error
 		if err != nil {
 			return err
 		}
-		log.Debug("event received", zap.String("event", in.String()))
+		if ce := log.Check(zapcore.DebugLevel, "event received"); ce != nil {
+			ce.Write(zap.String("event", in.String()))
+		}
 		ack := f.eventStreamHandler(sess, in)
 
 		err = stream.Send(ack)
 		if err != nil {
 			return err
 		}
-		log.Debug("event ack sent", zap.Uint64("id", ack.EventId))
+		if ce := log.Check(zapcore.DebugLevel, "event ack sent"); ce != nil {
+			ce.Write(zap.Uint64("id", ack.EventId))
+		}
 		sess.nextEventID = ack.EventId + 1
 	}
 }

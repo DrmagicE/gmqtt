@@ -123,17 +123,11 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string, shareName str
 // setRs set the node subscription info into rs
 func setRs(node *topicNode, rs subscription.ClientSubscriptions) {
 	for cid, subOpts := range node.clients {
-		if _, ok := rs[cid]; !ok {
-			rs[cid] = make([]*gmqtt.Subscription, 0)
-		}
 		rs[cid] = append(rs[cid], subOpts)
 	}
 
 	for _, c := range node.shared {
 		for cid, subOpts := range c {
-			if _, ok := rs[cid]; !ok {
-				rs[cid] = make([]*gmqtt.Subscription, 0)
-			}
 			rs[cid] = append(rs[cid], subOpts)
 		}
 	}
