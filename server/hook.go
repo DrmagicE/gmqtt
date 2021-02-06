@@ -26,7 +26,34 @@ type Hooks struct {
 	OnDelivered
 	OnClosed
 	OnMsgDropped
+	OnWillPublish
+	OnWillPublished
 }
+
+// WillMsgRequest is the input param for OnWillPublish hook.
+type WillMsgRequest struct {
+	// Message is the message that is going to send.
+	// The caller can edit this field to modify the will message.
+	// If nil, the broker will drop the message.
+	Message *gmqtt.Message
+}
+
+// Drop drops the will message, so the message will not be delivered to any clients.
+func (w *WillMsgRequest) Drop() {
+	w.Message = nil
+}
+
+// OnWillPublish will be called before the client with the given clientID sending the will message.
+// It provides the ability to modify the message before sending.
+type OnWillPublish func(ctx context.Context, clientID string, req *WillMsgRequest)
+
+type OnWillPublishWrapper func(OnWillPublish) OnWillPublish
+
+// OnWillPublished will be called after the will message has been sent by the client.
+// The msg param is immutable, DO NOT EDIT.
+type OnWillPublished func(ctx context.Context, clientID string, msg *gmqtt.Message)
+
+type OnWillPublishedWrapper func(OnWillPublished) OnWillPublished
 
 // OnAccept will be called after a new connection established in TCP server.
 // If returns false, the connection will be close directly.
@@ -259,3 +286,5 @@ type OnDeliveredWrapper func(OnDelivered) OnDelivered
 type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped
+
+// TODO add will message send

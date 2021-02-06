@@ -506,6 +506,24 @@ func (w *willMsg) signal(send bool) {
 	}
 }
 
+// sendWillLocked sends the will message for the client, this function must be guard by srv.Lock.
+func (srv *server) sendWillLocked(msg *gmqtt.Message, clientID string) {
+	req := &WillMsgRequest{
+		Message: msg,
+	}
+	if srv.hooks.OnWillPublish != nil {
+		srv.hooks.OnWillPublish(context.Background(), clientID, req)
+	}
+	// the will message is dropped
+	if req.Message == nil {
+		return
+	}
+	srv.deliverMessageHandler(clientID, msg)
+	if srv.hooks.OnWillPublished != nil {
+		srv.hooks.OnWillPublished(context.Background(), clientID, req.Message)
+	}
+}
+
 func (srv *server) unregisterClient(client *client) {
 	if !client.IsConnected() {
 		return
@@ -524,6 +542,7 @@ func (srv *server) unregisterClient(client *client) {
 				storeSession = true
 			}
 		}
+		// need to send will message
 		if !client.cleanWillFlag && sess.Will != nil {
 			willDelayInterval := sess.WillDelayInterval
 			if sess.ExpiryInterval <= sess.WillDelayInterval {
@@ -547,13 +566,14 @@ func (srv *server) unregisterClient(client *client) {
 					}
 					srv.mu.Lock()
 					defer srv.mu.Unlock()
-					if send {
-						srv.deliverMessageHandler(clientID, msg)
-					}
 					delete(srv.willMessage, clientID)
+					if !send {
+						return
+					}
+					srv.sendWillLocked(msg, clientID)
 				}(client.opts.ClientID)
 			} else {
-				srv.deliverMessageHandler(client.opts.ClientID, msg)
+				srv.sendWillLocked(msg, client.opts.ClientID)
 			}
 		}
 		if storeSession {
@@ -1058,6 +1078,8 @@ func (srv *server) initPluginHooks() error {
 		OnClosedWrappers           []OnClosedWrapper
 		onStopWrappers             []OnStopWrapper
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
+		onWillPublishWrappers      []OnWillPublishWrapper
+		onWillPublishedWrappers    []OnWillPublishedWrapper
 	)
 	for _, v := range srv.config.PluginOrder {
 		plg, err := plugins[v](srv.config)
@@ -1126,6 +1148,12 @@ func (srv *server) initPluginHooks() error {
 		}
 		if hooks.OnStopWrapper != nil {
 			onStopWrappers = append(onStopWrappers, hooks.OnStopWrapper)
+		}
+		if hooks.OnWillPublishWrapper != nil {
+			onWillPublishWrappers = append(onWillPublishWrappers, hooks.OnWillPublishWrapper)
+		}
+		if hooks.OnWillPublishedWrapper != nil {
+			onWillPublishedWrappers = append(onWillPublishedWrappers, hooks.OnWillPublishedWrapper)
 		}
 	}
 	if onAcceptWrappers != nil {
@@ -1254,6 +1282,20 @@ func (srv *server) initPluginHooks() error {
 			onMsgDropped = onMsgDroppedWrappers[i-1](onMsgDropped)
 		}
 		srv.hooks.OnMsgDropped = onMsgDropped
+	}
+	if onWillPublishWrappers != nil {
+		onWillPublish := func(ctx context.Context, clientID string, req *WillMsgRequest) {}
+		for i := len(onWillPublishWrappers); i > 0; i-- {
+			onWillPublish = onWillPublishWrappers[i-1](onWillPublish)
+		}
+		srv.hooks.OnWillPublish = onWillPublish
+	}
+	if onWillPublishedWrappers != nil {
+		onWillPublished := func(ctx context.Context, clientID string, msg *gmqtt.Message) {}
+		for i := len(onWillPublishedWrappers); i > 0; i-- {
+			onWillPublished = onWillPublishedWrappers[i-1](onWillPublished)
+		}
+		srv.hooks.OnWillPublished = onWillPublished
 	}
 	return nil
 }
