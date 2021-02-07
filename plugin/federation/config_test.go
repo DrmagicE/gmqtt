@@ -7,6 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func init() {
+	getPrivateIP = func() (s string, e error) {
+		return "127.0.0.1", nil
+	}
+}
+
 func TestConfig_Validate(t *testing.T) {
 
 	var tt = []struct {
@@ -90,11 +96,11 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expected: &Config{
 				NodeName:            "name2",
-				FedAddr:             "127.0.0.1" + DefaultFedAddr,
-				AdvertiseFedAddr:    "127.0.0.1" + DefaultFedAddr,
-				GossipAddr:          "127.0.0.1" + DefaultGossipAddr,
-				AdvertiseGossipAddr: "127.0.0.1" + DefaultGossipAddr,
-				RetryJoin:           []string{"127.0.0.1" + DefaultGossipAddr, "127.0.0.2" + DefaultGossipAddr},
+				FedAddr:             "127.0.0.1" + DefaultFedPort,
+				AdvertiseFedAddr:    "127.0.0.1" + DefaultFedPort,
+				GossipAddr:          "127.0.0.1" + DefaultGossipPort,
+				AdvertiseGossipAddr: "127.0.0.1" + DefaultGossipPort,
+				RetryJoin:           []string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2" + DefaultGossipPort},
 				RetryInterval:       1,
 				RetryTimeout:        2,
 				SnapshotPath:        "",
@@ -117,11 +123,65 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expected: &Config{
 				NodeName:            "name2",
-				FedAddr:             "[::1]" + DefaultFedAddr,
+				FedAddr:             "[::1]" + DefaultFedPort,
 				AdvertiseFedAddr:    "[::1]:1234",
-				GossipAddr:          "127.0.0.1" + DefaultGossipAddr,
-				AdvertiseGossipAddr: "127.0.0.1" + DefaultGossipAddr,
-				RetryJoin:           []string{"127.0.0.1" + DefaultGossipAddr, "127.0.0.2" + DefaultGossipAddr},
+				GossipAddr:          "127.0.0.1" + DefaultGossipPort,
+				AdvertiseGossipAddr: "127.0.0.1" + DefaultGossipPort,
+				RetryJoin:           []string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2" + DefaultGossipPort},
+				RetryInterval:       1,
+				RetryTimeout:        2,
+				SnapshotPath:        "",
+				RejoinAfterLeave:    false,
+			},
+			valid: true,
+		},
+		{
+			name: "defaultAdvertise1",
+			cfg: &Config{
+				NodeName:         "name2",
+				FedAddr:          "0.0.0.0:1234",
+				AdvertiseFedAddr: "",
+				GossipAddr:       "127.0.0.1",
+				RetryJoin:        []string{"127.0.0.1", "127.0.0.2"},
+				RetryInterval:    1,
+				RetryTimeout:     2,
+				SnapshotPath:     "",
+				RejoinAfterLeave: false,
+			},
+			expected: &Config{
+				NodeName:            "name2",
+				FedAddr:             "0.0.0.0:1234",
+				AdvertiseFedAddr:    "127.0.0.1:1234",
+				GossipAddr:          "127.0.0.1" + DefaultGossipPort,
+				AdvertiseGossipAddr: "127.0.0.1" + DefaultGossipPort,
+				RetryJoin:           []string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2" + DefaultGossipPort},
+				RetryInterval:       1,
+				RetryTimeout:        2,
+				SnapshotPath:        "",
+				RejoinAfterLeave:    false,
+			},
+			valid: true,
+		},
+		{
+			name: "defaultAdvertise2",
+			cfg: &Config{
+				NodeName:         "name2",
+				FedAddr:          "0.0.0.0:1234",
+				AdvertiseFedAddr: "",
+				GossipAddr:       ":1235",
+				RetryJoin:        []string{"127.0.0.1", "127.0.0.2"},
+				RetryInterval:    1,
+				RetryTimeout:     2,
+				SnapshotPath:     "",
+				RejoinAfterLeave: false,
+			},
+			expected: &Config{
+				NodeName:            "name2",
+				FedAddr:             "0.0.0.0:1234",
+				AdvertiseFedAddr:    "127.0.0.1:1234",
+				GossipAddr:          ":1235",
+				AdvertiseGossipAddr: "127.0.0.1:1235",
+				RetryJoin:           []string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2" + DefaultGossipPort},
 				RetryInterval:       1,
 				RetryTimeout:        2,
 				SnapshotPath:        "",
