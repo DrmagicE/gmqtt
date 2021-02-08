@@ -93,12 +93,17 @@ func New(config config.Config) (server.Plugin, error) {
 		config:        cfg,
 		nodeName:      cfg.NodeName,
 		localSubStore: &localSubStore{},
-		feSubStore:    mem.NewStore(),
-		serfEventCh:   make(chan serf.Event, 10000),
-		sessions:      make(map[string]*session),
-		peers:         make(map[string]*peer),
-		exit:          make(chan struct{}),
-		wg:            &sync.WaitGroup{},
+		fedSubStore: &fedSubStore{
+			TrieDB:     mem.NewStore(),
+			sharedSent: map[string]uint64{},
+		},
+		serfEventCh: make(chan serf.Event, 10000),
+		sessionMgr: &sessionMgr{
+			sessions: map[string]*session{},
+		},
+		peers: make(map[string]*peer),
+		exit:  make(chan struct{}),
+		wg:    &sync.WaitGroup{},
 	}
 	logOut, err := getSerfLogger(config.Log.Level)
 	if err != nil {
@@ -121,28 +126,68 @@ type Federation struct {
 	serfMu      sync.Mutex
 	serf        iSerf
 	serfEventCh chan serf.Event
-
-	sessMu   sync.Mutex
-	sessions map[string]*session
+	sessionMgr  *sessionMgr
 	// localSubStore store the subscriptions for the local node.
 	// The local node will only broadcast "new subscriptions" to other nodes.
 	// "New subscription" is the first subscription for a topic name.
 	// It means that if two client in the local node subscribe the same topic, only the first subscription will be broadcast.
 	localSubStore *localSubStore
-	// feSubStore store federation subscription tree which take nodeName as the subscriber identifier.
+	// fedSubStore store federation subscription tree which take nodeName as the subscriber identifier.
 	// It is used to determine which node the incoming message should be routed to.
-	feSubStore *mem.TrieDB
+	fedSubStore *fedSubStore
 	// retainedStore store is the retained store of the gmqtt core.
 	// Retained message will be broadcast to other nodes in the federation.
 	retainedStore retained.Store
-	peers         map[string]*peer
 	publisher     server.Publisher
 	exit          chan struct{}
 	memberMu      sync.Mutex
+	peers         map[string]*peer
 	wg            *sync.WaitGroup
 }
 
-// ForceLeave force forces a member of a Serf cluster to enter the "left" state.
+// fedSubStore store federation subscription tree which take nodeName as the subscriber identifier.
+// It is used to determine which node the incoming message should be routed to.
+type fedSubStore struct {
+	*mem.TrieDB
+	sharedMu sync.Mutex
+	// sharedSent store the number of shared topic sent.
+	// It is used to select which node the message should be send to with round-robin strategy
+	sharedSent map[string]uint64
+}
+
+type sessionMgr struct {
+	sync.RWMutex
+	sessions map[string]*session
+}
+
+func (s *sessionMgr) add(nodeName string, id string) (cleanStart bool, nextID uint64) {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := s.sessions[nodeName]; ok && v.id == id {
+		nextID = v.nextEventID
+	} else {
+		// v.id != id indicates that the client side may recover from crash and need to rebuild the full state.
+		cleanStart = true
+	}
+	if cleanStart {
+		s.sessions[nodeName] = &session{
+			id:       id,
+			nodeName: nodeName,
+			// TODO config
+			seenEvents:  newLRUCache(100),
+			nextEventID: 0,
+		}
+	}
+	return
+}
+
+func (s *sessionMgr) get(nodeName string) *session {
+	s.RLock()
+	defer s.RUnlock()
+	return s.sessions[nodeName]
+}
+
+// ForceLeave forces a member of a Serf cluster to enter the "left" state.
 // Note that if the member is still actually alive, it will eventually rejoin the cluster.
 // The true purpose of this method is to force remove "failed" nodes
 // See https://www.serf.io/docs/commands/force-leave.html for details.
@@ -182,9 +227,7 @@ func (f *Federation) mustEmbedUnimplementedMembershipServer() {
 // See https://www.serf.io/docs/commands/join.html for details.
 func (f *Federation) Join(ctx context.Context, req *JoinRequest) (resp *empty.Empty, err error) {
 	for k, v := range req.Hosts {
-		err := validAddrAndSet(v, DefaultGossipAddr, "hosts", func(addr string) {
-			req.Hosts[k] = addr
-		})
+		req.Hosts[k], err = getAddr(v, DefaultGossipPort, "hosts")
 		if err != nil {
 			return &empty.Empty{}, status.Error(codes.InvalidArgument, err.Error())
 		}
@@ -289,7 +332,7 @@ type session struct {
 	id          string
 	nodeName    string
 	nextEventID uint64
-	// cache recently seen events to prevent duplicated.
+	// seenEvents cache recently seen events to avoid duplicate events.
 	seenEvents *lruCache
 }
 
@@ -344,30 +387,10 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 	if err != nil {
 		return nil, err
 	}
-	var nextID uint64
-	var cleanStart bool
-	f.sessMu.Lock()
-	defer f.sessMu.Unlock()
-	if v, ok := f.sessions[nodeName]; ok && v.id == req.SessionId {
-		nextID = v.nextEventID
-	} else {
-		// v.id != req.SessionId indicates that the client side may recover from crash and need to rebuild the full state.
-		cleanStart = true
-	}
+	cleanStart, nextID := f.sessionMgr.add(nodeName, req.SessionId)
 	if cleanStart {
-		f.sessions[nodeName] = &session{
-			id:       req.SessionId,
-			nodeName: nodeName,
-			// TODO config
-			seenEvents:  newLRUCache(100),
-			nextEventID: 0,
-		}
-		err := f.feSubStore.UnsubscribeAll(nodeName)
-		if err != nil {
-			return &ServerHello{}, err
-		}
+		_ = f.fedSubStore.UnsubscribeAll(nodeName)
 	}
-
 	resp = &ServerHello{
 		CleanStart:  cleanStart,
 		NextEventId: nextID,
@@ -385,7 +408,7 @@ func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 		}
 	}
 	if sub := in.GetSubscribe(); sub != nil {
-		_, _ = f.feSubStore.Subscribe(sess.nodeName, &gmqtt.Subscription{
+		_, _ = f.fedSubStore.Subscribe(sess.nodeName, &gmqtt.Subscription{
 			ShareName:   sub.ShareName,
 			TopicFilter: sub.TopicFilter,
 		})
@@ -400,7 +423,7 @@ func (f *Federation) eventStreamHandler(sess *session, in *Event) (ack *Ack) {
 		return &Ack{EventId: eventID}
 	}
 	if unsub := in.GetUnsubscribe(); unsub != nil {
-		_ = f.feSubStore.Unsubscribe(sess.nodeName, unsub.TopicName)
+		_ = f.fedSubStore.Unsubscribe(sess.nodeName, unsub.TopicName)
 		return &Ack{EventId: eventID}
 	}
 	return nil
@@ -424,9 +447,7 @@ func (f *Federation) EventStream(stream Federation_EventStreamServer) (err error
 	if nodeName == "" {
 		return status.Errorf(codes.InvalidArgument, "EventStream: missing node_name metadata")
 	}
-	f.sessMu.Lock()
-	sess := f.sessions[nodeName]
-	f.sessMu.Unlock()
+	sess := f.sessionMgr.get(nodeName)
 	if sess == nil {
 		return status.Errorf(codes.Internal, "EventStream: node not exist")
 	}

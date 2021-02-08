@@ -233,7 +233,7 @@ func TestFederation_eventStreamHandler(t *testing.T) {
 		},
 	})
 	a.EqualValues(0, ack.EventId)
-	sts, _ := f.feSubStore.GetClientStats("node1")
+	sts, _ := f.fedSubStore.GetClientStats("node1")
 	a.EqualValues(1, sts.SubscriptionsCurrent)
 
 	msgEvent := &Event_Message{
@@ -257,7 +257,7 @@ func TestFederation_eventStreamHandler(t *testing.T) {
 			},
 		},
 	})
-	sts, _ = f.feSubStore.GetClientStats("node1")
+	sts, _ = f.fedSubStore.GetClientStats("node1")
 	a.EqualValues(0, sts.SubscriptionsCurrent)
 	a.EqualValues(2, ack.EventId)
 
@@ -272,7 +272,7 @@ func TestFederation_eventStreamHandler(t *testing.T) {
 		},
 	})
 	a.EqualValues(0, ack.EventId)
-	sts, _ = f.feSubStore.GetClientStats("node1")
+	sts, _ = f.fedSubStore.GetClientStats("node1")
 	a.EqualValues(0, sts.SubscriptionsCurrent)
 
 }
@@ -359,7 +359,7 @@ func TestFederation_Join(t *testing.T) {
 
 	mockSerf := NewMockiSerf(ctrl)
 	f.serf = mockSerf
-	mockSerf.EXPECT().Join([]string{"127.0.0.1" + DefaultGossipAddr, "127.0.0.2:1234"}, true).Return(2, nil)
+	mockSerf.EXPECT().Join([]string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2:1234"}, true).Return(2, nil)
 	_, err := f.Join(context.Background(), &JoinRequest{
 		Hosts: []string{
 			"127.0.0.1",
@@ -413,7 +413,7 @@ func TestFederation_Hello(t *testing.T) {
 	f := p.(*Federation)
 	clientNodeName := "node1"
 	clientSid := "session_id"
-	f.feSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
+	f.fedSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
 		TopicFilter: "topicA",
 	})
 	ctx := mockMetaContext(clientNodeName)
@@ -425,9 +425,9 @@ func TestFederation_Hello(t *testing.T) {
 	a.True(resp.CleanStart)
 	a.Zero(resp.NextEventId)
 	// clean subscription tree if cleanStart == true
-	a.EqualValues(0, f.feSubStore.GetStats().SubscriptionsCurrent)
+	a.EqualValues(0, f.fedSubStore.GetStats().SubscriptionsCurrent)
 
-	f.feSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
+	f.fedSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
 		TopicFilter: "topicA",
 	})
 	resp, err = f.Hello(ctx, &ClientHello{
@@ -437,13 +437,13 @@ func TestFederation_Hello(t *testing.T) {
 	// cleanStart == true on second time
 	a.False(resp.CleanStart)
 	a.Zero(resp.NextEventId)
-	a.EqualValues(1, f.feSubStore.GetStats().SubscriptionsCurrent)
-	a.Equal(clientNodeName, f.sessions[clientNodeName].nodeName)
-	a.Equal(clientSid, f.sessions[clientNodeName].id)
-	a.EqualValues(f.sessions[clientNodeName].nextEventID, 0)
+	a.EqualValues(1, f.fedSubStore.GetStats().SubscriptionsCurrent)
+	a.Equal(clientNodeName, f.sessionMgr.sessions[clientNodeName].nodeName)
+	a.Equal(clientSid, f.sessionMgr.sessions[clientNodeName].id)
+	a.EqualValues(f.sessionMgr.sessions[clientNodeName].nextEventID, 0)
 
 	// test next eventID
-	f.sessions[clientNodeName].nextEventID = 2
+	f.sessionMgr.sessions[clientNodeName].nextEventID = 2
 
 	resp, err = f.Hello(ctx, &ClientHello{
 		SessionId: clientSid,
