@@ -286,5 +286,3 @@ type OnDeliveredWrapper func(OnDelivered) OnDelivered
 type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped
-
-// TODO add will message send

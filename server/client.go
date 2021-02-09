@@ -1,4 +1,3 @@
-// Package server provides an MQTT v3.1.1 server library.
 package server
 
 import (
