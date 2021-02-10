@@ -7,31 +7,38 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/go-sockaddr"
 )
 
+// Default config.
 const (
-	DefaultFedAddr       = ":8901"
-	DefaultGossipAddr    = ":8902"
+	DefaultFedPort       = ":8901"
+	DefaultGossipPort    = ":8902"
 	DefaultRetryInterval = 5 * time.Second
 	DefaultRetryTimeout  = 1 * time.Minute
 )
+
+// stub function for testing
+var getPrivateIP = sockaddr.GetPrivateIP
 
 // Config is the configuration for the federation plugin.
 type Config struct {
 	// NodeName is the unique identifier for the node in the federation. Defaults to hostname.
 	NodeName string `yaml:"node_name"`
 	// FedAddr is the gRPC server listening address for the federation internal communication.
-	// Defaults to :8901
+	// Defaults to :8901.
 	// If the port is missing, the default federation port (8901) will be used.
 	FedAddr string `yaml:"fed_addr"`
 	// AdvertiseFedAddr is used to change the federation gRPC server address that we advertise to other nodes in the cluster.
-	// Defaults to "FedAddr".However, in some cases, there may be a routable address that cannot be bound.
+	// Defaults to "FedAddr" or the private IP address of the node if the IP in "FedAddr" is 0.0.0.0.
+	// However, in some cases, there may be a routable address that cannot be bound.
 	// If the port is missing, the default federation port (8901) will be used.
 	AdvertiseFedAddr string `yaml:"advertise_fed_addr"`
 	// GossipAddr is the address that the gossip will listen on, It is used for both UDP and TCP gossip. Defaults to :8902
 	GossipAddr string `yaml:"gossip_addr"`
 	// AdvertiseGossipAddr is used to change the gossip server address that we advertise to other nodes in the cluster.
-	// Defaults to "GossipAddr".
+	// Defaults to "GossipAddr" or the private IP address of the node if the IP in "GossipAddr" is 0.0.0.0.
 	// If the port is missing, the default gossip port (8902) will be used.
 	AdvertiseGossipAddr string `yaml:"advertise_gossip_addr"`
 	// RetryJoin is the address of other nodes to join upon starting up.
@@ -84,17 +91,28 @@ func joinHostPort(addr string, defaultPort string) (newAddr string) {
 	return addr
 }
 
-func validAddrAndSet(addr string, defaultPort string, fieldName string, set func(addr string)) error {
+func getAddr(addr string, defaultPort string, fieldName string) (string, error) {
 	fedAddr := joinHostPort(addr, defaultPort)
 	_, port, err := net.SplitHostPort(fedAddr)
 	if err != nil {
-		return fmt.Errorf("invalid %s: %s", fieldName, err)
+		return "", fmt.Errorf("invalid %s: %s", fieldName, err)
 	}
 	if !isPortNumber(port) {
-		return fmt.Errorf("invalid port number: %s", addr)
+		return "", fmt.Errorf("invalid port number: %s", addr)
 	}
-	set(fedAddr)
-	return nil
+	return fedAddr, nil
+}
+
+func getAdvertiseAddr(hostPort string) (string, error) {
+	h, p, _ := net.SplitHostPort(hostPort)
+	if h == "0.0.0.0" || h == "" {
+		privateIP, err := getPrivateIP()
+		if err != nil {
+			return "", err
+		}
+		return privateIP + ":" + p, nil
+	}
+	return hostPort, nil
 }
 
 // Validate validates the configuration, and return an error if it is invalid.
@@ -106,42 +124,36 @@ func (c *Config) Validate() (err error) {
 		}
 		c.NodeName = hostName
 	}
-	err = validAddrAndSet(c.FedAddr, DefaultFedAddr, "fed_addr", func(addr string) {
-		c.FedAddr = addr
-	})
+	c.FedAddr, err = getAddr(c.FedAddr, DefaultFedPort, "fed_addr")
 	if err != nil {
 		return err
 	}
-	err = validAddrAndSet(c.GossipAddr, DefaultGossipAddr, "gossip_addr", func(addr string) {
-		c.GossipAddr = addr
-	})
+	c.GossipAddr, err = getAddr(c.GossipAddr, DefaultGossipPort, "gossip_addr")
 	if err != nil {
 		return err
 	}
 	if c.AdvertiseFedAddr == "" {
-		c.AdvertiseFedAddr = c.FedAddr
+		c.AdvertiseFedAddr, err = getAdvertiseAddr(c.FedAddr)
+		if err != nil {
+			return err
+		}
 	}
-	err = validAddrAndSet(c.AdvertiseFedAddr, DefaultFedAddr, "advertise_fed_addr", func(addr string) {
-		c.AdvertiseFedAddr = addr
-	})
+	c.AdvertiseFedAddr, err = getAddr(c.AdvertiseFedAddr, DefaultFedPort, "advertise_fed_addr")
 	if err != nil {
 		return err
 	}
-
 	if c.AdvertiseGossipAddr == "" {
-		c.AdvertiseGossipAddr = c.GossipAddr
+		c.AdvertiseGossipAddr, err = getAdvertiseAddr(c.GossipAddr)
+		if err != nil {
+			return err
+		}
 	}
-	err = validAddrAndSet(c.AdvertiseGossipAddr, DefaultGossipAddr, "advertise_gossip_addr", func(addr string) {
-		c.AdvertiseGossipAddr = addr
-	})
+	c.AdvertiseGossipAddr, err = getAddr(c.AdvertiseGossipAddr, DefaultGossipPort, "advertise_gossip_addr")
 	if err != nil {
 		return err
 	}
-
 	for k, v := range c.RetryJoin {
-		err = validAddrAndSet(v, DefaultGossipAddr, "retry_join", func(addr string) {
-			c.RetryJoin[k] = addr
-		})
+		c.RetryJoin[k], err = getAddr(v, DefaultGossipPort, "retry_join")
 		if err != nil {
 			return err
 		}
@@ -166,8 +178,8 @@ func init() {
 	}
 	DefaultConfig = Config{
 		NodeName:      hostName,
-		FedAddr:       DefaultFedAddr,
-		GossipAddr:    DefaultGossipAddr,
+		FedAddr:       DefaultFedPort,
+		GossipAddr:    DefaultGossipPort,
 		RetryJoin:     nil,
 		RetryInterval: DefaultRetryInterval,
 		RetryTimeout:  DefaultRetryTimeout,

@@ -93,7 +93,7 @@ func (f *Federation) nodeFail(member serf.MemberEvent) {
 			log.Error("node failed, close stream client", zap.String("node_name", v.Name))
 			p.stop()
 			delete(f.peers, v.Name)
-			_ = f.feSubStore.UnsubscribeAll(v.Name)
+			_ = f.fedSubStore.UnsubscribeAll(v.Name)
 		}
 	}
 }

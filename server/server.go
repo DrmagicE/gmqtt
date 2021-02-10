@@ -37,6 +37,14 @@ var (
 	persistenceFactories = make(map[string]NewPersistence)
 )
 
+func defaultIterateOptions(topicName string) subscription.IterationOptions {
+	return subscription.IterationOptions{
+		Type:      subscription.TypeAll,
+		TopicName: topicName,
+		MatchType: subscription.MatchFilter,
+	}
+}
+
 func RegisterPersistenceFactory(name string, new NewPersistence) {
 	if _, ok := persistenceFactories[name]; ok {
 		panic("duplicated persistence factory: " + name)
@@ -174,21 +182,18 @@ type server struct {
 	unackStore   map[string]unack.Store
 	sessionStore session.Store
 
-	// gard config
-	configMu sync.RWMutex
-	config   config.Config
-	hooks    Hooks
-	plugins  []Plugin
-
-	statsManager   *statsManager
-	publishService Publisher
-
+	// guards config
+	configMu             sync.RWMutex
+	config               config.Config
+	hooks                Hooks
+	plugins              []Plugin
+	statsManager         *statsManager
+	publishService       Publisher
 	newTopicAliasManager NewTopicAliasManager
 	// for testing
-	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
-
-	clientService *clientService
-	apiRegistrar  *apiRegistrar
+	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool)
+	clientService         *clientService
+	apiRegistrar          *apiRegistrar
 }
 
 func (srv *server) APIRegistrar() APIRegistrar {
@@ -518,7 +523,7 @@ func (srv *server) sendWillLocked(msg *gmqtt.Message, clientID string) {
 	if req.Message == nil {
 		return
 	}
-	srv.deliverMessageHandler(clientID, msg)
+	srv.deliverMessageHandler(clientID, msg, defaultIterateOptions(msg.Topic))
 	if srv.hooks.OnWillPublished != nil {
 		srv.hooks.OnWillPublished(context.Background(), clientID, req.Message)
 	}
@@ -638,79 +643,109 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 
 }
 
-// deliverMessage send msg to matched client, must call under srv.mu.Lock
-func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
-	// subscriber (client id) list of shared subscriptions, key by share name.
-	sharedList := make(map[string][]struct {
-		clientID string
-		sub      *gmqtt.Subscription
-	})
-	// key by clientid
-	maxQos := make(map[string]*struct {
-		sub    *gmqtt.Subscription
-		subIDs []uint32
-	})
-	now := time.Now()
-	// Iterate all matched topics
-	srv.subscriptionsDB.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+// sharedList is the subscriber (client id) list of shared subscriptions. (key by topic name).
+type sharedList map[string][]struct {
+	clientID string
+	sub      *gmqtt.Subscription
+}
+
+// maxQos records the maximum qos subscription for the non-shared topic. (key by topic name).
+type maxQos map[string]*struct {
+	sub    *gmqtt.Subscription
+	subIDs []uint32
+}
+
+// deliverHandler controllers the delivery behaviors according to the DeliveryMode config. (overlap or onlyonce)
+type deliverHandler struct {
+	fn      subscription.IterateFn
+	sl      sharedList
+	mq      maxQos
+	matched bool
+	now     time.Time
+	msg     *gmqtt.Message
+	srv     *server
+}
+
+func newDeliverHandler(mode string, srcClientID string, msg *gmqtt.Message, now time.Time, srv *server) *deliverHandler {
+	d := &deliverHandler{
+		sl:  make(sharedList),
+		mq:  make(maxQos),
+		msg: msg,
+		srv: srv,
+		now: now,
+	}
+	var iterateFn subscription.IterateFn
+	d.fn = func(clientID string, sub *gmqtt.Subscription) bool {
 		if sub.NoLocal && clientID == srcClientID {
 			return true
 		}
-		matched = true
-		if qs := srv.queueStore[clientID]; qs != nil {
-			// shared
-			if sub.ShareName != "" {
-				sharedList[sub.ShareName] = append(sharedList[sub.ShareName], struct {
-					clientID string
-					sub      *gmqtt.Subscription
-				}{clientID: clientID, sub: sub})
-			} else {
-				if srv.config.MQTT.DeliveryMode == Overlap {
-					srv.addMsgToQueueLocked(now, clientID, msg.Copy(), sub, []uint32{sub.ID}, qs)
-				} else {
-					// OnlyOnce
-					if maxQos[clientID] == nil {
-						maxQos[clientID] = &struct {
-							sub    *gmqtt.Subscription
-							subIDs []uint32
-						}{sub: sub, subIDs: []uint32{sub.ID}}
-					} else {
-						if maxQos[clientID].sub.QoS < sub.QoS {
-							maxQos[clientID].sub = sub
-						}
-						maxQos[clientID].subIDs = append(maxQos[clientID].subIDs, sub.ID)
-					}
-
-				}
-			}
+		d.matched = true
+		if sub.ShareName != "" {
+			fullTopic := sub.GetFullTopicName()
+			d.sl[fullTopic] = append(d.sl[fullTopic], struct {
+				clientID string
+				sub      *gmqtt.Subscription
+			}{clientID: clientID, sub: sub})
+			return true
 		}
-		return true
-	}, subscription.IterationOptions{
-		Type:      subscription.TypeAll,
-		MatchType: subscription.MatchFilter,
-		TopicName: msg.Topic,
-	})
-	if srv.config.MQTT.DeliveryMode == OnlyOnce {
-		for clientID, v := range maxQos {
+		return iterateFn(clientID, sub)
+	}
+	if mode == Overlap {
+		iterateFn = func(clientID string, sub *gmqtt.Subscription) bool {
 			if qs := srv.queueStore[clientID]; qs != nil {
-				srv.addMsgToQueueLocked(now, clientID, msg.Copy(), v.sub, v.subIDs, qs)
+				srv.addMsgToQueueLocked(now, clientID, msg.Copy(), sub, []uint32{sub.ID}, qs)
 			}
+			return true
+		}
+	} else {
+		iterateFn = func(clientID string, sub *gmqtt.Subscription) bool {
+			// If the delivery mode is onlyOnce, set the message qos to the maximum qos in matched subscriptions.
+			if d.mq[clientID] == nil {
+				d.mq[clientID] = &struct {
+					sub    *gmqtt.Subscription
+					subIDs []uint32
+				}{sub: sub, subIDs: []uint32{sub.ID}}
+				return true
+			}
+			if d.mq[clientID].sub.QoS < sub.QoS {
+				d.mq[clientID].sub = sub
+			}
+			d.mq[clientID].subIDs = append(d.mq[clientID].subIDs, sub.ID)
+			return true
 		}
 	}
+	return d
+}
+
+func (d *deliverHandler) flush() {
 	// shared subscription
 	// TODO enable customize balance strategy of shared subscription
-	for _, v := range sharedList {
+	for _, v := range d.sl {
 		var rs struct {
 			clientID string
 			sub      *gmqtt.Subscription
 		}
 		// random
 		rs = v[rand.Intn(len(v))]
-		if c, ok := srv.queueStore[rs.clientID]; ok {
-			srv.addMsgToQueueLocked(now, rs.clientID, msg.Copy(), rs.sub, []uint32{rs.sub.ID}, c)
+		if c, ok := d.srv.queueStore[rs.clientID]; ok {
+			d.srv.addMsgToQueueLocked(d.now, rs.clientID, d.msg.Copy(), rs.sub, []uint32{rs.sub.ID}, c)
 		}
 	}
-	return
+	// For onlyonce mode, send the non-shared messages.
+	for clientID, v := range d.mq {
+		if qs := d.srv.queueStore[clientID]; qs != nil {
+			d.srv.addMsgToQueueLocked(d.now, clientID, d.msg.Copy(), v.sub, v.subIDs, qs)
+		}
+	}
+}
+
+// deliverMessage send msg to matched client, must call under srv.mu.Lock
+func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+	now := time.Now()
+	d := newDeliverHandler(srv.config.MQTT.DeliveryMode, srcClientID, msg, now, srv)
+	srv.subscriptionsDB.Iterate(d.fn, options)
+	d.flush()
+	return d.matched
 }
 
 func (srv *server) removeSessionLocked(clientID string) (err error) {

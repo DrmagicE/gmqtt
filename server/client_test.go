@@ -852,7 +852,7 @@ func TestClient_publishHandler_common(t *testing.T) {
 
 			var deliverMessageCalled bool
 
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				deliverMessageCalled = true
@@ -973,7 +973,7 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				config:     config.DefaultConfig(),
 				retainedDB: retainedDB,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return v.topicMatched
@@ -1079,7 +1079,7 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			srv := &server{
 				config: config.DefaultConfig(),
 			}
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
+			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return true
@@ -1142,7 +1142,7 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 		config: config.DefaultConfig(),
 	}
 	var deliveredMsg []*gmqtt.Message
-	srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message) (matched bool) {
+	srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 		a.Equal("cid", srcClientID)
 		deliveredMsg = append(deliveredMsg, msg)
 		return true

@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -36,6 +37,9 @@ type WillMsgRequest struct {
 	// The caller can edit this field to modify the will message.
 	// If nil, the broker will drop the message.
 	Message *gmqtt.Message
+	// IterationOptions is the same as MsgArrivedRequest.IterationOptions,
+	// see MsgArrivedRequest for details
+	IterationOptions subscription.IterationOptions
 }
 
 // Drop drops the will message, so the message will not be delivered to any clients.
@@ -170,6 +174,18 @@ type MsgArrivedRequest struct {
 	// Message is the message that is going to be passed to topic match process.
 	// The caller can modify it.
 	Message *gmqtt.Message
+	// IterationOptions provides the the ability to change the options of topic matching process.
+	// In most of cases, you don't need to modify it.
+	// The default value is:
+	// 	subscription.IterationOptions{
+	//		Type:      subscription.TypeAll,
+	//		MatchType: subscription.MatchFilter,
+	//		TopicName: msg.Topic,
+	//	}
+	// The user of this field is the federation plugin.
+	// It will change the Type from subscription.TypeAll to subscription.subscription.TypeAll ^ subscription.TypeShared
+	// that will prevent publishing the shared message to local client.
+	IterationOptions subscription.IterationOptions
 }
 
 // Drop drops the message, so the message will not be delivered to any clients.
@@ -286,5 +302,3 @@ type OnDeliveredWrapper func(OnDelivered) OnDelivered
 type OnMsgDropped func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
 
 type OnMsgDroppedWrapper func(OnMsgDropped) OnMsgDropped
-
-// TODO add will message send

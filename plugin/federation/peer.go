@@ -230,7 +230,6 @@ func (p *peer) initStream(client FederationClient) (s *stream, err error) {
 		return nil, fmt.Errorf("handshake error: %s", err.Error())
 	}
 	log.Info("handshake succeed", zap.String("remote_node", p.member.Name), zap.Bool("clean_start", sh.CleanStart))
-
 	if sh.CleanStart {
 		p.queue.clear()
 		// sync full state
