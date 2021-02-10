@@ -61,7 +61,9 @@ func TestServer_deliverMessage(t *testing.T) {
 	mockQueue.EXPECT().Add(gomock.Any()).Do(func(elem *queue.Elem) {
 		a.EqualValues(elem.MessageWithID.(*queue.Publish).QoS, 2)
 	})
-	a.True(srv.deliverMessage(srcCli, msg))
+
+	a.True(srv.deliverMessage(srcCli, msg, defaultIterateOptions(msg.Topic)))
+
 	// test overlap
 	srv.config.MQTT.DeliveryMode = Overlap
 	qos := map[byte]int{
@@ -73,13 +75,17 @@ func TestServer_deliverMessage(t *testing.T) {
 		a.True(ok)
 		qos[elem.MessageWithID.(*queue.Publish).QoS]++
 	}).Times(2)
-	a.True(srv.deliverMessage(srcCli, msg))
+
+	a.True(srv.deliverMessage(srcCli, msg, defaultIterateOptions(msg.Topic)))
+
 	a.Equal(1, qos[packets.Qos1])
 	a.Equal(1, qos[packets.Qos2])
 
-	a.False(srv.deliverMessage(srcCli, &gmqtt.Message{
+	msg = &gmqtt.Message{
 		Topic: "abcd",
-	}))
+	}
+	a.False(srv.deliverMessage(srcCli, msg, defaultIterateOptions(msg.Topic)))
+
 }
 
 func TestServer_deliverMessage_sharedSubscription(t *testing.T) {
@@ -126,7 +132,7 @@ func TestServer_deliverMessage_sharedSubscription(t *testing.T) {
 
 	}).Times(3)
 
-	a.True(srv.deliverMessage(srcCli, msg))
+	a.True(srv.deliverMessage(srcCli, msg, defaultIterateOptions(msg.Topic)))
 	a.Equal(1, qos[packets.Qos1])
 	a.Equal(2, qos[packets.Qos2])
 
@@ -141,7 +147,7 @@ func TestServer_deliverMessage_sharedSubscription(t *testing.T) {
 		a.True(ok)
 		qos[elem.MessageWithID.(*queue.Publish).QoS]++
 	}).Times(4)
-	a.True(srv.deliverMessage(srcCli, msg))
+	a.True(srv.deliverMessage(srcCli, msg, defaultIterateOptions(msg.Topic)))
 	a.Equal(2, qos[packets.Qos1])
 	a.Equal(2, qos[packets.Qos2])
 
