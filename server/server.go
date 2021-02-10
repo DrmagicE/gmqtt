@@ -37,6 +37,14 @@ var (
 	persistenceFactories = make(map[string]NewPersistence)
 )
 
+func defaultIterateOptions(topicName string) subscription.IterationOptions {
+	return subscription.IterationOptions{
+		Type:      subscription.TypeAll,
+		TopicName: topicName,
+		MatchType: subscription.MatchFilter,
+	}
+}
+
 func RegisterPersistenceFactory(name string, new NewPersistence) {
 	if _, ok := persistenceFactories[name]; ok {
 		panic("duplicated persistence factory: " + name)
@@ -183,7 +191,7 @@ type server struct {
 	publishService       Publisher
 	newTopicAliasManager NewTopicAliasManager
 	// for testing
-	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message) (matched bool)
+	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool)
 	clientService         *clientService
 	apiRegistrar          *apiRegistrar
 }
@@ -515,7 +523,7 @@ func (srv *server) sendWillLocked(msg *gmqtt.Message, clientID string) {
 	if req.Message == nil {
 		return
 	}
-	srv.deliverMessageHandler(clientID, msg)
+	srv.deliverMessageHandler(clientID, msg, defaultIterateOptions(msg.Topic))
 	if srv.hooks.OnWillPublished != nil {
 		srv.hooks.OnWillPublished(context.Background(), clientID, req.Message)
 	}
@@ -732,14 +740,10 @@ func (d *deliverHandler) flush() {
 }
 
 // deliverMessage send msg to matched client, must call under srv.mu.Lock
-func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message) (matched bool) {
+func (srv *server) deliverMessage(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 	now := time.Now()
 	d := newDeliverHandler(srv.config.MQTT.DeliveryMode, srcClientID, msg, now, srv)
-	srv.subscriptionsDB.Iterate(d.fn, subscription.IterationOptions{
-		Type:      subscription.TypeAll,
-		MatchType: subscription.MatchFilter,
-		TopicName: msg.Topic,
-	})
+	srv.subscriptionsDB.Iterate(d.fn, options)
 	d.flush()
 	return d.matched
 }
