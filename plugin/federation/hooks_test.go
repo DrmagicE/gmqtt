@@ -11,6 +11,7 @@ import (
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/config"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/persistence/subscription/mem"
 	"github.com/DrmagicE/gmqtt/server"
 )
@@ -25,7 +26,7 @@ func init() {
 var testConfig = config.Config{
 	Plugins: map[string]config.Configuration{
 		Name: &Config{
-			NodeName: "test-nodename",
+			NodeName: "node0",
 		},
 	},
 }
@@ -36,6 +37,7 @@ func TestFederation_OnMsgArrivedWrapper(t *testing.T) {
 	defer ctrl.Finish()
 	p, _ := New(testConfig)
 	f := p.(*Federation)
+	f.localSubStore.localStore = mem.NewStore()
 
 	onMsgArrived := f.OnMsgArrivedWrapper(func(ctx context.Context, client server.Client, req *server.MsgArrivedRequest) error {
 		return nil
@@ -116,6 +118,7 @@ func TestFederation_OnMsgArrivedWrapper_SharedSubscription(t *testing.T) {
 	defer ctrl.Finish()
 	p, _ := New(testConfig)
 	f := p.(*Federation)
+	f.localSubStore.localStore = mem.NewStore()
 
 	onMsgArrived := f.OnMsgArrivedWrapper(func(ctx context.Context, client server.Client, req *server.MsgArrivedRequest) error {
 		return nil
@@ -143,6 +146,12 @@ func TestFederation_OnMsgArrivedWrapper_SharedSubscription(t *testing.T) {
 		mockQueues = append(mockQueues, mq)
 		f.peers[v].queue = mq
 	}
+	// add the same shared subscription for the local node
+	f.localSubStore.localStore.Subscribe("client1", &gmqtt.Subscription{
+		ShareName:   "abc",
+		TopicFilter: "/topicA",
+	})
+
 	msg := &gmqtt.Message{
 		QoS:     1,
 		Topic:   "/topicA",
@@ -164,6 +173,7 @@ func TestFederation_OnMsgArrivedWrapper_SharedSubscription(t *testing.T) {
 			Message: msg,
 		}))
 	}
+
 	// send to local node, nothing is expected with mockQueue
 	a.NoError(onMsgArrived(context.Background(), mockCli, &server.MsgArrivedRequest{
 		Message: msg,
@@ -173,15 +183,24 @@ func TestFederation_OnMsgArrivedWrapper_SharedSubscription(t *testing.T) {
 	f.fedSubStore.Subscribe(nodes[0], &gmqtt.Subscription{
 		TopicFilter: "/topicA",
 	})
+	// add overlap subscription to local node
+	f.localSubStore.localStore.Subscribe("client1", &gmqtt.Subscription{
+		TopicFilter: "/topicA",
+	})
+	msgReq := &server.MsgArrivedRequest{
+		Message: msg,
+	}
 	mockQueues[0].EXPECT().add(&Event{
 		Event: &Event_Message{
 			Message: messageToEvent(msg),
 		},
 	})
-	a.NoError(onMsgArrived(context.Background(), mockCli, &server.MsgArrivedRequest{
-		Message: msg,
-	}))
-
+	a.NoError(onMsgArrived(context.Background(), mockCli, msgReq))
+	a.Equal(subscription.IterationOptions{
+		Type:      subscription.TypeSYS | subscription.TypeNonShared,
+		TopicName: msgReq.Message.Topic,
+		MatchType: subscription.MatchFilter,
+	}, msgReq.IterationOptions)
 }
 
 func TestFederation_OnSubscribedWrapper(t *testing.T) {

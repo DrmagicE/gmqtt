@@ -145,8 +145,6 @@ type Federation struct {
 	wg            *sync.WaitGroup
 }
 
-// fedSubStore store federation subscription tree which take nodeName as the subscriber identifier.
-// It is used to determine which node the incoming message should be routed to.
 type fedSubStore struct {
 	*mem.TrieDB
 	sharedMu sync.Mutex
@@ -240,15 +238,17 @@ func (f *Federation) Join(ctx context.Context, req *JoinRequest) (resp *empty.Em
 }
 
 type localSubStore struct {
+	localStore server.SubscriptionService
 	sync.Mutex
 	// [clientID][topicName]
 	index map[string]map[string]struct{}
-	// topics store the reference counter for each topic
+	// topics store the reference counter for each topic. (map[topicName]uint64)
 	topics map[string]uint64
 }
 
 // init loads all subscriptions from gmqtt core into federation plugin.
 func (l *localSubStore) init(sub server.SubscriptionService) {
+	l.localStore = sub
 	l.index = make(map[string]map[string]struct{})
 	l.topics = make(map[string]uint64)
 	l.Lock()

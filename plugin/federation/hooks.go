@@ -64,26 +64,28 @@ func (f *Federation) OnUnsubscribedWrapper(pre server.OnUnsubscribed) server.OnU
 	}
 }
 
-func sendSharedMsg(fs *fedSubStore, sharedList map[string][]string, send func(nodeName string)) {
+func sendSharedMsg(fs *fedSubStore, sharedList map[string][]string, send func(nodeName string, topicName string)) {
 	// shared subscription
 	fs.sharedMu.Lock()
 	defer fs.sharedMu.Unlock()
 	for topicName, v := range sharedList {
 		sort.Strings(v)
-		mod := fs.sharedSent[topicName] % (uint64(len(v)) + 1)
+		mod := fs.sharedSent[topicName] % (uint64(len(v)))
 		fs.sharedSent[topicName]++
-		// sends to local node, just ignores it
-		if mod == 0 {
-			continue
-		}
-		send(v[mod-1])
+		send(v[mod], topicName)
 	}
 }
 
-func (f *Federation) sendMessage(msg *gmqtt.Message) bool {
+// sendMessage sends messages to cluster nodes.
+// For retained message, broadcasts the message to all nodes to update their local retained store.
+// For none retained message , send it to the nodes which have matched topics.
+// For shared subscription, we should either only send the message to local subscriber or only send the message to one node.
+// If drop is true, the local node will drop the message.
+// If options is not nil, the local node will apply the options to topic matching process.
+func (f *Federation) sendMessage(msg *gmqtt.Message) (drop bool, options *subscription.IterationOptions) {
 	f.memberMu.Lock()
 	defer f.memberMu.Unlock()
-	// If it is a retained message, broadcasts the message to all nodes to update their local retained store.
+
 	if msg.Retained {
 		eventMsg := messageToEvent(msg)
 		for _, v := range f.peers {
@@ -92,22 +94,29 @@ func (f *Federation) sendMessage(msg *gmqtt.Message) bool {
 					Message: eventMsg,
 				}})
 		}
-		return true
+		return
 	}
-	// For none retained message , send it to the nodes which have matched topics.
-	// For shared subscription, we should either only send the message to local subscriber or only send the message to one node.
 
 	// shared topic => []nodeName.
 	sharedList := make(map[string][]string)
+	// append local shared subscription
+	f.localSubStore.localStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+		fullTopic := sub.GetFullTopicName()
+		sharedList[fullTopic] = append(sharedList[fullTopic], f.nodeName)
+		return true
+	}, subscription.IterationOptions{
+		Type:      subscription.TypeShared,
+		TopicName: msg.Topic,
+		MatchType: subscription.MatchFilter,
+	})
+
 	// store non-shared topic, key by nodeName
 	nonShared := make(map[string]struct{})
+
 	f.fedSubStore.Iterate(func(nodeName string, sub *gmqtt.Subscription) bool {
 		if sub.ShareName != "" {
 			fullTopic := sub.GetFullTopicName()
 			sharedList[fullTopic] = append(sharedList[fullTopic], nodeName)
-			return true
-		}
-		if _, ok := nonShared[nodeName]; ok {
 			return true
 		}
 		nonShared[nodeName] = struct{}{}
@@ -117,27 +126,45 @@ func (f *Federation) sendMessage(msg *gmqtt.Message) bool {
 		TopicName: msg.Topic,
 		MatchType: subscription.MatchFilter,
 	})
+
+	sent := make(map[string]struct{})
 	// shared subscription
-	sharedSent := make(map[string]struct{})
-	sendSharedMsg(f.fedSubStore, sharedList, func(nodeName string) {
-		if _, ok := sharedSent[nodeName]; ok {
+	sendSharedMsg(f.fedSubStore, sharedList, func(nodeName string, topicName string) {
+		// Do nothing if it is the local node.
+		if nodeName == f.nodeName {
 			return
 		}
-		sharedSent[nodeName] = struct{}{}
+		if _, ok := sent[nodeName]; ok {
+			return
+		}
+		sent[nodeName] = struct{}{}
 		if p, ok := f.peers[nodeName]; ok {
 			eventMsg := messageToEvent(msg)
 			p.queue.add(&Event{
 				Event: &Event_Message{
 					Message: eventMsg,
 				}})
-			// If the message is sent because of matching a shared subscription,
-			// it should not be sent again if it also matches a non-shared one.
-			delete(nonShared, nodeName)
+			drop = true
+			nonSharedOpts := subscription.IterationOptions{
+				Type:      subscription.TypeAll ^ subscription.TypeShared,
+				TopicName: msg.Topic,
+				MatchType: subscription.MatchFilter,
+			}
+			f.localSubStore.localStore.Iterate(func(clientID string, sub *gmqtt.Subscription) bool {
+				// If the message also matches non-shared subscription in local node, it can not be dropped.
+				// But the broker must not match any local shared subscriptions for this message,
+				// so we modify the iterationOptions to ignore shared subscriptions.
+				drop = false
+				options = &nonSharedOpts
+				return false
+			}, nonSharedOpts)
 		}
 	})
-
 	// non-shared subscription
 	for nodeName := range nonShared {
+		if _, ok := sent[nodeName]; ok {
+			continue
+		}
 		if p, ok := f.peers[nodeName]; ok {
 			eventMsg := messageToEvent(msg)
 			p.queue.add(&Event{
@@ -146,7 +173,7 @@ func (f *Federation) sendMessage(msg *gmqtt.Message) bool {
 				}})
 		}
 	}
-	return true
+	return
 }
 func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgArrived {
 	return func(ctx context.Context, client server.Client, req *server.MsgArrivedRequest) error {
@@ -155,7 +182,13 @@ func (f *Federation) OnMsgArrivedWrapper(pre server.OnMsgArrived) server.OnMsgAr
 			return err
 		}
 		if req.Message != nil {
-			f.sendMessage(req.Message)
+			drop, opts := f.sendMessage(req.Message)
+			if drop {
+				req.Drop()
+			}
+			if opts != nil {
+				req.IterationOptions = *opts
+			}
 		}
 		return nil
 	}
@@ -187,7 +220,13 @@ func (f *Federation) OnWillPublishWrapper(pre server.OnWillPublish) server.OnWil
 	return func(ctx context.Context, clientID string, req *server.WillMsgRequest) {
 		pre(ctx, clientID, req)
 		if req.Message != nil {
-			f.sendMessage(req.Message)
+			drop, opts := f.sendMessage(req.Message)
+			if drop {
+				req.Drop()
+			}
+			if opts != nil {
+				req.IterationOptions = *opts
+			}
 		}
 	}
 }
