@@ -124,6 +124,6 @@ service Membership {
 }
 
 service Federation {
-    rpc Hello( ClientHello) returns (ServerHello){}
+    rpc Hello(ClientHello) returns (ServerHello){}
     rpc EventStream (stream Event) returns (stream Ack){}
 }
