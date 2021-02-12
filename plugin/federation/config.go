@@ -13,8 +13,8 @@ import (
 
 // Default config.
 const (
-	DefaultFedPort       = ":8901"
-	DefaultGossipPort    = ":8902"
+	DefaultFedPort       = "8901"
+	DefaultGossipPort    = "8902"
 	DefaultRetryInterval = 5 * time.Second
 	DefaultRetryTimeout  = 1 * time.Minute
 )
@@ -73,46 +73,35 @@ func isPortNumber(port string) bool {
 	return false
 }
 
-// joinHostPort returns a network address of the form "host:port".
-// If the addr does not contains "port", the function will add defaultPort to it.
-// Note that this function does not guarantee the correctness of the returned address.
-func joinHostPort(addr string, defaultPort string) (newAddr string) {
-	portIndex := strings.LastIndex(addr, ":")
-	if portIndex == -1 {
-		return addr + defaultPort
+func getAddr(addr string, defaultPort string, fieldName string, usePrivate bool) (string, error) {
+	if addr == "" {
+		return "", fmt.Errorf("missing %s", fieldName)
 	}
-	if len(addr) == portIndex+1 {
-		return addr
+	host, port, err := net.SplitHostPort(addr)
+	if port == "" {
+		port = defaultPort
 	}
-	// IPv6
-	if addr[0] == '[' && !isPortNumber(addr[portIndex+1:]) {
-		return addr + defaultPort
+	if addr[len(addr)-1] == ':' {
+		return "", fmt.Errorf("invalid %s", fieldName)
 	}
-	return addr
-}
-
-func getAddr(addr string, defaultPort string, fieldName string) (string, error) {
-	fedAddr := joinHostPort(addr, defaultPort)
-	_, port, err := net.SplitHostPort(fedAddr)
-	if err != nil {
+	if err != nil && strings.Contains(err.Error(), "missing port in address") {
+		host, port, err = net.SplitHostPort(addr + ":" + defaultPort)
+		if err != nil {
+			return "", fmt.Errorf("invalid %s: %s", fieldName, err)
+		}
+	} else if err != nil {
 		return "", fmt.Errorf("invalid %s: %s", fieldName, err)
 	}
-	if !isPortNumber(port) {
-		return "", fmt.Errorf("invalid port number: %s", addr)
-	}
-	return fedAddr, nil
-}
-
-func getAdvertiseAddr(hostPort string) (string, error) {
-	h, p, _ := net.SplitHostPort(hostPort)
-	if h == "0.0.0.0" || h == "" {
-		privateIP, err := getPrivateIP()
+	if usePrivate && (host == "0.0.0.0" || host == "") {
+		host, err = getPrivateIP()
 		if err != nil {
 			return "", err
 		}
-		return privateIP + ":" + p, nil
 	}
-	return hostPort, nil
+	if !isPortNumber(port) {
+		return "", fmt.Errorf("invalid port number: %s", port)
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 // Validate validates the configuration, and return an error if it is invalid.
@@ -124,36 +113,31 @@ func (c *Config) Validate() (err error) {
 		}
 		c.NodeName = hostName
 	}
-	c.FedAddr, err = getAddr(c.FedAddr, DefaultFedPort, "fed_addr")
+	c.FedAddr, err = getAddr(c.FedAddr, DefaultFedPort, "fed_addr", false)
 	if err != nil {
 		return err
 	}
-	c.GossipAddr, err = getAddr(c.GossipAddr, DefaultGossipPort, "gossip_addr")
+	c.GossipAddr, err = getAddr(c.GossipAddr, DefaultGossipPort, "gossip_addr", false)
 	if err != nil {
 		return err
 	}
 	if c.AdvertiseFedAddr == "" {
-		c.AdvertiseFedAddr, err = getAdvertiseAddr(c.FedAddr)
-		if err != nil {
-			return err
-		}
+		c.AdvertiseFedAddr = c.FedAddr
 	}
-	c.AdvertiseFedAddr, err = getAddr(c.AdvertiseFedAddr, DefaultFedPort, "advertise_fed_addr")
+	c.AdvertiseFedAddr, err = getAddr(c.AdvertiseFedAddr, DefaultFedPort, "advertise_fed_addr", true)
 	if err != nil {
 		return err
 	}
 	if c.AdvertiseGossipAddr == "" {
-		c.AdvertiseGossipAddr, err = getAdvertiseAddr(c.GossipAddr)
-		if err != nil {
-			return err
-		}
+		c.AdvertiseGossipAddr = c.GossipAddr
 	}
-	c.AdvertiseGossipAddr, err = getAddr(c.AdvertiseGossipAddr, DefaultGossipPort, "advertise_gossip_addr")
+	c.AdvertiseGossipAddr, err = getAddr(c.AdvertiseGossipAddr, DefaultGossipPort, "advertise_gossip_addr", true)
 	if err != nil {
 		return err
 	}
+
 	for k, v := range c.RetryJoin {
-		c.RetryJoin[k], err = getAddr(v, DefaultGossipPort, "retry_join")
+		c.RetryJoin[k], err = getAddr(v, DefaultGossipPort, "retry_join", false)
 		if err != nil {
 			return err
 		}
@@ -178,8 +162,8 @@ func init() {
 	}
 	DefaultConfig = Config{
 		NodeName:      hostName,
-		FedAddr:       DefaultFedPort,
-		GossipAddr:    DefaultGossipPort,
+		FedAddr:       ":" + DefaultFedPort,
+		GossipAddr:    ":" + DefaultFedPort,
 		RetryJoin:     nil,
 		RetryInterval: DefaultRetryInterval,
 		RetryTimeout:  DefaultRetryTimeout,

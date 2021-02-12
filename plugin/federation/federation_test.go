@@ -359,7 +359,7 @@ func TestFederation_Join(t *testing.T) {
 
 	mockSerf := NewMockiSerf(ctrl)
 	f.serf = mockSerf
-	mockSerf.EXPECT().Join([]string{"127.0.0.1" + DefaultGossipPort, "127.0.0.2:1234"}, true).Return(2, nil)
+	mockSerf.EXPECT().Join([]string{"127.0.0.1:" + DefaultGossipPort, "127.0.0.2:1234"}, true).Return(2, nil)
 	_, err := f.Join(context.Background(), &JoinRequest{
 		Hosts: []string{
 			"127.0.0.1",

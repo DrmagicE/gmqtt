@@ -225,7 +225,7 @@ func (f *Federation) mustEmbedUnimplementedMembershipServer() {
 // See https://www.serf.io/docs/commands/join.html for details.
 func (f *Federation) Join(ctx context.Context, req *JoinRequest) (resp *empty.Empty, err error) {
 	for k, v := range req.Hosts {
-		req.Hosts[k], err = getAddr(v, DefaultGossipPort, "hosts")
+		req.Hosts[k], err = getAddr(v, DefaultGossipPort, "hosts", false)
 		if err != nil {
 			return &empty.Empty{}, status.Error(codes.InvalidArgument, err.Error())
 		}

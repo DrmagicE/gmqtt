@@ -11,6 +11,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
+	github.com/hashicorp/go-sockaddr v1.0.0
 	github.com/hashicorp/logutils v1.0.0
 	github.com/hashicorp/serf v0.9.5
 	github.com/iancoleman/strcase v0.1.2
