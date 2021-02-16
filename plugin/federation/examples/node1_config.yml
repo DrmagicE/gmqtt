@@ -5,7 +5,7 @@ api:
     - address: "tcp://127.0.0.1:8084"
   http:
     - address: "tcp://127.0.0.1:8083"
-      map: "tcp://127.0.0.1:8084" # The backend gRPC server endpoint,
+      map: "tcp://127.0.0.1:8084" # The backend gRPC server endpoint
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
@@ -40,6 +40,7 @@ plugins:
     # retry_join is the address of other nodes to join upon starting up.
     # If port is missing, the default gossip port (8902) will be used.
     retry_join:
+      # Change 127.0.0.1 to real routable ip address if you run gmqtt in multiple nodes.
       - 127.0.0.1:8912
     # rejoin_after_leave will be pass to "RejoinAfterLeave" in serf configuration.
     # It controls our interaction with the snapshot file.
