@@ -5,7 +5,7 @@ api:
     - address: "tcp://127.0.0.1:8284"
   http:
     - address: "tcp://127.0.0.1:8283"
-      map: "tcp://127.0.0.1:8284" # The backend gRPC server endpoint,
+      map: "tcp://127.0.0.1:8284" # The backend gRPC server endpoint
 mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s

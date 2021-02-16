@@ -2,7 +2,7 @@ mockgen -source=config/config.go -destination=./config/config_mock.go -package=c
 mockgen -source=persistence/queue/elem.go -destination=./persistence/queue/elem_mock.go -package=queue -self_package=github.com/DrmagicE/gmqtt/queue
 mockgen -source=persistence/queue/queue.go -destination=./persistence/queue/queue_mock.go -package=queue -self_package=github.com/DrmagicE/gmqtt/queue
 mockgen -source=persistence/session/session.go -destination=./persistence/session/session_mock.go -package=session -self_package=github.com/DrmagicE/gmqtt/session
-mockgen -source=persistence/subscription/interface.go -destination=./persistence/subscription/interface_mock.go -package=subscription -self_package=github.com/DrmagicE/gmqtt/subscription
+mockgen -source=persistence/subscription/subscription.go -destination=./persistence/subscription/subscription_mock.go -package=subscription -self_package=github.com/DrmagicE/gmqtt/subscription
 mockgen -source=persistence/unack/unack.go -destination=./persistence/unack/unack_mock.go -package=unack -self_package=github.com/DrmagicE/gmqtt/unack
 mockgen -source=pkg/packets/packets.go -destination=./pkg/packets/packets_mock.go -package=packets -self_package=github.com/DrmagicE/gmqtt/packets
 mockgen -source=plugin/auth/account_grpc.pb.go -destination=./plugin/auth/account_grpc.pb_mock.go -package=auth -self_package=github.com/DrmagicE/gmqtt/auth

@@ -1,6 +1,6 @@
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/Gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/Gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/Gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/Gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/Gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/Gmqtt)
 
-News: 现已支持V5版本，但由于V5的功能特性，Gmqtt做了很多不兼容的改动，对此有疑问欢迎提issue交流，或者依然使用最新的[V3版本](https://github.com/DrmagicE/gmqtt/tree/v0.1.4).
+News: 集群模式已支持，示例和详情请参考[federation plugin](./plugin/federation/README.md)。
 
 Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的MQTT broker，其完整实现了MQTT V3.1.1和V5协议。
 
@@ -15,9 +15,7 @@ Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的M
 * 提供监控指标，支持prometheus。 (plugin: [prometheus](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/prometheus/READEME.md))
 * GRPC和REST API 支持. (plugin:[admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/READEME.md))
 * 支持session持久化，broker重启消息不丢失，目前支持redis持久化。
-
-# 缺陷
-* 不支持集群。
+* 支持集群, 示例和详情请参考[federation plugin](./plugin/federation/README.md)。
 
 # 开始
 
@@ -103,6 +101,8 @@ Gmqtt实现了下列钩子方法。
 | OnDelivered  | 消息从broker投递到客户端后调用       |        |
 | OnClosed  | 客户端断开连接后调用       |   统计在线客户端数量      |
 | OnMsgDropped  | 消息被丢弃时调用 |        |
+| OnWillPublish | 发布遗嘱消息前 | 修改或丢弃遗嘱消息|
+| OnWillPublished| 发布遗嘱消息后| |
 
 在 `/examples/hook` 中有常用钩子的使用方法介绍。
 
@@ -118,8 +118,3 @@ $ go test -race ./...
 ## 集成测试
 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
-
-# TODO
-* 桥接模式，集群模式
-
-*暂时不保证向后兼容，在添加上述新功能时可能会有breaking changes。*
