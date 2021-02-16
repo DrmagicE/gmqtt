@@ -1,9 +1,7 @@
 [中文文档](https://github.com/DrmagicE/gmqtt/blob/master/README_ZH.md)
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
-News: MQTT V5 is now supported. But due to those new features in v5, there area lots of breaking changes. 
-If you have any migration problems, feel free to raise an issue.
-Or you can use the latest v3 [broker](https://github.com/DrmagicE/gmqtt/tree/v0.1.4).
+News: Cluster mode is now supported, see [federation plugin](./plugin/federation/README.md) for examples and details.
 
 # Installation
 ```$ go get -u github.com/DrmagicE/gmqtt```
@@ -18,11 +16,7 @@ See `Server` interface in `server/server.go` and [admin](https://github.com/Drma
 * Provide GRPC and REST APIs to interact with server. (plugin:[admin](https://github.com/DrmagicE/gmqtt/blob/master/plugin/admin/README.md))
 * Provide session persistence which means the broker can retrieve the session data after restart. 
 Currently, only redis backend is supported.
-
-
-
-# Limitations
-* Cluster is not supported.
+* Provide clustering, see [federation plugin](./plugin/federation/README.md) for examples and details.
 
 
 # Get Started
@@ -113,7 +107,8 @@ Gmqtt implements the following hooks:
 | OnDelivered  | When a message is delivered to the client     |        |
 | OnClosed  | When the client is closed  |        |
 | OnMsgDropped  | When a message is dropped for some reasons|        |
-
+| OnWillPublish | When the client is going to deliver a will message | Modify or drop the will message |
+| OnWillPublished| When a will message has been delivered| |
 
 See `/examples/hook` for details.
 
@@ -132,8 +127,3 @@ $ go test -race ./...
 ## Integration Test
 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
 
-
-# TODO
-* Support bridge mode and cluster.
-
-*Breaking changes may occur when adding this new features.*

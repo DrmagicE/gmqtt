@@ -1,0 +1,129 @@
+syntax ="proto3";
+
+package gmqtt.federation.api;
+option go_package = ".;federation";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+message Event {
+    uint64 id = 1;
+    oneof Event {
+        Subscribe Subscribe = 2;
+        Message message = 3;
+        Unsubscribe unsubscribe = 4;
+    }
+}
+
+// Subscribe represents the subscription for a node, it is used to route message among nodes,
+// so only shared_name and topic_filter is required.
+message Subscribe {
+    string share_name = 1;
+    string topic_filter = 2;
+}
+
+message Message{
+    string topic_name = 1;
+    string payload = 2;
+    uint32 qos = 3;
+    bool retained = 4;
+    // the following fields are using in v5 client.
+    string content_type = 5;
+    string correlation_data = 6;
+    uint32 message_expiry = 7;
+    uint32 payload_format = 8;
+    string response_topic = 9;
+    repeated UserProperty user_properties = 10;
+}
+
+message UserProperty {
+    bytes K = 1;
+    bytes V = 2;
+}
+message Unsubscribe{
+    string topic_name = 1;
+}
+
+message Ack {
+    uint64 event_id = 1;
+}
+
+// ClientHello is the request message in handshake process.
+message ClientHello {
+    string session_id =1;
+}
+
+// ServerHello is the response message in handshake process.
+message ServerHello{
+    bool clean_start = 1;
+    uint64 next_event_id = 2;
+}
+
+message JoinRequest {
+    repeated string hosts = 1;
+}
+
+
+message Member {
+    string name = 1;
+    string addr = 2;
+    map<string,string> tags = 3;
+    Status status = 4;
+}
+
+enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_ALIVE = 1;
+    STATUS_LEAVING=2;
+    STATUS_LEFT = 3;
+    STATUS_FAILED = 4;
+}
+
+message ListMembersResponse {
+    repeated Member members = 1;
+}
+
+message ForceLeaveRequest {
+    string node_name = 1;
+}
+
+service Membership {
+    // Join tells the local node to join the an existing cluster.
+    // See https://www.serf.io/docs/commands/join.html for details.
+    rpc Join(JoinRequest) returns (google.protobuf.Empty){
+        option (google.api.http) = {
+            post: "/v1/federation/join"
+            body:"*"
+        };
+    }
+    // Leave triggers a graceful leave for the local node.
+    // This is used to ensure other nodes see the node as "left" instead of "failed".
+    // Note that a leaved node cannot re-join the cluster unless you restart the leaved node.
+    rpc Leave(google.protobuf.Empty) returns (google.protobuf.Empty){
+        option (google.api.http) = {
+            post: "/v1/federation/leave"
+            body:"*"
+        };
+    }
+    // ForceLeave force forces a member of a Serf cluster to enter the "left" state.
+    // Note that if the member is still actually alive, it will eventually rejoin the cluster.
+    // The true purpose of this method is to force remove "failed" nodes
+    // See https://www.serf.io/docs/commands/force-leave.html for details.
+    rpc ForceLeave(ForceLeaveRequest) returns (google.protobuf.Empty){
+        option (google.api.http) = {
+            post: "/v1/federation/force_leave"
+            body:"*"
+        };
+    }
+    // ListMembers lists all known members in the Serf cluster.
+    rpc ListMembers(google.protobuf.Empty) returns (ListMembersResponse){
+        option (google.api.http) = {
+            get: "/v1/federation/members"
+        };
+    }
+}
+
+service Federation {
+    rpc Hello(ClientHello) returns (ServerHello){}
+    rpc EventStream (stream Event) returns (stream Ack){}
+}

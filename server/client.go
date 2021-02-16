@@ -1,4 +1,3 @@
-// Package server provides an MQTT v3.1.1 server library.
 package server
 
 import (
@@ -328,11 +327,8 @@ func (client *client) writePacket(packet packets.Packet) error {
 			)
 		}
 	}
-	err := client.packetWriter.WritePacket(packet)
-	if err != nil {
-		return err
-	}
-	return client.packetWriter.Flush()
+
+	return client.packetWriter.WriteAndFlush(packet)
 }
 
 func (client *client) addServerQuota() {
@@ -957,17 +953,20 @@ func (client *client) publishHandler(pub *packets.Publish) *codes.Error {
 	var err error
 	var topicMatched bool
 	if !dup {
+		opts := defaultIterateOptions(msg.Topic)
 		if srv.hooks.OnMsgArrived != nil {
 			req := &MsgArrivedRequest{
-				Publish: pub,
-				Message: msg,
+				Publish:          pub,
+				Message:          msg,
+				IterationOptions: opts,
 			}
 			err = srv.hooks.OnMsgArrived(context.Background(), client, req)
 			msg = req.Message
+			opts = req.IterationOptions
 		}
 		if msg != nil && err == nil {
 			srv.mu.Lock()
-			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, msg)
+			topicMatched = srv.deliverMessageHandler(client.opts.ClientID, msg, opts)
 			srv.mu.Unlock()
 		}
 	}

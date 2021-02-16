@@ -284,7 +284,9 @@ func (db *TrieDB) SubscribeLocked(clientID string, subscriptions ...*gmqtt.Subsc
 		}
 		if index[clientID] == nil {
 			index[clientID] = make(map[string]*topicNode)
-			db.clientStats[clientID] = &subscription.Stats{}
+			if db.clientStats[clientID] == nil {
+				db.clientStats[clientID] = &subscription.Stats{}
+			}
 		}
 		if _, ok := index[clientID][topicName]; !ok {
 			db.stats.SubscriptionsTotal++
@@ -315,6 +317,7 @@ func (db *TrieDB) UnsubscribeLocked(clientID string, topics ...string) {
 		shareName, topic := subscription.SplitTopic(topic)
 		if shareName != "" {
 			topicTrie = db.sharedTrie
+			index = db.sharedIndex
 		} else if isSystemTopic(topic) {
 			index = db.systemIndex
 			topicTrie = db.systemTrie

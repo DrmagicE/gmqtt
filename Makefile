@@ -96,13 +96,16 @@ generate-swagger:
 
 # generate mock code
 generate-mocks:
+	@./mock_gen.sh
+
+go-generate:
 	go generate ./...
 
-run:
+run: go-generate
 	go run ./cmd/gmqttd start -c ./cmd/gmqttd/default_config.yml
 
 # generate all grpc files and mocks and build the go code
-build:
+build: go-generate
 	go build -o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
 
 # generate mocks and run short tests
@@ -127,7 +130,7 @@ test-cover:
 test-all: test test-bench test-cover
 
 # Build Golang application binary with settings to enable it to run in a Docker scratch container.
-binary: generate-grpc
+binary: go-generate
 	CGO_ENABLED=0 GOOS=linux go build  -ldflags '-s' -o $(BUILD_DIR)/gmqttd ./cmd/gmqttd
 
 build-docker:

@@ -107,24 +107,27 @@ func NewStartCmd() *cobra.Command {
 			} else {
 				must(err)
 			}
-			err = c.Validate()
-			must(err)
-			pid, err := pidfile.New(c.PidFile)
-			if err != nil {
-				must(fmt.Errorf("open pid file failed: %s", err))
+			if c.PidFile != "" {
+				pid, err := pidfile.New(c.PidFile)
+				if err != nil {
+					must(fmt.Errorf("open pid file failed: %s", err))
+				}
+				defer pid.Remove()
 			}
-			defer pid.Remove()
+
 			tcpListeners, websockets, err := GetListeners(c)
 			must(err)
 			l, err := c.GetLogger(c.Log)
 			must(err)
 			logger = l
+
 			s := server.New(
 				server.WithConfig(c),
 				server.WithTCPListener(tcpListeners...),
 				server.WithWebsocketServer(websockets...),
 				server.WithLogger(l),
 			)
+
 			err = s.Init()
 			if err != nil {
 				fmt.Println(err)

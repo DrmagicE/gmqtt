@@ -1,0 +1,69 @@
+listeners:
+  - address: ":1885"
+api:
+  grpc:
+    - address: "tcp://127.0.0.1:8284"
+  http:
+    - address: "tcp://127.0.0.1:8283"
+      map: "tcp://127.0.0.1:8284" # The backend gRPC server endpoint
+mqtt:
+  session_expiry: 2h
+  session_expiry_check_timer: 20s
+  message_expiry: 2h
+  max_packet_size: 268435456
+  server_receive_maximum: 100
+  max_keepalive: 60
+  topic_alias_maximum: 10
+  subscription_identifier_available: true
+  wildcard_subscription_available: true
+  shared_subscription_available: true
+  maximum_qos: 2
+  retain_available: true
+  max_queued_messages: 10000
+  max_inflight: 1000
+  queue_qos0_messages: true
+  delivery_mode: onlyonce # overlap or onlyonce
+  allow_zero_length_clientid: true
+
+plugins:
+  federation:
+    # node_name is the unique identifier for the node in the federation. Defaults to hostname.
+    node_name: node3
+    # fed_addr is the gRPC server listening address for the federation internal communication. Defaults to :8901
+    fed_addr: :8931
+    # advertise_fed_addr is used to change the federation gRPC server address that we advertise to other nodes in the cluster.
+    # Defaults to "fed_addr".However, in some cases, there may be a routable address that cannot be bound.
+    # If the port is missing, the default federation port (8901) will be used.
+    advertise_fed_addr: :8931
+    # gossip_addr is the address that the gossip will listen on, It is used for both UDP and TCP gossip. Defaults to :8902
+    gossip_addr: :8932
+    # retry_join is the address of other nodes to join upon starting up.
+    # If port is missing, the default gossip port (8902) will be used.
+    #retry_join:
+     # - 127.0.0.1:8912
+    # rejoin_after_leave will be pass to "RejoinAfterLeave" in serf configuration.
+    # It controls our interaction with the snapshot file.
+    # When set to false (default), a leave causes a Serf to not rejoin the cluster until an explicit join is received.
+    # If this is set to true, we ignore the leave, and rejoin the cluster on start.
+    rejoin_after_leave: false
+    # snapshot_path will be pass to "SnapshotPath" in serf configuration.
+    # When Serf is started with a snapshot,it will attempt to join all the previously known nodes until one
+    # succeeds and will also avoid replaying old user events.
+    snapshot_path:
+
+# plugin loading orders
+plugin_order:
+  # Uncomment auth to enable authentication.
+  # - auth
+  #- prometheus
+  #- admin
+  - federation
+log:
+  level: debug # debug | info | warn | error
+  format: text # json | text
+  # whether to dump MQTT packet in debug level
+  dump_packet: false
+
+
+
+

@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -26,7 +27,37 @@ type Hooks struct {
 	OnDelivered
 	OnClosed
 	OnMsgDropped
+	OnWillPublish
+	OnWillPublished
 }
+
+// WillMsgRequest is the input param for OnWillPublish hook.
+type WillMsgRequest struct {
+	// Message is the message that is going to send.
+	// The caller can edit this field to modify the will message.
+	// If nil, the broker will drop the message.
+	Message *gmqtt.Message
+	// IterationOptions is the same as MsgArrivedRequest.IterationOptions,
+	// see MsgArrivedRequest for details
+	IterationOptions subscription.IterationOptions
+}
+
+// Drop drops the will message, so the message will not be delivered to any clients.
+func (w *WillMsgRequest) Drop() {
+	w.Message = nil
+}
+
+// OnWillPublish will be called before the client with the given clientID sending the will message.
+// It provides the ability to modify the message before sending.
+type OnWillPublish func(ctx context.Context, clientID string, req *WillMsgRequest)
+
+type OnWillPublishWrapper func(OnWillPublish) OnWillPublish
+
+// OnWillPublished will be called after the will message has been sent by the client.
+// The msg param is immutable, DO NOT EDIT.
+type OnWillPublished func(ctx context.Context, clientID string, msg *gmqtt.Message)
+
+type OnWillPublishedWrapper func(OnWillPublished) OnWillPublished
 
 // OnAccept will be called after a new connection established in TCP server.
 // If returns false, the connection will be close directly.
@@ -143,6 +174,18 @@ type MsgArrivedRequest struct {
 	// Message is the message that is going to be passed to topic match process.
 	// The caller can modify it.
 	Message *gmqtt.Message
+	// IterationOptions provides the the ability to change the options of topic matching process.
+	// In most of cases, you don't need to modify it.
+	// The default value is:
+	// 	subscription.IterationOptions{
+	//		Type:      subscription.TypeAll,
+	//		MatchType: subscription.MatchFilter,
+	//		TopicName: msg.Topic,
+	//	}
+	// The user of this field is the federation plugin.
+	// It will change the Type from subscription.TypeAll to subscription.subscription.TypeAll ^ subscription.TypeShared
+	// that will prevent publishing the shared message to local client.
+	IterationOptions subscription.IterationOptions
 }
 
 // Drop drops the message, so the message will not be delivered to any clients.

@@ -11,6 +11,7 @@ import (
 	"github.com/DrmagicE/gmqtt/config"
 	queue_test "github.com/DrmagicE/gmqtt/persistence/queue/test"
 	sess_test "github.com/DrmagicE/gmqtt/persistence/session/test"
+	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	sub_test "github.com/DrmagicE/gmqtt/persistence/subscription/test"
 	unack_test "github.com/DrmagicE/gmqtt/persistence/unack/test"
 	"github.com/DrmagicE/gmqtt/server"
@@ -73,10 +74,14 @@ func (s *RedisSuite) TestQueue() {
 }
 
 func (s *RedisSuite) TestSubscription() {
-	a := assert.New(s.T())
-	st, err := s.p.NewSubscriptionStore(config.Config{})
-	a.Nil(err)
-	sub_test.TestSuite(s.T(), st)
+	newFn := func() subscription.Store {
+		st, err := s.p.NewSubscriptionStore(config.Config{})
+		if err != nil {
+			panic(err)
+		}
+		return st
+	}
+	sub_test.TestSuite(s.T(), newFn)
 }
 
 func (s *RedisSuite) TestSession() {

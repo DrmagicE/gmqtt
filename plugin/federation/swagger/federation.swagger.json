@@ -1,0 +1,357 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "federation.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/federation/force_leave": {
+      "post": {
+        "summary": "ForceLeave force forces a member of a Serf cluster to enter the \"left\" state.\nNote that if the member is still actually alive, it will eventually rejoin the cluster.\nThe true purpose of this method is to force remove \"failed\" nodes\nSee https://www.serf.io/docs/commands/force-leave.html for details.",
+        "operationId": "ForceLeave",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiForceLeaveRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Membership"
+        ]
+      }
+    },
+    "/v1/federation/join": {
+      "post": {
+        "summary": "Join tells the local node to join the an existing cluster.\nSee https://www.serf.io/docs/commands/join.html for details.",
+        "operationId": "Join",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiJoinRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Membership"
+        ]
+      }
+    },
+    "/v1/federation/leave": {
+      "post": {
+        "summary": "Leave triggers a graceful leave for the local node.\nThis is used to ensure other nodes see the node as \"left\" instead of \"failed\".\nNote that a leaved node cannot re-join the cluster unless you restart the leaved node.",
+        "operationId": "Leave",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "properties": {}
+            }
+          }
+        ],
+        "tags": [
+          "Membership"
+        ]
+      }
+    },
+    "/v1/federation/members": {
+      "get": {
+        "summary": "ListMembers lists all known members in the Serf cluster.",
+        "operationId": "ListMembers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiListMembersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Membership"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "apiAck": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "apiForceLeaveRequest": {
+      "type": "object",
+      "properties": {
+        "node_name": {
+          "type": "string"
+        }
+      }
+    },
+    "apiJoinRequest": {
+      "type": "object",
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "apiListMembersResponse": {
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiMember"
+          }
+        }
+      }
+    },
+    "apiMember": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "addr": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/apiStatus"
+        }
+      }
+    },
+    "apiMessage": {
+      "type": "object",
+      "properties": {
+        "topic_name": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "qos": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "retained": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "content_type": {
+          "type": "string",
+          "description": "the following fields are using in v5 client."
+        },
+        "correlation_data": {
+          "type": "string"
+        },
+        "message_expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "payload_format": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "response_topic": {
+          "type": "string"
+        },
+        "user_properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/apiUserProperty"
+          }
+        }
+      }
+    },
+    "apiServerHello": {
+      "type": "object",
+      "properties": {
+        "clean_start": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "next_event_id": {
+          "type": "string",
+          "format": "uint64"
+        }
+      },
+      "description": "ServerHello is the response message in handshake process."
+    },
+    "apiStatus": {
+      "type": "string",
+      "enum": [
+        "STATUS_UNSPECIFIED",
+        "STATUS_ALIVE",
+        "STATUS_LEAVING",
+        "STATUS_LEFT",
+        "STATUS_FAILED"
+      ],
+      "default": "STATUS_UNSPECIFIED"
+    },
+    "apiSubscribe": {
+      "type": "object",
+      "properties": {
+        "share_name": {
+          "type": "string"
+        },
+        "topic_filter": {
+          "type": "string"
+        }
+      },
+      "description": "Subscribe represents the subscription for a node, it is used to route message among nodes,\nso only shared_name and topic_filter is required."
+    },
+    "apiUnsubscribe": {
+      "type": "object",
+      "properties": {
+        "topic_name": {
+          "type": "string"
+        }
+      }
+    },
+    "apiUserProperty": {
+      "type": "object",
+      "properties": {
+        "K": {
+          "type": "string",
+          "format": "byte"
+        },
+        "V": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

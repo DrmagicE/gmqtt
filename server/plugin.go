@@ -23,6 +23,8 @@ type HookWrapper struct {
 	OnClosedWrapper            OnClosedWrapper
 	OnAcceptWrapper            OnAcceptWrapper
 	OnStopWrapper              OnStopWrapper
+	OnWillPublishWrapper       OnWillPublishWrapper
+	OnWillPublishedWrapper     OnWillPublishedWrapper
 }
 
 // NewPlugin is the constructor of a plugin.
