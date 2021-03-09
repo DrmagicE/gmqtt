@@ -1020,6 +1020,12 @@ func converError(err error) *codes.Error {
 }
 
 func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
+	// OnPuback hooks
+
+	if client.server.hooks.OnPuback != nil {
+		messageID, topic, _ := client.queueStore.GetMessageIDAndTopic(puback.PacketID)
+		client.server.hooks.OnPuback(context.Background(), client, puback, messageID, topic)
+	}
 	err := client.queueStore.Remove(puback.PacketID)
 	srv := client.server
 	srv.statsManager.decInflight(client.opts.ClientID, 1)
