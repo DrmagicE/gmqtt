@@ -1115,6 +1115,7 @@ func (srv *server) initPluginHooks() error {
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 		onWillPublishWrappers      []OnWillPublishWrapper
 		onWillPublishedWrappers    []OnWillPublishedWrapper
+		onPubackWrappers           []OnPubackWrapper
 	)
 	for _, v := range srv.config.PluginOrder {
 		plg, err := plugins[v](srv.config)
@@ -1189,6 +1190,9 @@ func (srv *server) initPluginHooks() error {
 		}
 		if hooks.OnWillPublishedWrapper != nil {
 			onWillPublishedWrappers = append(onWillPublishedWrappers, hooks.OnWillPublishedWrapper)
+		}
+		if hooks.OnPubackWrapper != nil {
+			onPubackWrappers = append(onPubackWrappers, hooks.OnPubackWrapper)
 		}
 	}
 	if onAcceptWrappers != nil {
@@ -1331,6 +1335,13 @@ func (srv *server) initPluginHooks() error {
 			onWillPublished = onWillPublishedWrappers[i-1](onWillPublished)
 		}
 		srv.hooks.OnWillPublished = onWillPublished
+	}
+	if onPubackWrappers != nil {
+		onPuback := func(ctx context.Context, client Client, puback *packets.Puback, messageID []byte, Topic string) {}
+		for i := len(onPubackWrappers); i > 0; i-- {
+			onPuback = onPubackWrappers[i-1](onPuback)
+		}
+		srv.hooks.OnPuback = onPuback
 	}
 	return nil
 }

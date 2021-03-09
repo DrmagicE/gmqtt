@@ -2,6 +2,7 @@ package mem
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 	"time"
 
@@ -239,4 +240,18 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 		}
 	}
 	return nil
+}
+
+//GetMessageIDAndTopic 通过PacketID 获取消息的MessageID和Topic
+func (q *Queue) GetMessageIDAndTopic(pid packets.PacketID) (messageID []byte, topic string, err error) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+
+	for e := q.l.Front(); e != nil; e = e.Next() {
+		if e.Value.(*queue.Elem).ID() == pid {
+			pub := e.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
+			return pub.MessageID, pub.Topic, nil
+		}
+	}
+	return []byte{}, "", errors.New("NoElement")
 }

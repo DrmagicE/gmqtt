@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -360,4 +361,9 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 		q.current--
 	}
 	return nil
+}
+
+//GetMessageIDAndTopic 通过PacketID 获取消息的MessageID和Topic
+func (q *Queue) GetMessageIDAndTopic(pid packets.PacketID) (messageID []byte, topic string, err error) {
+	return []byte{}, "", errors.New("NotSupported")
 }

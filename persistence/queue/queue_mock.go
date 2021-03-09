@@ -5,8 +5,8 @@
 package queue
 
 import (
-	packets "github.com/DrmagicE/gmqtt/pkg/packets"
 	gomock "github.com/golang/mock/gomock"
+	packets "github.com/DrmagicE/gmqtt/pkg/packets"
 	reflect "reflect"
 )
 
@@ -146,4 +146,18 @@ func (m *MockStore) Remove(pid packets.PacketID) error {
 func (mr *MockStoreMockRecorder) Remove(pid interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockStore)(nil).Remove), pid)
+}
+
+// GetMessageIDAndTopic mocks base method
+func (m *MockStore) GetMessageIDAndTopic(pid packets.PacketID) ([]byte, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMessageIDAndTopic", pid)
+
+	return ret[0].([]byte), ret[1].(string), ret[2].(error)
+}
+
+// GetMessageIDAndTopic indicates an expected call of GetMessageIDAndTopic
+func (mr *MockStoreMockRecorder) GetMessageIDAndTopic(pid interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessageIDAndTopic", reflect.TypeOf((*MockStore)(nil).Remove), pid)
 }

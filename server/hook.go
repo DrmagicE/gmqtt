@@ -29,6 +29,7 @@ type Hooks struct {
 	OnMsgDropped
 	OnWillPublish
 	OnWillPublished
+	OnPuback
 }
 
 // WillMsgRequest is the input param for OnWillPublish hook.
@@ -58,6 +59,11 @@ type OnWillPublishWrapper func(OnWillPublish) OnWillPublish
 type OnWillPublished func(ctx context.Context, clientID string, msg *gmqtt.Message)
 
 type OnWillPublishedWrapper func(OnWillPublished) OnWillPublished
+
+// OnPuback Publish ack
+type OnPuback func(ctx context.Context, client Client, puback *packets.Puback, messageID []byte, Topic string)
+
+type OnPubackWrapper func(OnPuback) OnPuback
 
 // OnAccept will be called after a new connection established in TCP server.
 // If returns false, the connection will be close directly.

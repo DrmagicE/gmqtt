@@ -71,6 +71,9 @@ type Store interface {
 
 	// Remove removes the elem for a given id.
 	Remove(pid packets.PacketID) error
+
+	// GetMessageIDAndTopic get MessageID And Topic by given id.
+	GetMessageIDAndTopic(pid packets.PacketID) ([]byte, string, error)
 }
 
 // ElemExpiry return whether the elem is expired
