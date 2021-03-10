@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -360,4 +361,8 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 		q.current--
 	}
 	return nil
+}
+
+func (q *Queue) GetPublishedMessage(pid packets.PacketID) (pub *queue.Publish, err error) {
+	return pub, errors.New("NotSupported")
 }

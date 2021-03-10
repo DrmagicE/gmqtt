@@ -2,9 +2,10 @@ package server
 
 import (
 	"context"
+	gmqtt "github.com/DrmagicE/gmqtt"
 	"net"
 
-	"github.com/DrmagicE/gmqtt"
+	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -29,6 +30,7 @@ type Hooks struct {
 	OnMsgDropped
 	OnWillPublish
 	OnWillPublished
+	OnAcked
 }
 
 // WillMsgRequest is the input param for OnWillPublish hook.
@@ -58,6 +60,11 @@ type OnWillPublishWrapper func(OnWillPublish) OnWillPublish
 type OnWillPublished func(ctx context.Context, clientID string, msg *gmqtt.Message)
 
 type OnWillPublishedWrapper func(OnWillPublished) OnWillPublished
+
+// OnAcked will be called when receive qos1 puback packet or qos2 pubrec packet
+type OnAcked func(ctx context.Context, client Client, pub *queue.Publish)
+
+type OnAckedWrapper func(OnAcked) OnAcked
 
 // OnAccept will be called after a new connection established in TCP server.
 // If returns false, the connection will be close directly.

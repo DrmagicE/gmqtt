@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 
-	"github.com/DrmagicE/gmqtt"
+	gmqtt "github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/server"
 )
 

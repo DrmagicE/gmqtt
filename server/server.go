@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	gmqtt "github.com/DrmagicE/gmqtt"
 	"math/rand"
 	"net"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/session"
@@ -865,6 +865,7 @@ func (srv *server) init(opts ...Options) (err error) {
 	}
 	var pe Persistence
 	peType := srv.config.Persistence.Type
+	fmt.Println(persistenceFactories)
 	if newFn := persistenceFactories[peType]; newFn != nil {
 		pe, err = newFn(srv.config, srv.hooks)
 		if err != nil {
@@ -1115,6 +1116,7 @@ func (srv *server) initPluginHooks() error {
 		onMsgDroppedWrappers       []OnMsgDroppedWrapper
 		onWillPublishWrappers      []OnWillPublishWrapper
 		onWillPublishedWrappers    []OnWillPublishedWrapper
+		onAckedWrappers            []OnAckedWrapper
 	)
 	for _, v := range srv.config.PluginOrder {
 		plg, err := plugins[v](srv.config)
@@ -1189,6 +1191,9 @@ func (srv *server) initPluginHooks() error {
 		}
 		if hooks.OnWillPublishedWrapper != nil {
 			onWillPublishedWrappers = append(onWillPublishedWrappers, hooks.OnWillPublishedWrapper)
+		}
+		if hooks.OnAckedWrapper != nil {
+			onAckedWrappers = append(onAckedWrappers, hooks.OnAckedWrapper)
 		}
 	}
 	if onAcceptWrappers != nil {
@@ -1331,6 +1336,13 @@ func (srv *server) initPluginHooks() error {
 			onWillPublished = onWillPublishedWrappers[i-1](onWillPublished)
 		}
 		srv.hooks.OnWillPublished = onWillPublished
+	}
+	if onAckedWrappers != nil {
+		onAcked := func(ctx context.Context, client Client, pub *queue.Publish) {}
+		for i := len(onAckedWrappers); i > 0; i-- {
+			onAcked = onAckedWrappers[i-1](onAcked)
+		}
+		srv.hooks.OnAcked = onAcked
 	}
 	return nil
 }

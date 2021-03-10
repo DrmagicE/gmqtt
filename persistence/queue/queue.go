@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/DrmagicE/gmqtt"
+	gmqtt "github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -71,6 +71,9 @@ type Store interface {
 
 	// Remove removes the elem for a given id.
 	Remove(pid packets.PacketID) error
+
+	// GetPublishedMessage get published message by packetID
+	GetPublishedMessage(pid packets.PacketID) (*Publish, error)
 }
 
 // ElemExpiry return whether the elem is expired

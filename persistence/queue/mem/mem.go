@@ -2,6 +2,7 @@ package mem
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 	"time"
 
@@ -239,4 +240,17 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 		}
 	}
 	return nil
+}
+
+func (q *Queue) GetPublishedMessage(pid packets.PacketID) (pub *queue.Publish, err error) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+
+	for e := q.l.Front(); e != nil; e = e.Next() {
+		if e.Value.(*queue.Elem).ID() == pid {
+			pub = e.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
+			return
+		}
+	}
+	return pub, errors.New("NoElement")
 }

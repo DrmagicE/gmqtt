@@ -21,7 +21,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/DrmagicE/gmqtt"
+	gmqtt "github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
@@ -1020,6 +1020,12 @@ func converError(err error) *codes.Error {
 }
 
 func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
+	// OnAcked hooks
+	if client.server.hooks.OnAcked != nil {
+		pub, _ := client.queueStore.GetPublishedMessage(puback.PacketID)
+		client.server.hooks.OnAcked(context.Background(), client, pub)
+	}
+
 	err := client.queueStore.Remove(puback.PacketID)
 	srv := client.server
 	srv.statsManager.decInflight(client.opts.ClientID, 1)
@@ -1046,6 +1052,11 @@ func (client *client) pubrelHandler(pubrel *packets.Pubrel) *codes.Error {
 	return nil
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
+	// OnAcked hooks
+	if client.server.hooks.OnAcked != nil {
+		pub, _ := client.queueStore.GetPublishedMessage(pubrec.PacketID)
+		client.server.hooks.OnAcked(context.Background(), client, pub)
+	}
 	srv := client.server
 	if client.version == packets.Version5 && pubrec.Code >= codes.UnspecifiedError {
 		err := client.queueStore.Remove(pubrec.PacketID)

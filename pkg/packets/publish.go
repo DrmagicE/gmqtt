@@ -6,6 +6,8 @@ import (
 	"io"
 
 	"github.com/DrmagicE/gmqtt/pkg/codes"
+
+	"github.com/rs/xid"
 )
 
 // Publish represents the MQTT Publish  packet
@@ -17,18 +19,25 @@ type Publish struct {
 	Retain     bool   //是否保留消息
 	TopicName  []byte //主题名
 	PacketID          //报文标识符
+	MessageID  []byte //消息唯一ID
 	Payload    []byte
 	Properties *Properties
 }
 
+// NewMessageID New MessageID
+func (p *Publish) NewMessageID() []byte {
+	return xid.New().Bytes()
+}
+
 func (p *Publish) String() string {
-	return fmt.Sprintf("Publish, Version: %v, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s, Properties: %s",
-		p.Version, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload, p.Properties)
+	return fmt.Sprintf("Publish, Version: %v, Mid: %v, Pid: %v, Dup: %v, Qos: %v, Retain: %v, TopicName: %s, Payload: %s, Properties: %s",
+		p.Version, p.MessageID, p.PacketID, p.Dup, p.Qos, p.Retain, p.TopicName, p.Payload, p.Properties)
 }
 
 // NewPublishPacket returns a Publish instance by the given FixHeader and io.Reader.
 func NewPublishPacket(fh *FixHeader, version Version, r io.Reader) (*Publish, error) {
 	p := &Publish{FixHeader: fh, Version: version}
+	p.MessageID = p.NewMessageID()
 	p.Dup = (1 & (fh.Flags >> 3)) > 0
 	p.Qos = (fh.Flags >> 1) & 3
 	if p.Qos == 0 && p.Dup { //[MQTT-3.3.1-2]、 [MQTT-4.3.1-1]

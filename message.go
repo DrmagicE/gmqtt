@@ -5,12 +5,13 @@ import (
 )
 
 type Message struct {
-	Dup      bool
-	QoS      uint8
-	Retained bool
-	Topic    string
-	Payload  []byte
-	PacketID packets.PacketID
+	Dup       bool
+	QoS       uint8
+	Retained  bool
+	Topic     string
+	Payload   []byte
+	PacketID  packets.PacketID
+	MessageID []byte
 	// v5
 	// The following fields are introduced in v5 specification.
 	// These fields will not take effect when it represents a v3 publish packet.
@@ -31,6 +32,7 @@ func (m *Message) Copy() *Message {
 		Retained:      m.Retained,
 		Topic:         m.Topic,
 		PacketID:      m.PacketID,
+		MessageID:     m.MessageID,
 		ContentType:   m.ContentType,
 		MessageExpiry: m.MessageExpiry,
 		PayloadFormat: m.PayloadFormat,
@@ -122,11 +124,12 @@ func (m *Message) TotalBytes(version packets.Version) uint32 {
 // MessageFromPublish create the Message instance from  publish packets
 func MessageFromPublish(p *packets.Publish) *Message {
 	m := &Message{
-		Dup:      p.Dup,
-		QoS:      p.Qos,
-		Retained: p.Retain,
-		Topic:    string(p.TopicName),
-		Payload:  p.Payload,
+		Dup:       p.Dup,
+		QoS:       p.Qos,
+		Retained:  p.Retain,
+		Topic:     string(p.TopicName),
+		Payload:   p.Payload,
+		MessageID: p.MessageID,
 	}
 	if p.Version == packets.Version5 {
 		if p.Properties.PayloadFormat != nil {
@@ -156,6 +159,7 @@ func MessageToPublish(msg *Message, version packets.Version) *packets.Publish {
 		Dup:       msg.Dup,
 		Qos:       msg.QoS,
 		PacketID:  msg.PacketID,
+		MessageID: msg.MessageID,
 		Retain:    msg.Retained,
 		TopicName: []byte(msg.Topic),
 		Payload:   msg.Payload,
