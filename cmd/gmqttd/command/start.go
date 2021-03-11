@@ -80,6 +80,7 @@ func GetListeners(c config.Config) (tcpListeners []net.Listener, websockets []*s
 			var cert tls.Certificate
 			cert, err = tls.LoadX509KeyPair(v.Cert, v.Key)
 			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to load x509 key pair :%v,switch to non tls mode.", err.Error())
 				return
 			}
 			ln, err = tls.Listen("tcp", v.Address, &tls.Config{
