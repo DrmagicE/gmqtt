@@ -54,7 +54,7 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 		n = remain
 	}
 	for j := uint16(0); j < n; j++ {
-		for p.lockedPid.IsUsed(p.freePid) {
+		for p.lockedPid.Get(p.freePid) == 1 {
 			if p.freePid == packets.MaxPacketID {
 				p.freePid = packets.MinPacketID
 			} else {
@@ -63,7 +63,7 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 		}
 		id = append(id, p.freePid)
 		p.used++
-		p.lockedPid.Used(p.freePid)
+		p.lockedPid.Set(p.freePid, 1)
 		if p.freePid == packets.MaxPacketID {
 			p.freePid = packets.MinPacketID
 		} else {
@@ -82,8 +82,8 @@ func (p *packetIDLimiter) release(id packets.PacketID) {
 
 }
 func (p *packetIDLimiter) releaseLocked(id packets.PacketID) {
-	if p.lockedPid.IsUsed(id) {
-		p.lockedPid.Unused(id)
+	if p.lockedPid.Get(id) == 1 {
+		p.lockedPid.Set(id, 0)
 		p.used--
 	}
 }
@@ -101,7 +101,7 @@ func (p *packetIDLimiter) batchRelease(id []packets.PacketID) {
 // markInUsed marks the given id as used.
 func (p *packetIDLimiter) markUsedLocked(id packets.PacketID) {
 	p.used++
-	p.lockedPid.Used(id)
+	p.lockedPid.Set(id, 1)
 }
 
 func (p *packetIDLimiter) lock() {
