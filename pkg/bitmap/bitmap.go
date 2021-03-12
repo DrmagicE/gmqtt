@@ -1,7 +1,7 @@
 package bitmap
 
-//BitmapSize 最大支持的大小
-const BitmapSize = uint16(65535)
+//MaxSize 最大支持的大小
+const MaxSize = uint16(65535)
 
 //Bitmap Bitmap结构体
 type Bitmap struct {
@@ -11,8 +11,8 @@ type Bitmap struct {
 
 //New 初始化一个Bitmap
 func New(size uint16) *Bitmap {
-	if size == 0 || size >= BitmapSize {
-		size = BitmapSize
+	if size == 0 || size >= MaxSize {
+		size = MaxSize
 	} else if remainder := size % 8; remainder != 0 {
 		size += 8 - remainder
 	}

@@ -6,7 +6,7 @@ import (
 
 func TestBitmap(t *testing.T) {
 
-	size := uint16(BitmapSize)
+	size := uint16(MaxSize)
 	b := New(size)
 	if b.Size() != size {
 		t.Fatalf("wrong size %d", size)
@@ -32,8 +32,8 @@ func TestBitmap(t *testing.T) {
 		t.Fatalf("wrong value at bit %d", size)
 	}
 
-	b.Set(BitmapSize, 1)
-	v := b.Get(BitmapSize)
+	b.Set(MaxSize, 1)
+	v := b.Get(MaxSize)
 	if v != 1 {
 		t.Fatalf("wrong value %d", v)
 	}
