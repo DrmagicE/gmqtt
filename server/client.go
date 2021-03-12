@@ -498,16 +498,16 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			case *packets.Connect:
 				if conn != nil {
 					err = codes.ErrProtocol
-					return
+					break
 				}
+
+				conn = p.(*packets.Connect)
 				if !client.config.MQTT.AllowZeroLenClientID && len(conn.ClientID) == 0 {
 					err = &codes.Error{
 						Code: codes.ClientIdentifierNotValid,
 					}
-					return
+					break
 				}
-
-				conn = p.(*packets.Connect)
 				client.version = conn.Version
 				// default auth options
 				authOpts = client.defaultAuthOptions(conn)
@@ -559,7 +559,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 			case *packets.Auth:
 				if conn == nil || client.version == packets.Version311 {
 					err = codes.ErrProtocol
-					return
+					break
 				}
 				if onAuth != nil {
 					authResp, err := onAuth(context.Background(), client, &AuthRequest{
@@ -574,13 +574,13 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					}
 				} else {
 					err = codes.ErrProtocol
-					return
+					break
 				}
 			default:
 				err = &codes.Error{
 					Code: codes.MalformedPacket,
 				}
-				return
+				break
 			}
 			// authentication faile
 			if err != nil {
