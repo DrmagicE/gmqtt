@@ -3,6 +3,7 @@ package server
 import (
 	"sync"
 
+	"github.com/DrmagicE/gmqtt/pkg/bitmap"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
 
@@ -13,7 +14,7 @@ func newPacketIDLimiter(limit uint16) *packetIDLimiter {
 		limit:     limit,
 		exit:      false,
 		freePid:   1,
-		lockedPid: make(map[packets.PacketID]bool),
+		lockedPid: bitmap.New(packets.MaxPacketID),
 	}
 }
 
@@ -24,8 +25,8 @@ type packetIDLimiter struct {
 	used      uint16
 	limit     uint16
 	exit      bool
-	lockedPid map[packets.PacketID]bool // packet id in-use
-	freePid   packets.PacketID          // next available id
+	lockedPid *bitmap.Bitmap   // packet id in-use
+	freePid   packets.PacketID // next available id
 }
 
 func (p *packetIDLimiter) close() {
@@ -53,7 +54,7 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 		n = remain
 	}
 	for j := uint16(0); j < n; j++ {
-		for p.lockedPid[p.freePid] {
+		for p.lockedPid.Get(p.freePid) == 1 {
 			if p.freePid == packets.MaxPacketID {
 				p.freePid = packets.MinPacketID
 			} else {
@@ -62,7 +63,7 @@ func (p *packetIDLimiter) pollPacketIDs(max uint16) (id []packets.PacketID) {
 		}
 		id = append(id, p.freePid)
 		p.used++
-		p.lockedPid[p.freePid] = true
+		p.lockedPid.Set(p.freePid, 1)
 		if p.freePid == packets.MaxPacketID {
 			p.freePid = packets.MinPacketID
 		} else {
@@ -81,8 +82,8 @@ func (p *packetIDLimiter) release(id packets.PacketID) {
 
 }
 func (p *packetIDLimiter) releaseLocked(id packets.PacketID) {
-	if p.lockedPid[id] {
-		p.lockedPid[id] = false
+	if p.lockedPid.Get(id) == 1 {
+		p.lockedPid.Set(id, 0)
 		p.used--
 	}
 }
@@ -100,7 +101,7 @@ func (p *packetIDLimiter) batchRelease(id []packets.PacketID) {
 // markInUsed marks the given id as used.
 func (p *packetIDLimiter) markUsedLocked(id packets.PacketID) {
 	p.used++
-	p.lockedPid[id] = true
+	p.lockedPid.Set(id, 1)
 }
 
 func (p *packetIDLimiter) lock() {

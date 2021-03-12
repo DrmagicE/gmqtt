@@ -26,6 +26,7 @@ import (
 	"github.com/DrmagicE/gmqtt/persistence/queue"
 	"github.com/DrmagicE/gmqtt/persistence/subscription"
 	"github.com/DrmagicE/gmqtt/persistence/unack"
+	"github.com/DrmagicE/gmqtt/pkg/bitmap"
 	"github.com/DrmagicE/gmqtt/pkg/codes"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
@@ -1283,7 +1284,7 @@ func (client *client) newPacketIDLimiter(limit uint16) {
 		limit:     limit,
 		exit:      false,
 		freePid:   1,
-		lockedPid: make(map[packets.PacketID]bool),
+		lockedPid: bitmap.New(packets.MaxPacketID),
 	}
 }
 
