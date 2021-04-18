@@ -178,21 +178,6 @@ func (r *Reader) ReadPacket() (Packet, error) {
 	}
 	fh := &FixHeader{PacketType: first >> 4, Flags: first & 15} //设置FixHeader
 	length, err := EncodeRemainLength(r.bufr)
-
-	var headerLen int
-	if length <= 127 {
-		headerLen = 2
-	} else if length <= 16383 {
-		headerLen = 3
-	} else if length <= 2097151 {
-		headerLen = 4
-	} else if length <= 268435455 {
-		headerLen = 5
-	}
-	if headerLen+length > 1234 {
-		return nil, codes.NewError(codes.RecvMaxExceeded)
-	}
-
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +281,9 @@ func EncodeRemainLength(r io.ByteReader) (int, error) {
 			return 0, err
 		}
 		vbi |= uint32(digit&127) << multiplier
+		if vbi > 268435455 {
+			return 0, codes.ErrMalformed
+		}
 		if (digit & 128) == 0 {
 			break
 		}

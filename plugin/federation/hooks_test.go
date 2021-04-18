@@ -302,6 +302,7 @@ func TestFederation_OnUnsubscribedWrapper(t *testing.T) {
 func TestFederation_OnSessionTerminatedWrapper(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
+	a := assert.New(t)
 	p, _ := New(testConfig)
 	f := p.(*Federation)
 	f.localSubStore.init(mem.NewStore())
@@ -338,19 +339,17 @@ func TestFederation_OnSessionTerminatedWrapper(t *testing.T) {
 	})
 	onSessionTerminated(context.Background(), "client2", 0)
 
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Unsubscribe{
-			Unsubscribe: &Unsubscribe{
-				TopicName: "/topicB",
-			},
-		},
-	})
-	mockQueue.EXPECT().add(&Event{
-		Event: &Event_Unsubscribe{
-			Unsubscribe: &Unsubscribe{
-				TopicName: "/topicC",
-			},
-		},
-	})
+	var b, c bool
+	mockQueue.EXPECT().add(gomock.Any()).Do(func(event *Event) {
+		if event.Event.(*Event_Unsubscribe).Unsubscribe.TopicName == "/topicB" {
+			b = true
+		}
+		if event.Event.(*Event_Unsubscribe).Unsubscribe.TopicName == "/topicC" {
+			c = true
+		}
+	}).Times(2)
+
 	onSessionTerminated(context.Background(), "client3", 0)
+	a.True(b)
+	a.True(c)
 }
