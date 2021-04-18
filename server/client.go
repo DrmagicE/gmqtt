@@ -712,14 +712,17 @@ func (client *client) defaultAuthOptions(connect *packets.Connect) *AuthOptions 
 }
 
 func (client *client) internalClose() {
-	// OnClosed hooks
-	if client.server.hooks.OnClosed != nil {
-		client.server.hooks.OnClosed(context.Background(), client, client.err)
+	if client.IsConnected() {
+		// OnClosed hooks
+		if client.server.hooks.OnClosed != nil {
+			client.server.hooks.OnClosed(context.Background(), client, client.err)
+		}
+		client.server.unregisterClient(client)
+		client.server.statsManager.clientDisconnected(client.opts.ClientID)
 	}
-	client.server.unregisterClient(client)
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
-	client.server.statsManager.clientDisconnected(client.opts.ClientID)
+
 }
 
 func (client *client) checkMaxPacketSize(msg *gmqtt.Message) (valid bool) {

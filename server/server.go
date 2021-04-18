@@ -530,9 +530,6 @@ func (srv *server) sendWillLocked(msg *gmqtt.Message, clientID string) {
 }
 
 func (srv *server) unregisterClient(client *client) {
-	if !client.IsConnected() {
-		return
-	}
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	now := time.Now()

@@ -277,22 +277,22 @@ func collectClientStats(c *server.ConnectionStats, m chan<- prometheus.Metric) {
 	)
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"sessions_created_total", "", nil, nil),
-		prometheus.GaugeValue,
+		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.SessionCreatedTotal)),
 	)
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
-		prometheus.GaugeValue,
+		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.SessionTerminated.Expired)), "expired",
 	)
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
-		prometheus.GaugeValue,
+		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.SessionTerminated.TakenOver)), "taken_over",
 	)
 	m <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(metricPrefix+"sessions_terminated_total", "", []string{"reason"}, nil),
-		prometheus.GaugeValue,
+		prometheus.CounterValue,
 		float64(atomic.LoadUint64(&c.SessionTerminated.Normal)), "normal",
 	)
 	m <- prometheus.MustNewConstMetric(
