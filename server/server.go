@@ -173,6 +173,7 @@ type server struct {
 	errOnce         sync.Once
 	err             error
 	exitChan        chan struct{}
+	exitedChan      chan struct{}
 
 	retainedDB      retained.Store
 	subscriptionsDB subscription.Store //store subscriptions
@@ -829,6 +830,7 @@ func defaultServer() *server {
 	srv := &server{
 		status:         serverStatusInit,
 		exitChan:       make(chan struct{}),
+		exitedChan:     make(chan struct{}),
 		clients:        make(map[string]*client),
 		offlineClients: make(map[string]time.Time),
 		willMessage:    make(map[string]*willMsg),
@@ -1397,7 +1399,7 @@ func (srv *server) Run() (err error) {
 		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
-	srv.wg.Wait()
+	<-srv.exitedChan
 	return srv.err
 }
 
@@ -1443,13 +1445,14 @@ func (srv *server) Stop(ctx context.Context) error {
 	} else {
 		close(done)
 	}
-
+	defer close(srv.exitedChan)
 	select {
 	case <-ctx.Done():
 		zaplog.Warn("server stop timeout, forced exit", zap.String("error", ctx.Err().Error()))
 		return ctx.Err()
 	case <-done:
 		for _, v := range srv.plugins {
+			zaplog.Info("unloading plugin", zap.String("name", v.Name()))
 			err := v.Unload()
 			if err != nil {
 				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
