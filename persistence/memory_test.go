@@ -23,7 +23,7 @@ type MemorySuite struct {
 
 func (s *MemorySuite) TestQueue() {
 	a := assert.New(s.T())
-	qs, err := s.p.NewQueueStore(queue_test.TestServerConfig, queue_test.TestClientID)
+	qs, err := s.p.NewQueueStore(queue_test.TestServerConfig, queue_test.TestNotifier, queue_test.TestClientID)
 	a.Nil(err)
 	queue_test.TestQueue(s.T(), qs)
 }
@@ -53,7 +53,7 @@ func (s *MemorySuite) TestUnack() {
 }
 
 func TestMemory(t *testing.T) {
-	p, err := NewMemory(config.Config{}, queue_test.TestHooks)
+	p, err := NewMemory(config.Config{})
 	if err != nil {
 		t.Fatal(err.Error())
 	}

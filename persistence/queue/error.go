@@ -9,6 +9,7 @@ var (
 	ErrDropExceedsMaxPacketSize = errors.New("maximum packet size exceeded")
 	ErrDropQueueFull            = errors.New("the message queue is full")
 	ErrDropExpired              = errors.New("the message is expired")
+	ErrDropExpiredInflight      = errors.New("the inflight message is expired")
 )
 
 // InternalError wraps the error of the backend storage.

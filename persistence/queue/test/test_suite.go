@@ -1,7 +1,6 @@
 package test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -19,30 +18,68 @@ import (
 var (
 	TestServerConfig = config.Config{
 		MQTT: config.MQTT{
-			MaxQueuedMsg: 5,
+			MaxQueuedMsg:   5,
+			InflightExpiry: 2 * time.Second,
 		},
 	}
-	TestHooks = server.Hooks{OnMsgDropped: func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {
-		dropMsg[cid] = append(dropMsg[cid], msg)
-		dropErr[cid] = err
-	}}
-	dropMsg      = make(map[string][]*gmqtt.Message)
-	dropErr      = make(map[string]error)
 	cid          = "cid"
 	TestClientID = cid
+	TestNotifier = &testNotifier{
+		dropElem:    make(map[string][]*queue.Elem),
+		dropErr:     make(map[string]error),
+		inflightLen: make(map[string]int),
+		msgQueueLen: make(map[string]int),
+	}
 )
 
-func initDrop() {
-	dropMsg = make(map[string][]*gmqtt.Message)
-	dropErr = make(map[string]error)
+type testNotifier struct {
+	dropElem    map[string][]*queue.Elem
+	dropErr     map[string]error
+	inflightLen map[string]int
+	msgQueueLen map[string]int
 }
 
-func assertElemEqual(a *assert.Assertions, expected, actual *queue.Elem) {
-	expected.At = time.Unix(expected.At.Unix(), 0)
-	expected.Expiry = time.Unix(expected.Expiry.Unix(), 0)
-	actual.At = time.Unix(actual.At.Unix(), 0)
-	actual.Expiry = time.Unix(actual.Expiry.Unix(), 0)
-	a.Equal(expected, actual)
+func (t *testNotifier) NotifyDropped(clientID string, elem *queue.Elem, err error) {
+	t.dropElem[cid] = append(t.dropElem[cid], elem)
+	t.dropErr[cid] = err
+}
+
+func (t *testNotifier) NotifyInflightAdded(clientID string, delta int) {
+	t.inflightLen[clientID] += delta
+	if t.inflightLen[clientID] < 0 {
+		t.inflightLen[clientID] = 0
+	}
+}
+
+func (t *testNotifier) NotifyMsgQueueAdded(clientID string, delta int) {
+	t.msgQueueLen[clientID] += delta
+	if t.msgQueueLen[clientID] < 0 {
+		t.msgQueueLen[clientID] = 0
+	}
+}
+
+func initDrop() {
+	TestNotifier.dropElem = make(map[string][]*queue.Elem)
+	TestNotifier.dropErr = make(map[string]error)
+}
+
+func initNotifierLen() {
+	TestNotifier.inflightLen = make(map[string]int)
+	TestNotifier.msgQueueLen = make(map[string]int)
+}
+
+func assertMsgEqual(a *assert.Assertions, expected, actual *queue.Elem) {
+	expMsg := expected.MessageWithID.(*queue.Publish).Message
+	actMsg := actual.MessageWithID.(*queue.Publish).Message
+	a.Equal(expMsg.Topic, actMsg.Topic)
+	a.Equal(expMsg.QoS, actMsg.QoS)
+	a.Equal(expMsg.Payload, actMsg.Payload)
+	a.Equal(expMsg.PacketID, actMsg.PacketID)
+}
+
+func assertQueueLen(a *assert.Assertions, inflightLen, msgQueueLen int) {
+	a.Equal(inflightLen, TestNotifier.inflightLen[cid])
+	a.Equal(msgQueueLen, TestNotifier.msgQueueLen[cid])
 }
 
 // 2 inflight message + 3 new message
@@ -131,18 +168,36 @@ func add(store queue.Store) error {
 			return err
 		}
 	}
+	TestNotifier.inflightLen[cid] = 2
 	return nil
 }
+
 func assertDrop(a *assert.Assertions, elem *queue.Elem, err error) {
-	a.Len(dropMsg, 1)
-	a.Equal(elem.MessageWithID.(*queue.Publish).Message, dropMsg[cid][0])
-	a.Equal(err, dropErr[cid])
+	a.Len(TestNotifier.dropElem, 1)
+	switch elem.MessageWithID.(type) {
+	case *queue.Publish:
+		actual := TestNotifier.dropElem[cid][0].MessageWithID.(*queue.Publish)
+		pub := elem.MessageWithID.(*queue.Publish)
+		a.Equal(pub.Message.Topic, actual.Topic)
+		a.Equal(pub.Message.QoS, actual.QoS)
+		a.Equal(pub.Payload, actual.Payload)
+		a.Equal(pub.PacketID, actual.PacketID)
+		a.Equal(err, TestNotifier.dropErr[cid])
+	case *queue.Pubrel:
+		actual := TestNotifier.dropElem[cid][0].MessageWithID.(*queue.Pubrel)
+		pubrel := elem.MessageWithID.(*queue.Pubrel)
+		a.Equal(pubrel.PacketID, actual.PacketID)
+		a.Equal(err, TestNotifier.dropErr[cid])
+	default:
+		a.FailNow("unexpected elem type")
+
+	}
 	initDrop()
 }
 
 func reconnect(a *assert.Assertions, cleanStart bool, store queue.Store) {
-	a.Nil(store.Close())
-	a.Nil(store.Init(&queue.InitOptions{
+	a.NoError(store.Close())
+	a.NoError(store.Init(&queue.InitOptions{
 		CleanStart:     cleanStart,
 		Version:        packets.Version5,
 		ReadBytesLimit: 100,
@@ -156,8 +211,9 @@ func TestQueue(t *testing.T, store queue.Store) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	a.Nil(initStore(store))
-	a.Nil(add(store))
+	a.NoError(initStore(store))
+	a.NoError(add(store))
+	assertQueueLen(a, 2, 5)
 	testRead(a, store)
 	testDrop(a, store)
 	testReplace(a, store)
@@ -167,6 +223,8 @@ func TestQueue(t *testing.T, store queue.Store) {
 }
 
 func testDrop(a *assert.Assertions, store queue.Store) {
+	// wait inflight messages to expire
+	time.Sleep(TestServerConfig.MQTT.InflightExpiry)
 	for i := 0; i < 3; i++ {
 		err := store.Add(&queue.Elem{
 			At:     time.Now(),
@@ -184,17 +242,68 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 		})
 		a.Nil(err)
 	}
+	// drop expired inflight message (pid=1)
+	dropElem := initElems[0]
+	// queue: 1,2,0(qos2),0(qos2),0(qos2) (1 and 2 are expired inflight messages)
+	err := store.Add(&queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      1,
+				Retained: false,
+				Topic:    "123",
+				Payload:  []byte("123"),
+				PacketID: 0,
+			},
+		},
+	})
+	a.NoError(err)
+	assertDrop(a, dropElem, queue.ErrDropExpiredInflight)
+	assertQueueLen(a, 1, 5)
+
 	e, err := store.Read([]packets.PacketID{5, 6, 7})
-	a.Nil(err)
+	a.NoError(err)
 	a.Len(e, 3)
 	a.EqualValues(5, e[0].MessageWithID.ID())
 	a.EqualValues(6, e[1].MessageWithID.ID())
 	a.EqualValues(7, e[2].MessageWithID.ID())
+	// queue: 2,5(qos2),6(qos2),7(qos2), 0(qos1) (2 is expired inflight message)
+	assertQueueLen(a, 4, 5)
+	// drop expired inflight message (pid=2)
+	dropElem = initElems[1]
+	err = store.Add(&queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      1,
+				Retained: false,
+				Topic:    "1234",
+				Payload:  []byte("1234"),
+				PacketID: 0,
+			},
+		},
+	})
+	a.NoError(err)
+	// queue: 5(qos2),6(qos2),7(qos2), 0(qos1), 0(qos1)
+	assertDrop(a, dropElem, queue.ErrDropExpiredInflight)
 
-	// queue: 1,2,5,6,7
+	assertQueueLen(a, 3, 5)
+	e, err = store.Read([]packets.PacketID{8, 9})
 
-	// drop case 1. the current elem if there is no more non-inflight messages.
-	dropElem := &queue.Elem{
+	a.NoError(err)
+
+	// queue: 5(qos2),6(qos2),7(qos2),8(qos1),9(qos1)
+	a.Len(e, 2)
+	a.EqualValues(8, e[0].MessageWithID.ID())
+	a.EqualValues(9, e[1].MessageWithID.ID())
+	assertQueueLen(a, 5, 5)
+
+	// drop the elem that is going to enqueue if there is no more non-inflight messages.
+	dropElem = &queue.Elem{
 		At:     time.Now(),
 		Expiry: time.Time{},
 		MessageWithID: &queue.Publish{
@@ -209,12 +318,15 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 		},
 	}
 	err = store.Add(dropElem)
-	a.Nil(err)
+	a.NoError(err)
 	assertDrop(a, dropElem, queue.ErrDropQueueFull)
-	// queue: 1,2,5,6,7
-	a.Nil(store.Remove(1))
-	a.Nil(store.Remove(2))
-	// queue: 5,6,7
+	assertQueueLen(a, 5, 5)
+
+	// queue: 5(qos2),6(qos2),7(qos2),8(qos1),9(qos1)
+	a.NoError(store.Remove(5))
+	a.NoError(store.Remove(6))
+	// queue: 7(qos2),8(qos2),9(qos2)
+	assertQueueLen(a, 3, 3)
 
 	dropQoS0 := &queue.Elem{
 		At:     time.Now(),
@@ -229,7 +341,9 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 			},
 		},
 	}
-	a.Nil(store.Add(dropQoS0))
+	a.NoError(store.Add(dropQoS0))
+	// queue: 7(qos2),8(qos2),9(qos2),0 (qos0/t_qos0)
+	assertQueueLen(a, 3, 4)
 
 	// add expired elem
 	dropExpired := &queue.Elem{
@@ -245,28 +359,29 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 			},
 		},
 	}
-
-	a.Nil(store.Add(dropExpired))
-
-	// drop case 2. expired message
+	a.NoError(store.Add(dropExpired))
+	// queue: 7(qos2),8(qos2),9(qos2), 0(qos0/t_qos0), 0(qos0/drop)
+	assertQueueLen(a, 3, 5)
 	dropFront := &queue.Elem{
 		At:     time.Now(),
 		Expiry: time.Time{},
 		MessageWithID: &queue.Publish{
 			Message: &gmqtt.Message{
 				Dup:      false,
-				QoS:      0,
+				QoS:      1,
 				Retained: false,
 				Topic:    "/drop_front",
-				Payload:  []byte("test"),
+				Payload:  []byte("drop_front"),
 			},
 		},
 	}
-	a.Nil(store.Add(dropFront))
-
+	// drop the expired non-inflight message
+	a.NoError(store.Add(dropFront))
+	// queue: 7(qos2),8(qos2),9(qos2), 0(qos0/t_qos0), 0(qos1/drop_front)
 	assertDrop(a, dropExpired, queue.ErrDropExpired)
-	// queue: 5,6,7,0,0
-	// drop case 3. drop qos0 message
+	assertQueueLen(a, 3, 5)
+
+	// drop qos0 message
 	a.Nil(store.Add(&queue.Elem{
 		At:     time.Now(),
 		Expiry: time.Time{},
@@ -276,15 +391,46 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      packets.Qos1,
 				Retained: false,
 				Topic:    "/t_qos1",
-				Payload:  []byte("test"),
+				Payload:  []byte("/t_qos1"),
 			},
 		},
 	}))
+	// queue: 7(qos2),8(qos2),9(qos2), 0(qos1/drop_front), 0(qos1/t_qos1)
 	assertDrop(a, dropQoS0, queue.ErrDropQueueFull)
+	assertQueueLen(a, 3, 5)
 
-	// queue: 5(qos2),6(qos2),7(qos2),0(qos0),0(qos1)
-	// drop case 4. drop the front message
-	a.Nil(store.Add(&queue.Elem{
+	expiredPub := &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Now().Add(TestServerConfig.MQTT.InflightExpiry),
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      1,
+				Retained: false,
+				Topic:    "/t",
+				Payload:  []byte("/t"),
+			},
+		},
+	}
+	a.NoError(store.Add(expiredPub))
+	// drop the front message
+	assertDrop(a, dropFront, queue.ErrDropQueueFull)
+	// queue: 7(qos2),8(qos2),9(qos2), 0(qos1/t_qos1), 0(qos1/t)
+	assertQueueLen(a, 3, 5)
+	// replace with an expired pubrel
+	expiredPubrel := &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Now().Add(-1 * time.Second),
+		MessageWithID: &queue.Pubrel{
+			PacketID: 7,
+		},
+	}
+	r, err := store.Replace(expiredPubrel)
+	a.True(r)
+	a.NoError(err)
+	assertQueueLen(a, 3, 5)
+	// queue: 7(qos2-pubrel),8(qos2),9(qos2), 0(qos1/t_qos1), 0(qos1/t)
+	a.NoError(store.Add(&queue.Elem{
 		At:     time.Now(),
 		Expiry: time.Time{},
 		MessageWithID: &queue.Publish{
@@ -292,14 +438,43 @@ func testDrop(a *assert.Assertions, store queue.Store) {
 				Dup:      false,
 				QoS:      1,
 				Retained: false,
-				Topic:    "/t",
-				Payload:  []byte("test"),
+				Topic:    "/t1",
+				Payload:  []byte("/t1"),
 			},
 		},
 	}))
+	// queue: 8(qos2),9(qos2), 0(qos1/t_qos1), 0(qos1/t), 0(qos1/t1)
+	assertDrop(a, expiredPubrel, queue.ErrDropExpiredInflight)
+	assertQueueLen(a, 2, 5)
+	drop := &queue.Elem{
+		At: time.Now(),
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				Dup:      false,
+				QoS:      0,
+				Retained: false,
+				Topic:    "/t2",
+				Payload:  []byte("/t2"),
+			},
+		},
+	}
+	a.NoError(store.Add(drop))
+	assertDrop(a, drop, queue.ErrDropQueueFull)
+	assertQueueLen(a, 2, 5)
 
-	assertDrop(a, dropFront, queue.ErrDropQueueFull)
-
+	a.NoError(store.Remove(8))
+	a.NoError(store.Remove(9))
+	// queue:  0(qos1/t_qos1), 0(qos1/t), 0(qos1/t1)
+	assertQueueLen(a, 0, 3)
+	// wait qos1/t to expire.
+	time.Sleep(TestServerConfig.MQTT.InflightExpiry)
+	e, err = store.Read([]packets.PacketID{1, 2, 3})
+	a.NoError(err)
+	a.Len(e, 2)
+	assertQueueLen(a, 2, 2)
+	a.NoError(store.Remove(1))
+	a.NoError(store.Remove(2))
+	assertQueueLen(a, 0, 0)
 }
 
 func testRead(a *assert.Assertions, store queue.Store) {
@@ -307,11 +482,11 @@ func testRead(a *assert.Assertions, store queue.Store) {
 	e, err := store.ReadInflight(1)
 	a.Nil(err)
 	a.Len(e, 1)
-	assertElemEqual(a, initElems[0], e[0])
+	assertMsgEqual(a, initElems[0], e[0])
 
 	e, err = store.ReadInflight(2)
 	a.Len(e, 1)
-	assertElemEqual(a, initElems[1], e[0])
+	assertMsgEqual(a, initElems[1], e[0])
 	pids := []packets.PacketID{3, 4, 5}
 	e, err = store.Read(pids)
 	a.Len(e, 3)
@@ -321,44 +496,119 @@ func testRead(a *assert.Assertions, store queue.Store) {
 	a.EqualValues(0, e[1].MessageWithID.ID())
 	a.EqualValues(4, e[2].MessageWithID.ID())
 
+	assertQueueLen(a, 4, 4)
+
 	err = store.Remove(3)
-	a.Nil(err)
+	a.NoError(err)
 	err = store.Remove(4)
-	a.Nil(err)
+	a.NoError(err)
+	assertQueueLen(a, 2, 2)
 
 }
 
 func testReplace(a *assert.Assertions, store queue.Store) {
-	// queue: 5(qos2),6(qos2),7(qos2),0(qos0),0(qos1)
-	for i := 5; i <= 8; i++ {
-		replaced, err := store.Replace(&queue.Elem{
+
+	var elems []*queue.Elem
+	elems = append(elems, &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				QoS:     2,
+				Topic:   "/t_replace",
+				Payload: []byte("t_replace"),
+			},
+		},
+	}, &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				QoS:     2,
+				Topic:   "/t_replace",
+				Payload: []byte("t_replace"),
+			},
+		},
+	}, &queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Publish{
+			Message: &gmqtt.Message{
+				QoS:      2,
+				Topic:    "/t_unread",
+				Payload:  []byte("t_unread"),
+				PacketID: 3,
+			},
+		},
+	})
+	for i := 0; i < 2; i++ {
+		elems = append(elems, &queue.Elem{
 			At:     time.Now(),
 			Expiry: time.Time{},
-			MessageWithID: &queue.Pubrel{
-				PacketID: packets.PacketID(i),
+			MessageWithID: &queue.Publish{
+				Message: &gmqtt.Message{
+					QoS:     2,
+					Topic:   "/t_replace",
+					Payload: []byte("t_replace"),
+				},
 			},
 		})
-		a.Nil(err)
-		if i <= 7 {
-			a.True(replaced)
-		} else {
-			a.False(replaced, "must not replace unread packet")
-		}
+		a.NoError(store.Add(elems[i]))
 	}
+	assertQueueLen(a, 0, 2)
+
+	e, err := store.Read([]packets.PacketID{1, 2})
+	// queue: 1(qos2),2(qos2)
+	a.NoError(err)
+	a.Len(e, 2)
+	assertQueueLen(a, 2, 2)
+	r, err := store.Replace(&queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Pubrel{
+			PacketID: 1,
+		},
+	})
+	a.True(r)
+	a.NoError(err)
+
+	r, err = store.Replace(&queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Pubrel{
+			PacketID: 3,
+		},
+	})
+	a.False(r)
+	a.NoError(err)
+	a.NoError(store.Add(elems[2]))
+	TestNotifier.inflightLen[cid]++
+	// queue: 1(qos2-pubrel),2(qos2), 3(qos2)
+
+	r, err = store.Replace(&queue.Elem{
+		At:     time.Now(),
+		Expiry: time.Time{},
+		MessageWithID: &queue.Pubrel{
+			PacketID: packets.PacketID(3),
+		}})
+	a.False(r, "must not replace unread packet")
+	a.NoError(err)
+	assertQueueLen(a, 3, 3)
+
 	reconnect(a, false, store)
 
-	inflights, err := store.ReadInflight(5)
-	a.Nil(err)
-	a.Len(inflights, 3)
+	inflight, err := store.ReadInflight(5)
+	a.NoError(err)
+	a.Len(inflight, 3)
 	a.Equal(&queue.Pubrel{
-		PacketID: 5,
-	}, inflights[0].MessageWithID)
-	a.Equal(&queue.Pubrel{
-		PacketID: 6,
-	}, inflights[1].MessageWithID)
-	a.Equal(&queue.Pubrel{
-		PacketID: 7,
-	}, inflights[2].MessageWithID)
+		PacketID: 1,
+	}, inflight[0].MessageWithID)
+
+	elems[1].MessageWithID.SetID(2)
+	elems[2].MessageWithID.SetID(3)
+	assertMsgEqual(a, elems[1], inflight[1])
+	assertMsgEqual(a, elems[2], inflight[2])
+	assertQueueLen(a, 3, 3)
 
 }
 
@@ -372,49 +622,30 @@ func testReadExceedsDrop(a *assert.Assertions, store queue.Store) {
 				QoS:      1,
 				Retained: false,
 				Topic:    "/drop_exceed",
-
-				Payload: make([]byte, 100),
+				Payload:  make([]byte, 100),
 			},
 		},
 	}
-	a.Nil(store.Add(exceeded))
+	a.NoError(store.Add(exceeded))
+	assertQueueLen(a, 0, 1)
 	e, err := store.Read([]packets.PacketID{1})
-	a.Nil(err)
+	a.NoError(err)
 	a.Len(e, 0)
 	assertDrop(a, exceeded, queue.ErrDropExceedsMaxPacketSize)
-
-	expired := &queue.Elem{
-		At:     time.Now(),
-		Expiry: time.Now(),
-		MessageWithID: &queue.Publish{
-			Message: &gmqtt.Message{
-				Dup:      false,
-				QoS:      1,
-				Retained: false,
-				Topic:    "/drop_exceed",
-
-				Payload: make([]byte, 100),
-			},
-		},
-	}
-	a.Nil(store.Add(expired))
-	e, err = store.Read([]packets.PacketID{1})
-	a.Nil(err)
-	a.Len(e, 0)
-	assertDrop(a, exceeded, queue.ErrDropExpired)
+	assertQueueLen(a, 0, 0)
 }
 
 func testCleanStart(a *assert.Assertions, store queue.Store) {
 	reconnect(a, true, store)
 	rs, err := store.ReadInflight(10)
-	a.Nil(err)
+	a.NoError(err)
 	a.Len(rs, 0)
+	initDrop()
+	initNotifierLen()
 }
 
 func testClose(a *assert.Assertions, store queue.Store) {
-
 	t := time.After(2 * time.Second)
-
 	result := make(chan struct {
 		len int
 		err error
@@ -434,7 +665,7 @@ func testClose(a *assert.Assertions, store queue.Store) {
 	default:
 	}
 
-	a.Nil(store.Close())
+	a.NoError(store.Close())
 	timeout := time.After(5 * time.Second)
 	select {
 	case <-timeout:

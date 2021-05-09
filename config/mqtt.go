@@ -18,6 +18,7 @@ var (
 		SessionExpiry:              2 * time.Hour,
 		SessionExpiryCheckInterval: 20 * time.Second,
 		MessageExpiry:              2 * time.Hour,
+		InflightExpiry:             30 * time.Second,
 		MaxPacketSize:              packets.MaximumSize,
 		ReceiveMax:                 100,
 		MaxKeepAlive:               60,
@@ -39,6 +40,7 @@ type MQTT struct {
 	SessionExpiry              time.Duration `yaml:"session_expiry"`
 	SessionExpiryCheckInterval time.Duration `yaml:"session_expiry_check_Interval"`
 	MessageExpiry              time.Duration `yaml:"message_expiry"`
+	InflightExpiry             time.Duration `yaml:"inflight_expiry"`
 	MaxPacketSize              uint32        `yaml:"max_packet_size"`
 	ReceiveMax                 uint16        `yaml:"server_receive_maximum"`
 	MaxKeepAlive               uint16        `yaml:"max_keepalive"`
