@@ -37,6 +37,7 @@ mqtt:
   session_expiry: 2h
   session_expiry_check_timer: 20s
   message_expiry: 2h
+  inflight_expiry: 30s
   max_packet_size: 268435456
   server_receive_maximum: 100
   max_keepalive: 60

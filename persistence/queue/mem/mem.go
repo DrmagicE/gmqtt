@@ -15,33 +15,39 @@ import (
 var _ queue.Store = (*Queue)(nil)
 
 type Options struct {
-	MaxQueuedMsg int
-	ClientID     string
-	DropHandler  server.OnMsgDropped
+	MaxQueuedMsg   int
+	InflightExpiry time.Duration
+	ClientID       string
+	Notifier       queue.Notifier
 }
 
 type Queue struct {
-	cond            *sync.Cond
-	clientID        string
-	version         packets.Version
-	readBytesLimit  uint32
-	l               *list.List
+	cond           *sync.Cond
+	clientID       string
+	version        packets.Version
+	opts           *Options
+	readBytesLimit uint32
+	l              *list.List
+	// current is the next element to read.
 	current         *list.Element
 	inflightDrained bool
 	closed          bool
-	max             int
-	log             *zap.Logger
-	onMsgDropped    queue.OnMsgDropped
+	// max is the maximum queue length
+	max            int
+	log            *zap.Logger
+	inflightExpiry time.Duration
+	notifier       queue.Notifier
 }
 
 func New(opts Options) (*Queue, error) {
 	return &Queue{
-		clientID:     opts.ClientID,
-		cond:         sync.NewCond(&sync.Mutex{}),
-		l:            list.New(),
-		max:          opts.MaxQueuedMsg,
-		onMsgDropped: opts.DropHandler,
-		log:          server.LoggerWithField(zap.String("queue", "memory")),
+		clientID:       opts.ClientID,
+		cond:           sync.NewCond(&sync.Mutex{}),
+		l:              list.New(),
+		max:            opts.MaxQueuedMsg,
+		inflightExpiry: opts.InflightExpiry,
+		notifier:       opts.Notifier,
+		log:            server.LoggerWithField(zap.String("queue", "memory")),
 	}, nil
 }
 
@@ -84,16 +90,20 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 	}()
 	defer func() {
 		if drop {
-			if dropElem == nil {
-				queue.Drop(q.onMsgDropped, q.log, q.clientID, elem.MessageWithID.(*queue.Publish).Message, dropErr)
-				return
-			} else {
-				if dropElem == q.current {
-					q.current = q.current.Next()
-				}
-				q.l.Remove(dropElem)
+			if dropErr == queue.ErrDropExpiredInflight {
+				q.notifier.NotifyInflightAdded(q.clientID, -1)
 			}
-			queue.Drop(q.onMsgDropped, q.log, q.clientID, dropElem.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message, dropErr)
+			if dropElem == nil {
+				q.notifier.NotifyDropped(q.clientID, elem, dropErr)
+				return
+			}
+			if dropElem == q.current {
+				q.current = q.current.Next()
+			}
+			q.l.Remove(dropElem)
+			q.notifier.NotifyDropped(q.clientID, dropElem.Value.(*queue.Elem), dropErr)
+		} else {
+			q.notifier.NotifyMsgQueueAdded(q.clientID, 1)
 		}
 		e := q.l.PushBack(elem)
 		if q.current == nil {
@@ -104,13 +114,23 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 		// set default drop error
 		dropErr = queue.ErrDropQueueFull
 		drop = true
+
+		// drop expired inflight message
+		if v := q.l.Front(); v != q.current &&
+			v != nil &&
+			queue.ElemExpiry(now, v.Value.(*queue.Elem)) {
+			dropElem = v
+			dropErr = queue.ErrDropExpiredInflight
+			return
+		}
+
 		// drop the current elem if there is no more non-inflight messages.
 		if q.inflightDrained && q.current == nil {
 			return
 		}
 		for e := q.current; e != nil; e = e.Next() {
 			pub := e.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
-			// drop expired message
+			// drop expired non-inflight message
 			if pub.ID() == 0 &&
 				queue.ElemExpiry(now, e.Value.(*queue.Elem)) {
 				dropElem = e
@@ -128,14 +148,13 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 		if elem.MessageWithID.(*queue.Publish).QoS == packets.Qos0 {
 			return
 		}
+
 		if q.inflightDrained {
 			// drop the front message
 			dropElem = q.current
 			return
 		}
-
-		// the the messages in the queue are all inflight messages, drop the current elem
-
+		// the messages in the queue are all inflight messages, drop the current elem
 		return
 	}
 	return nil
@@ -171,22 +190,25 @@ func (q *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 	if len(pids) < length {
 		length = len(pids)
 	}
+	var msgQueueDelta, inflightDelta int
 	var pflag int
 	for i := 0; i < length && q.current != nil; i++ {
 		v := q.current
 		// remove expired message
 		if queue.ElemExpiry(now, v.Value.(*queue.Elem)) {
 			q.current = q.current.Next()
-			queue.Drop(q.onMsgDropped, q.log, q.clientID, v.Value.(*queue.Elem).MessageWithID.(*queue.Publish).Message, queue.ErrDropExpired)
+			q.notifier.NotifyDropped(q.clientID, v.Value.(*queue.Elem), queue.ErrDropExpired)
 			q.l.Remove(v)
+			msgQueueDelta--
 			continue
 		}
 		// remove message which exceeds maximum packet size
 		pub := v.Value.(*queue.Elem).MessageWithID.(*queue.Publish)
 		if size := pub.TotalBytes(q.version); size > q.readBytesLimit {
 			q.current = q.current.Next()
+			q.notifier.NotifyDropped(q.clientID, v.Value.(*queue.Elem), queue.ErrDropExceedsMaxPacketSize)
 			q.l.Remove(v)
-			queue.Drop(q.onMsgDropped, q.log, q.clientID, pub.Message, queue.ErrDropExceedsMaxPacketSize)
+			msgQueueDelta--
 			continue
 		}
 
@@ -194,13 +216,21 @@ func (q *Queue) Read(pids []packets.PacketID) (rs []*queue.Elem, err error) {
 		if pub.QoS == 0 {
 			q.current = q.current.Next()
 			q.l.Remove(v)
+			msgQueueDelta--
 		} else {
 			pub.SetID(pids[pflag])
+			// When the message becomes inflight message, update the expiry time.
+			if q.inflightExpiry != 0 {
+				v.Value.(*queue.Elem).Expiry = now.Add(q.inflightExpiry)
+			}
 			pflag++
+			inflightDelta++
 			q.current = q.current.Next()
 		}
 		rs = append(rs, v.Value.(*queue.Elem))
 	}
+	q.notifier.NotifyMsgQueueAdded(q.clientID, msgQueueDelta)
+	q.notifier.NotifyInflightAdded(q.clientID, inflightDelta)
 	return rs, nil
 }
 
@@ -216,8 +246,11 @@ func (q *Queue) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
 		length = int(maxSize)
 	}
 	for i := 0; i < length && q.current != nil; i++ {
-		if q.current.Value.(*queue.Elem).ID() != 0 {
-			rs = append(rs, q.current.Value.(*queue.Elem))
+		if e := q.current.Value.(*queue.Elem); e.ID() != 0 {
+			if q.inflightExpiry != 0 {
+				e.Expiry = time.Now().Add(q.inflightExpiry)
+			}
+			rs = append(rs, e)
 			q.current = q.current.Next()
 		} else {
 			q.inflightDrained = true
@@ -230,11 +263,13 @@ func (q *Queue) ReadInflight(maxSize uint) (rs []*queue.Elem, err error) {
 func (q *Queue) Remove(pid packets.PacketID) error {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
-	// 不允许删除还没读过的元素
+	// Must not remove unread messages.
 	unread := q.current
 	for e := q.l.Front(); e != nil && e != unread; e = e.Next() {
 		if e.Value.(*queue.Elem).ID() == pid {
 			q.l.Remove(e)
+			q.notifier.NotifyMsgQueueAdded(q.clientID, -1)
+			q.notifier.NotifyInflightAdded(q.clientID, -1)
 			return nil
 		}
 	}

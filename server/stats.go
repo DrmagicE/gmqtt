@@ -117,6 +117,8 @@ func (d *DroppedTotal) messageDropped(err error) {
 		atomic.AddUint64(&d.QueueFull, 1)
 	case queue.ErrDropExpired:
 		atomic.AddUint64(&d.Expired, 1)
+	case queue.ErrDropExpiredInflight:
+		atomic.AddUint64(&d.InflightExpired, 1)
 	default:
 		atomic.AddUint64(&d.Internal, 1)
 	}
@@ -332,6 +334,7 @@ type DroppedTotal struct {
 	ExceedsMaxPacketSize uint64
 	QueueFull            uint64
 	Expired              uint64
+	InflightExpired      uint64
 }
 
 type MessageQosStats struct {
@@ -341,7 +344,7 @@ type MessageQosStats struct {
 }
 
 func (m *MessageQosStats) GetDroppedTotal() uint64 {
-	return m.DroppedTotal.Internal + m.DroppedTotal.Expired + m.DroppedTotal.ExceedsMaxPacketSize + m.DroppedTotal.QueueFull
+	return m.DroppedTotal.Internal + m.DroppedTotal.Expired + m.DroppedTotal.ExceedsMaxPacketSize + m.DroppedTotal.QueueFull + m.DroppedTotal.InflightExpired
 }
 
 // MessageStats represents the statistics of PUBLISH in, separated by QOS.
@@ -371,7 +374,7 @@ func (s *statsManager) decInflight(clientID string, delta uint64) {
 	// Avoid the counter to be negative.
 	// This could happen if the broker is start with persistence data loaded and send messages from the persistent queue.
 	// Because the statistic data is not persistent, the init value is always 0.
-	if atomic.LoadUint64(&sts.MessageStats.QueuedCurrent) == 0 {
+	if atomic.LoadUint64(&sts.MessageStats.InflightCurrent) == 0 {
 		return
 	}
 	atomic.AddUint64(&sts.MessageStats.InflightCurrent, ^uint64(delta-1))
@@ -381,7 +384,6 @@ func (s *statsManager) decInflight(clientID string, delta uint64) {
 func (s *statsManager) addQueueLen(clientID string, delta uint64) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
-
 	sts := s.getClientStats(clientID)
 	atomic.AddUint64(&sts.MessageStats.QueuedCurrent, delta)
 	atomic.AddUint64(&s.totalStats.MessageStats.QueuedCurrent, delta)
@@ -408,6 +410,7 @@ func (m *MessageStats) copy() *MessageStats {
 				ExceedsMaxPacketSize: atomic.LoadUint64(&m.Qos0.DroppedTotal.ExceedsMaxPacketSize),
 				QueueFull:            atomic.LoadUint64(&m.Qos0.DroppedTotal.QueueFull),
 				Expired:              atomic.LoadUint64(&m.Qos0.DroppedTotal.Expired),
+				InflightExpired:      atomic.LoadUint64(&m.Qos0.DroppedTotal.InflightExpired),
 			},
 			ReceivedTotal: atomic.LoadUint64(&m.Qos0.ReceivedTotal),
 			SentTotal:     atomic.LoadUint64(&m.Qos0.SentTotal),
@@ -418,6 +421,7 @@ func (m *MessageStats) copy() *MessageStats {
 				ExceedsMaxPacketSize: atomic.LoadUint64(&m.Qos1.DroppedTotal.ExceedsMaxPacketSize),
 				QueueFull:            atomic.LoadUint64(&m.Qos1.DroppedTotal.QueueFull),
 				Expired:              atomic.LoadUint64(&m.Qos1.DroppedTotal.Expired),
+				InflightExpired:      atomic.LoadUint64(&m.Qos1.DroppedTotal.InflightExpired),
 			},
 			ReceivedTotal: atomic.LoadUint64(&m.Qos1.ReceivedTotal),
 			SentTotal:     atomic.LoadUint64(&m.Qos1.SentTotal),
@@ -428,6 +432,7 @@ func (m *MessageStats) copy() *MessageStats {
 				ExceedsMaxPacketSize: atomic.LoadUint64(&m.Qos2.DroppedTotal.ExceedsMaxPacketSize),
 				QueueFull:            atomic.LoadUint64(&m.Qos2.DroppedTotal.QueueFull),
 				Expired:              atomic.LoadUint64(&m.Qos2.DroppedTotal.Expired),
+				InflightExpired:      atomic.LoadUint64(&m.Qos2.DroppedTotal.InflightExpired),
 			},
 			ReceivedTotal: atomic.LoadUint64(&m.Qos2.ReceivedTotal),
 			SentTotal:     atomic.LoadUint64(&m.Qos2.SentTotal),

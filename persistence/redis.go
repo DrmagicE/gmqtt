@@ -19,10 +19,9 @@ func init() {
 	server.RegisterPersistenceFactory("redis", NewRedis)
 }
 
-func NewRedis(config config.Config, hooks server.Hooks) (server.Persistence, error) {
+func NewRedis(config config.Config) (server.Persistence, error) {
 	return &redis{
-		onMsgDropped: hooks.OnMsgDropped,
-		config:       config,
+		config: config,
 	}, nil
 }
 
@@ -78,12 +77,13 @@ func (r *redis) Open() error {
 	return err
 }
 
-func (r *redis) NewQueueStore(config config.Config, clientID string) (queue.Store, error) {
+func (r *redis) NewQueueStore(config config.Config, notifier queue.Notifier, clientID string) (queue.Store, error) {
 	return redis_queue.New(redis_queue.Options{
-		MaxQueuedMsg: config.MQTT.MaxQueuedMsg,
-		ClientID:     clientID,
-		DropHandler:  r.onMsgDropped,
-		Pool:         r.pool,
+		MaxQueuedMsg:   config.MQTT.MaxQueuedMsg,
+		InflightExpiry: config.MQTT.InflightExpiry,
+		ClientID:       clientID,
+		Notifier:       notifier,
+		Pool:           r.pool,
 	})
 }
 

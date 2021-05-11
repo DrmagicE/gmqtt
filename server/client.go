@@ -879,7 +879,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 						},
 					})
 					if err != nil {
-						queue.Drop(srv.hooks.OnMsgDropped, zaplog, client.opts.ClientID, v, &queue.InternalError{Err: err})
+						srv.queueNotifier.notifyDropped(client.opts.ClientID, v, &queue.InternalError{Err: err})
 						if codesErr, ok := err.(*codes.Error); ok {
 							return codesErr
 						}
@@ -1025,10 +1025,6 @@ func converError(err error) *codes.Error {
 
 func (client *client) pubackHandler(puback *packets.Puback) *codes.Error {
 	err := client.queueStore.Remove(puback.PacketID)
-	srv := client.server
-	srv.statsManager.decInflight(client.opts.ClientID, 1)
-	srv.statsManager.decQueueLen(client.opts.ClientID, 1)
-
 	if err != nil {
 		return converError(err)
 	}
@@ -1050,11 +1046,8 @@ func (client *client) pubrelHandler(pubrel *packets.Pubrel) *codes.Error {
 	return nil
 }
 func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
-	srv := client.server
 	if client.version == packets.Version5 && pubrec.Code >= codes.UnspecifiedError {
 		err := client.queueStore.Remove(pubrec.PacketID)
-		srv.statsManager.decInflight(client.opts.ClientID, 1)
-		srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 		client.pl.release(pubrec.PacketID)
 		if err != nil {
 			client.setError(err)
@@ -1073,10 +1066,7 @@ func (client *client) pubrecHandler(pubrec *packets.Pubrec) {
 	client.write(pubrel)
 }
 func (client *client) pubcompHandler(pubcomp *packets.Pubcomp) {
-	srv := client.server
 	err := client.queueStore.Remove(pubcomp.PacketID)
-	srv.statsManager.decInflight(client.opts.ClientID, 1)
-	srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 	client.pl.release(pubcomp.PacketID)
 	if err != nil {
 		client.setError(err)
@@ -1319,7 +1309,6 @@ func (client *client) pollInflights() (cont bool, err error) {
 
 func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.PacketID, err error) {
 	now := time.Now()
-	srv := client.server
 	var elems []*queue.Elem
 	elems, err = client.queueStore.Read(ids)
 	if err != nil {
@@ -1330,11 +1319,7 @@ func (client *client) pollNewMessages(ids []packets.PacketID) (unused []packets.
 		case *queue.Publish:
 			if m.QoS != packets.Qos0 {
 				ids = ids[1:]
-				srv.statsManager.addInflight(client.opts.ClientID, 1)
-			} else {
-				srv.statsManager.decQueueLen(client.opts.ClientID, 1)
 			}
-
 			if client.version == packets.Version5 && m.Message.MessageExpiry != 0 {
 				d := uint32(now.Sub(v.At).Seconds())
 				m.Message.MessageExpiry = d

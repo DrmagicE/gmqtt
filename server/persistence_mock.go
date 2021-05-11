@@ -52,18 +52,18 @@ func (mr *MockPersistenceMockRecorder) Open() *gomock.Call {
 }
 
 // NewQueueStore mocks base method
-func (m *MockPersistence) NewQueueStore(config config.Config, clientID string) (queue.Store, error) {
+func (m *MockPersistence) NewQueueStore(config config.Config, notifier queue.Notifier, clientID string) (queue.Store, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewQueueStore", config, clientID)
+	ret := m.ctrl.Call(m, "NewQueueStore", config, notifier, clientID)
 	ret0, _ := ret[0].(queue.Store)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewQueueStore indicates an expected call of NewQueueStore
-func (mr *MockPersistenceMockRecorder) NewQueueStore(config, clientID interface{}) *gomock.Call {
+func (mr *MockPersistenceMockRecorder) NewQueueStore(config, notifier, clientID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewQueueStore", reflect.TypeOf((*MockPersistence)(nil).NewQueueStore), config, clientID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewQueueStore", reflect.TypeOf((*MockPersistence)(nil).NewQueueStore), config, notifier, clientID)
 }
 
 // NewSubscriptionStore mocks base method

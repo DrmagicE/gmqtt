@@ -193,8 +193,10 @@ type server struct {
 	newTopicAliasManager NewTopicAliasManager
 	// for testing
 	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool)
-	clientService         *clientService
-	apiRegistrar          *apiRegistrar
+
+	clientService *clientService
+	apiRegistrar  *apiRegistrar
+	queueNotifier *queueNotifier
 }
 
 func (srv *server) APIRegistrar() APIRegistrar {
@@ -468,7 +470,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 	}
 	if !sessionResume {
 		// create new session
-		qs, err = srv.persistence.NewQueueStore(srv.config, client.opts.ClientID)
+		qs, err = srv.persistence.NewQueueStore(srv.config, srv.queueNotifier, client.opts.ClientID)
 		if err != nil {
 			return err
 		}
@@ -634,11 +636,9 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 		},
 	})
 	if err != nil {
-		queue.Drop(srv.hooks.OnMsgDropped, zaplog, clientID, msg, &queue.InternalError{Err: err})
+		srv.queueNotifier.notifyDropped(clientID, msg, &queue.InternalError{Err: err})
 		return
 	}
-	srv.statsManager.addQueueLen(clientID, 1)
-
 }
 
 // sharedList is the subscriber (client id) list of shared subscriptions. (key by topic name).
@@ -865,7 +865,7 @@ func (srv *server) init(opts ...Options) (err error) {
 	var pe Persistence
 	peType := srv.config.Persistence.Type
 	if newFn := persistenceFactories[peType]; newFn != nil {
-		pe, err = newFn(srv.config, srv.hooks)
+		pe, err = newFn(srv.config)
 		if err != nil {
 			return err
 		}
@@ -901,9 +901,19 @@ func (srv *server) init(opts ...Options) (err error) {
 	}
 	zaplog.Info("init session store succeeded", zap.String("type", peType), zap.Int("session_total", len(cids)))
 
+	srv.statsManager = newStatsManager(srv.subscriptionsDB)
+	srv.clientService = &clientService{
+		srv:          srv,
+		sessionStore: srv.sessionStore,
+	}
+	srv.queueNotifier = &queueNotifier{
+		dropHook: srv.hooks.OnMsgDropped,
+		sts:      srv.statsManager,
+	}
+
 	// init queue store & unack store from persistence
 	for _, v := range sts {
-		q, err := srv.persistence.NewQueueStore(srv.config, v.ClientID)
+		q, err := srv.persistence.NewQueueStore(srv.config, srv.queueNotifier, v.ClientID)
 		if err != nil {
 			return err
 		}
@@ -921,12 +931,6 @@ func (srv *server) init(opts ...Options) (err error) {
 	err = srv.subscriptionsDB.Init(cids)
 	if err != nil {
 		return err
-	}
-
-	srv.statsManager = newStatsManager(srv.subscriptionsDB)
-	srv.clientService = &clientService{
-		srv:          srv,
-		sessionStore: srv.sessionStore,
 	}
 
 	topicAliasMgrFactory := topicAliasMgrFactory[srv.config.TopicAliasManager.Type]
@@ -1122,13 +1126,7 @@ func (srv *server) initPluginHooks() error {
 		}
 		srv.plugins = append(srv.plugins, plg)
 	}
-	onMsgDroppedWrappers = append(onMsgDroppedWrappers, func(onMsgDropped OnMsgDropped) OnMsgDropped {
-		return func(ctx context.Context, clientID string, msg *gmqtt.Message, err error) {
-			onMsgDropped(ctx, clientID, msg, err)
-			srv.statsManager.messageDropped(msg.QoS, clientID, err)
-			srv.statsManager.decQueueLen(clientID, 1)
-		}
-	})
+
 	for _, p := range srv.plugins {
 		hooks := p.HookWrapper()
 		// init all hook wrappers

@@ -1,25 +1,10 @@
 package queue
 
 import (
-	"context"
 	"time"
 
-	"go.uber.org/zap"
-
-	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )
-
-// OnMsgDropped is same as server.OnMsgDropped. It is used to avoid import cycle.
-type OnMsgDropped = func(ctx context.Context, clientID string, msg *gmqtt.Message, err error)
-
-// Drop wraps the logging for drop event.
-func Drop(onMsgDropped OnMsgDropped, l *zap.Logger, clientID string, msg *gmqtt.Message, err error) {
-	if onMsgDropped != nil {
-		l.Warn("message dropped", zap.String("client_id", clientID), zap.Error(err))
-		onMsgDropped(context.Background(), clientID, msg, err)
-	}
-}
 
 // InitOptions is used to pass some required client information to the queue.Init()
 type InitOptions struct {
@@ -44,11 +29,12 @@ type Store interface {
 	Clean() error
 	// Add inserts a elem to the queue.
 	// When the len of queue is reaching the maximum setting, the implementation should drop non-inflight messages according the following priorities:
-	// 1. the current elem if there is no more non-inflight messages.
-	// 2. expired message
-	// 3. qos0 message
-	// 4. the front message
-	// see queue.mem for more details.
+	// 1. Drop the expired inflight message.
+	// 2. Drop the current elem if there is no more non-inflight messages.
+	// 3. Drop expired non-inflight message.
+	// 4. Drop qos0 message.
+	// 5. Drop the front message.
+	// See queue.mem for more details.
 	Add(elem *Elem) error
 	// Replace replaces the PUBLISH with the PUBREL with the same packet id.
 	Replace(elem *Elem) (replaced bool, err error)
@@ -71,6 +57,15 @@ type Store interface {
 
 	// Remove removes the elem for a given id.
 	Remove(pid packets.PacketID) error
+}
+
+type Notifier interface {
+	// NotifyDropped will be called when the element for the clientID is dropped.
+	// The err indicates the reason of why it is dropped.
+	// The MessageWithID field in elem param can be queue.Pubrel or queue.Publish.
+	NotifyDropped(clientID string, elem *Elem, err error)
+	NotifyInflightAdded(clientID string, delta int)
+	NotifyMsgQueueAdded(clientID string, delta int)
 }
 
 // ElemExpiry return whether the elem is expired

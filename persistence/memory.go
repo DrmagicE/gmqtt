@@ -17,14 +17,11 @@ func init() {
 	server.RegisterPersistenceFactory("memory", NewMemory)
 }
 
-func NewMemory(config config.Config, hooks server.Hooks) (server.Persistence, error) {
-	return &memory{
-		onMsgDropped: hooks.OnMsgDropped,
-	}, nil
+func NewMemory(config config.Config) (server.Persistence, error) {
+	return &memory{}, nil
 }
 
 type memory struct {
-	onMsgDropped server.OnMsgDropped
 }
 
 func (m *memory) NewUnackStore(config config.Config, clientID string) (unack.Store, error) {
@@ -40,11 +37,12 @@ func (m *memory) NewSessionStore(config config.Config) (session.Store, error) {
 func (m *memory) Open() error {
 	return nil
 }
-func (m *memory) NewQueueStore(config config.Config, clientID string) (queue.Store, error) {
+func (m *memory) NewQueueStore(config config.Config, notifier queue.Notifier, clientID string) (queue.Store, error) {
 	return mem_queue.New(mem_queue.Options{
-		MaxQueuedMsg: config.MQTT.MaxQueuedMsg,
-		ClientID:     clientID,
-		DropHandler:  m.onMsgDropped,
+		MaxQueuedMsg:   config.MQTT.MaxQueuedMsg,
+		InflightExpiry: config.MQTT.InflightExpiry,
+		ClientID:       clientID,
+		Notifier:       notifier,
 	})
 }
 
