@@ -41,9 +41,10 @@ const (
 	Connecting = iota
 	Connected
 )
+
 const (
-	readBufferSize  = 4096
-	writeBufferSize = 4096
+	readBufferSize  = 1024
+	writeBufferSize = 1024
 )
 
 var (
