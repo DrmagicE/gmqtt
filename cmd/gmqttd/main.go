@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	//"runtime/pprof"
-	_ "runtime/pprof"
 
 	"github.com/spf13/cobra"
 
@@ -22,6 +20,8 @@ var (
 		Long:    "Gmqtt is a MQTT broker that fully implements MQTT V5.0 and V3.1.1 protocol",
 		Version: Version,
 	}
+	enablePprof bool
+	pprofAddr   = "127.0.0.1:6060"
 )
 
 func must(err error) {
@@ -41,15 +41,11 @@ func init() {
 }
 
 func main() {
-	//f, err := os.Create("cpu.profile")
-	//if err != nil {
-	//	panic(err)
-	//}
-	//pprof.StartCPUProfile(f)
-	//defer pprof.StopCPUProfile()
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
+	if enablePprof {
+		go func() {
+			http.ListenAndServe(pprofAddr, nil)
+		}()
+	}
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprint(os.Stderr, err.Error())
 		os.Exit(1)
