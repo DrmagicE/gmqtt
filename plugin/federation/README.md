@@ -181,7 +181,7 @@ The federation tree takes node name as subscriber identifier for subscriptions.
 * When receives a sub/unsub packet from a local client, the node will update it's local tree first and then broadcasts the event to other nodes. 
 * When receives sub/unsub event from a remote node, the node will only update it's federation tree.  
 
-All Nodes in the federation will have the same federation tree, and with this tree, the node can determine which node the incoming message should be routed to. 
+With the federation tree, the node can determine which node the incoming message should be routed to. 
 For example, Node1 and Node2 are in the same federation. Client1 connects to Node1 and subscribes to topic a/b, the subscription trees of these two nodes are as follows:  
 
 Node1 local tree:  
