@@ -72,6 +72,10 @@ func TestTrieDB_GetMatchedMessages(t *testing.T) {
 			Payload: []byte{1, 2, 3},
 		},
 		{
+			Topic:   "b/a",
+			Payload: []byte{1, 2, 3},
+		},
+		{
 			Topic:   "a",
 			Payload: []byte{1, 2, 3},
 		},
@@ -80,6 +84,14 @@ func TestTrieDB_GetMatchedMessages(t *testing.T) {
 		TopicFilter string
 		expected    map[string]*gmqtt.Message
 	}{
+		{
+			TopicFilter: "a/+/c/",
+			expected: map[string]*gmqtt.Message{
+				"a/b/c/": {
+					Payload: []byte{1, 2, 3, 4},
+				},
+			},
+		},
 		{
 			TopicFilter: "a/+",
 			expected: map[string]*gmqtt.Message{
@@ -104,6 +116,9 @@ func TestTrieDB_GetMatchedMessages(t *testing.T) {
 					Payload: []byte{1, 2, 3},
 				},
 				"a/b": {
+					Payload: []byte{1, 2, 3},
+				},
+				"b/a": {
 					Payload: []byte{1, 2, 3},
 				},
 				"a": {
@@ -198,6 +213,10 @@ func TestTrieDB_Iterate(t *testing.T) {
 			Topic:   "a",
 			Payload: []byte{1, 2, 3},
 		},
+		{
+			Topic:   "$SYS/a/b",
+			Payload: []byte{1, 2, 3},
+		},
 	}
 
 	for _, v := range msgs {
@@ -209,5 +228,47 @@ func TestTrieDB_Iterate(t *testing.T) {
 		return true
 	})
 	a.ElementsMatch(msgs, rs)
+}
+
+func TestTrieDB_Iterate_Cancel(t *testing.T) {
+	a := assert.New(t)
+	s := NewStore()
+	msgs := []*gmqtt.Message{
+		{
+			Topic:   "a/b/c/d",
+			Payload: []byte{1, 2, 3},
+		},
+		{
+			Topic:   "a/b/c/",
+			Payload: []byte{1, 2, 3, 4},
+		},
+		{
+			Topic:   "a/",
+			Payload: []byte{1, 2, 3},
+		},
+		{
+			Topic:   "a/b",
+			Payload: []byte{1, 2, 3},
+		},
+		{
+			Topic:   "a",
+			Payload: []byte{1, 2, 3},
+		},
+	}
+
+	for _, v := range msgs {
+		s.AddOrReplace(v)
+	}
+	var i int
+	var rs []*gmqtt.Message
+	s.Iterate(func(message *gmqtt.Message) bool {
+		if i == 2 {
+			return false
+		}
+		rs = append(rs, message)
+		i++
+		return true
+	})
+	a.Len(rs, 2)
 
 }
