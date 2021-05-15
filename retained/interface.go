@@ -24,7 +24,7 @@ type Store interface {
 	Remove(topicName string)
 	// GetMatchedMessages returns the retained messages that match the passed topic filter.
 	GetMatchedMessages(topicFilter string) []*gmqtt.Message
-	// iterate iterate all retained messages. The callback is called once for each message.
+	// Iterate iterate all retained messages. The callback is called once for each message.
 	// If callback return false, the iteration will be stopped.
 	// Notice:
 	// The results are not sorted in any way, no ordering of any kind is guaranteed.

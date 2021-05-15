@@ -64,11 +64,7 @@ func (t *topicTrie) matchTopic(topicSlice []string, fn retained.IterateFn) {
 	endFlag := len(topicSlice) == 1
 	switch topicSlice[0] {
 	case "#":
-		if t.parent != nil {
-			t.parent.preOrderTraverse(fn)
-		} else {
-			t.preOrderTraverse(fn)
-		}
+		t.preOrderTraverse(fn)
 	case "+":
 		// 当前层的所有
 		for _, v := range t.children {
@@ -79,9 +75,7 @@ func (t *topicTrie) matchTopic(topicSlice []string, fn retained.IterateFn) {
 			} else {
 				v.matchTopic(topicSlice[1:], fn)
 			}
-
 		}
-
 	default:
 		if n := t.children[topicSlice[0]]; n != nil {
 			if endFlag {
@@ -150,7 +144,9 @@ func (t *topicTrie) preOrderTraverse(fn retained.IterateFn) bool {
 		}
 	}
 	for _, c := range t.children {
-		c.preOrderTraverse(fn)
+		if !c.preOrderTraverse(fn) {
+			return false
+		}
 	}
-	return false
+	return true
 }
