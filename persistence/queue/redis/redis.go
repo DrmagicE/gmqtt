@@ -25,14 +25,15 @@ func getKey(clientID string) string {
 }
 
 type Options struct {
-	MaxQueuedMsg   int
-	ClientID       string
-	InflightExpiry time.Duration
-	Notifier       queue.Notifier
-	Pool           *redigo.Pool
+	MaxQueuedMsg    int
+	ClientID        string
+	InflightExpiry  time.Duration
+	Pool            *redigo.Pool
+	DefaultNotifier queue.Notifier
 }
 
 type Queue struct {
+	once           *sync.Once
 	cond           *sync.Cond
 	clientID       string
 	version        packets.Version
@@ -55,6 +56,7 @@ type Queue struct {
 
 func New(opts Options) (*Queue, error) {
 	return &Queue{
+		once:            &sync.Once{},
 		cond:            sync.NewCond(&sync.Mutex{}),
 		clientID:        opts.ClientID,
 		max:             opts.MaxQueuedMsg,
@@ -64,7 +66,7 @@ func New(opts Options) (*Queue, error) {
 		inflightDrained: false,
 		current:         0,
 		inflightExpiry:  opts.InflightExpiry,
-		notifier:        opts.Notifier,
+		notifier:        opts.DefaultNotifier,
 		log:             server.LoggerWithField(zap.String("queue", "redis")),
 	}, nil
 }
@@ -89,6 +91,18 @@ func (q *Queue) Close() error {
 	return nil
 }
 
+func (q *Queue) setLen(conn redigo.Conn) error {
+	var err error
+	q.once.Do(func() {
+		l, e := conn.Do("llen", getKey(q.clientID))
+		if e != nil {
+			err = e
+		}
+		q.len = int(l.(int64))
+	})
+	return err
+}
+
 func (q *Queue) Init(opts *queue.InitOptions) error {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
@@ -101,17 +115,17 @@ func (q *Queue) Init(opts *queue.InitOptions) error {
 			return wrapError(err)
 		}
 	}
-	b, err := conn.Do("llen", getKey(q.clientID))
+	err := q.setLen(conn)
 	if err != nil {
 		return err
 	}
 	q.version = opts.Version
 	q.readBytesLimit = opts.ReadBytesLimit
-	q.len = int(b.(int64))
 	q.closed = false
 	q.inflightDrained = false
 	q.current = 0
 	q.readCache = make(map[packets.PacketID][]byte)
+	q.notifier = opts.Notifier
 	q.cond.Signal()
 	return nil
 }
@@ -136,27 +150,30 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 		q.cond.L.Unlock()
 		q.cond.Signal()
 	}()
+	err = q.setLen(conn)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		if drop {
 			if dropErr == queue.ErrDropExpiredInflight {
-				q.notifier.NotifyInflightAdded(q.clientID, -1)
+				q.notifier.NotifyInflightAdded(-1)
 				q.current--
 			}
 			if dropBytes == nil {
-				q.notifier.NotifyDropped(q.clientID, elem, dropErr)
+				q.notifier.NotifyDropped(elem, dropErr)
 				return
 			} else {
 				err = conn.Send("lrem", getKey(q.clientID), 1, dropBytes)
 
 			}
-			q.notifier.NotifyDropped(q.clientID, dropElem, dropErr)
+			q.notifier.NotifyDropped(dropElem, dropErr)
 		} else {
-			q.notifier.NotifyMsgQueueAdded(q.clientID, 1)
+			q.notifier.NotifyMsgQueueAdded(1)
 			q.len++
 		}
 		_ = conn.Send("rpush", getKey(q.clientID), elem.Encode())
 		err = conn.Flush()
-
 	}()
 	if q.len >= q.max {
 		// set default drop error
@@ -302,7 +319,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			if err != nil {
 				return nil, err
 			}
-			q.notifier.NotifyDropped(q.clientID, e, queue.ErrDropExpired)
+			q.notifier.NotifyDropped(e, queue.ErrDropExpired)
 			msgQueueDelta--
 			continue
 		}
@@ -315,7 +332,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			if err != nil {
 				return nil, err
 			}
-			q.notifier.NotifyDropped(q.clientID, e, queue.ErrDropExceedsMaxPacketSize)
+			q.notifier.NotifyDropped(e, queue.ErrDropExceedsMaxPacketSize)
 			msgQueueDelta--
 			continue
 		}
@@ -342,8 +359,8 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 		elems = append(elems, e)
 	}
 	err = conn.Flush()
-	q.notifier.NotifyMsgQueueAdded(q.clientID, msgQueueDelta)
-	q.notifier.NotifyInflightAdded(q.clientID, inflightDelta)
+	q.notifier.NotifyMsgQueueAdded(msgQueueDelta)
+	q.notifier.NotifyInflightAdded(inflightDelta)
 	return
 }
 
@@ -399,8 +416,8 @@ func (q *Queue) Remove(pid packets.PacketID) error {
 		if err != nil {
 			return err
 		}
-		q.notifier.NotifyMsgQueueAdded(q.clientID, -1)
-		q.notifier.NotifyInflightAdded(q.clientID, -1)
+		q.notifier.NotifyMsgQueueAdded(-1)
+		q.notifier.NotifyInflightAdded(-1)
 		delete(q.readCache, pid)
 		q.len--
 		q.current--

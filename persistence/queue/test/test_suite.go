@@ -24,48 +24,43 @@ var (
 	}
 	cid          = "cid"
 	TestClientID = cid
-	TestNotifier = &testNotifier{
-		dropElem:    make(map[string][]*queue.Elem),
-		dropErr:     make(map[string]error),
-		inflightLen: make(map[string]int),
-		msgQueueLen: make(map[string]int),
-	}
+	TestNotifier = &testNotifier{}
 )
 
 type testNotifier struct {
-	dropElem    map[string][]*queue.Elem
-	dropErr     map[string]error
-	inflightLen map[string]int
-	msgQueueLen map[string]int
+	dropElem    []*queue.Elem
+	dropErr     error
+	inflightLen int
+	msgQueueLen int
 }
 
-func (t *testNotifier) NotifyDropped(clientID string, elem *queue.Elem, err error) {
-	t.dropElem[cid] = append(t.dropElem[cid], elem)
-	t.dropErr[cid] = err
+func (t *testNotifier) NotifyDropped(elem *queue.Elem, err error) {
+	t.dropElem = append(t.dropElem, elem)
+	t.dropErr = err
 }
 
-func (t *testNotifier) NotifyInflightAdded(clientID string, delta int) {
-	t.inflightLen[clientID] += delta
-	if t.inflightLen[clientID] < 0 {
-		t.inflightLen[clientID] = 0
+func (t *testNotifier) NotifyInflightAdded(delta int) {
+	t.inflightLen += delta
+	if t.inflightLen < 0 {
+		t.inflightLen = 0
 	}
 }
 
-func (t *testNotifier) NotifyMsgQueueAdded(clientID string, delta int) {
-	t.msgQueueLen[clientID] += delta
-	if t.msgQueueLen[clientID] < 0 {
-		t.msgQueueLen[clientID] = 0
+func (t *testNotifier) NotifyMsgQueueAdded(delta int) {
+	t.msgQueueLen += delta
+	if t.msgQueueLen < 0 {
+		t.msgQueueLen = 0
 	}
 }
 
 func initDrop() {
-	TestNotifier.dropElem = make(map[string][]*queue.Elem)
-	TestNotifier.dropErr = make(map[string]error)
+	TestNotifier.dropElem = nil
+	TestNotifier.dropErr = nil
 }
 
 func initNotifierLen() {
-	TestNotifier.inflightLen = make(map[string]int)
-	TestNotifier.msgQueueLen = make(map[string]int)
+	TestNotifier.inflightLen = 0
+	TestNotifier.msgQueueLen = 0
 }
 
 func assertMsgEqual(a *assert.Assertions, expected, actual *queue.Elem) {
@@ -78,8 +73,8 @@ func assertMsgEqual(a *assert.Assertions, expected, actual *queue.Elem) {
 }
 
 func assertQueueLen(a *assert.Assertions, inflightLen, msgQueueLen int) {
-	a.Equal(inflightLen, TestNotifier.inflightLen[cid])
-	a.Equal(msgQueueLen, TestNotifier.msgQueueLen[cid])
+	a.Equal(inflightLen, TestNotifier.inflightLen)
+	a.Equal(msgQueueLen, TestNotifier.msgQueueLen)
 }
 
 // 2 inflight message + 3 new message
@@ -154,6 +149,7 @@ func initStore(store queue.Store) error {
 		CleanStart:     true,
 		Version:        packets.Version5,
 		ReadBytesLimit: 100,
+		Notifier:       TestNotifier,
 	})
 }
 
@@ -168,7 +164,7 @@ func add(store queue.Store) error {
 			return err
 		}
 	}
-	TestNotifier.inflightLen[cid] = 2
+	TestNotifier.inflightLen = 2
 	return nil
 }
 
@@ -176,18 +172,18 @@ func assertDrop(a *assert.Assertions, elem *queue.Elem, err error) {
 	a.Len(TestNotifier.dropElem, 1)
 	switch elem.MessageWithID.(type) {
 	case *queue.Publish:
-		actual := TestNotifier.dropElem[cid][0].MessageWithID.(*queue.Publish)
+		actual := TestNotifier.dropElem[0].MessageWithID.(*queue.Publish)
 		pub := elem.MessageWithID.(*queue.Publish)
 		a.Equal(pub.Message.Topic, actual.Topic)
 		a.Equal(pub.Message.QoS, actual.QoS)
 		a.Equal(pub.Payload, actual.Payload)
 		a.Equal(pub.PacketID, actual.PacketID)
-		a.Equal(err, TestNotifier.dropErr[cid])
+		a.Equal(err, TestNotifier.dropErr)
 	case *queue.Pubrel:
-		actual := TestNotifier.dropElem[cid][0].MessageWithID.(*queue.Pubrel)
+		actual := TestNotifier.dropElem[0].MessageWithID.(*queue.Pubrel)
 		pubrel := elem.MessageWithID.(*queue.Pubrel)
 		a.Equal(pubrel.PacketID, actual.PacketID)
-		a.Equal(err, TestNotifier.dropErr[cid])
+		a.Equal(err, TestNotifier.dropErr)
 	default:
 		a.FailNow("unexpected elem type")
 
@@ -201,6 +197,7 @@ func reconnect(a *assert.Assertions, cleanStart bool, store queue.Store) {
 		CleanStart:     cleanStart,
 		Version:        packets.Version5,
 		ReadBytesLimit: 100,
+		Notifier:       TestNotifier,
 	}))
 }
 
@@ -582,7 +579,7 @@ func testReplace(a *assert.Assertions, store queue.Store) {
 	a.False(r)
 	a.NoError(err)
 	a.NoError(store.Add(elems[2]))
-	TestNotifier.inflightLen[cid]++
+	TestNotifier.inflightLen++
 	// queue: 1(qos2-pubrel),2(qos2), 3(qos2)
 
 	r, err = store.Replace(&queue.Elem{

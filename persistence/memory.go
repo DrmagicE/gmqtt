@@ -37,12 +37,12 @@ func (m *memory) NewSessionStore(config config.Config) (session.Store, error) {
 func (m *memory) Open() error {
 	return nil
 }
-func (m *memory) NewQueueStore(config config.Config, notifier queue.Notifier, clientID string) (queue.Store, error) {
+func (m *memory) NewQueueStore(config config.Config, defaultNotifier queue.Notifier, clientID string) (queue.Store, error) {
 	return mem_queue.New(mem_queue.Options{
-		MaxQueuedMsg:   config.MQTT.MaxQueuedMsg,
-		InflightExpiry: config.MQTT.InflightExpiry,
-		ClientID:       clientID,
-		Notifier:       notifier,
+		MaxQueuedMsg:    config.MQTT.MaxQueuedMsg,
+		InflightExpiry:  config.MQTT.InflightExpiry,
+		ClientID:        clientID,
+		DefaultNotifier: defaultNotifier,
 	})
 }
 
