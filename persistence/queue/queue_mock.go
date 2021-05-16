@@ -172,37 +172,37 @@ func (m *MockNotifier) EXPECT() *MockNotifierMockRecorder {
 }
 
 // NotifyDropped mocks base method
-func (m *MockNotifier) NotifyDropped(clientID string, elem *Elem, err error) {
+func (m *MockNotifier) NotifyDropped(elem *Elem, err error) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "NotifyDropped", clientID, elem, err)
+	m.ctrl.Call(m, "NotifyDropped", elem, err)
 }
 
 // NotifyDropped indicates an expected call of NotifyDropped
-func (mr *MockNotifierMockRecorder) NotifyDropped(clientID, elem, err interface{}) *gomock.Call {
+func (mr *MockNotifierMockRecorder) NotifyDropped(elem, err interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyDropped", reflect.TypeOf((*MockNotifier)(nil).NotifyDropped), clientID, elem, err)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyDropped", reflect.TypeOf((*MockNotifier)(nil).NotifyDropped), elem, err)
 }
 
 // NotifyInflightAdded mocks base method
-func (m *MockNotifier) NotifyInflightAdded(clientID string, delta int) {
+func (m *MockNotifier) NotifyInflightAdded(delta int) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "NotifyInflightAdded", clientID, delta)
+	m.ctrl.Call(m, "NotifyInflightAdded", delta)
 }
 
 // NotifyInflightAdded indicates an expected call of NotifyInflightAdded
-func (mr *MockNotifierMockRecorder) NotifyInflightAdded(clientID, delta interface{}) *gomock.Call {
+func (mr *MockNotifierMockRecorder) NotifyInflightAdded(delta interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyInflightAdded", reflect.TypeOf((*MockNotifier)(nil).NotifyInflightAdded), clientID, delta)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyInflightAdded", reflect.TypeOf((*MockNotifier)(nil).NotifyInflightAdded), delta)
 }
 
 // NotifyMsgQueueAdded mocks base method
-func (m *MockNotifier) NotifyMsgQueueAdded(clientID string, delta int) {
+func (m *MockNotifier) NotifyMsgQueueAdded(delta int) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "NotifyMsgQueueAdded", clientID, delta)
+	m.ctrl.Call(m, "NotifyMsgQueueAdded", delta)
 }
 
 // NotifyMsgQueueAdded indicates an expected call of NotifyMsgQueueAdded
-func (mr *MockNotifierMockRecorder) NotifyMsgQueueAdded(clientID, delta interface{}) *gomock.Call {
+func (mr *MockNotifierMockRecorder) NotifyMsgQueueAdded(delta interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyMsgQueueAdded", reflect.TypeOf((*MockNotifier)(nil).NotifyMsgQueueAdded), clientID, delta)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NotifyMsgQueueAdded", reflect.TypeOf((*MockNotifier)(nil).NotifyMsgQueueAdded), delta)
 }
