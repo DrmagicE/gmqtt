@@ -196,7 +196,6 @@ type server struct {
 
 	clientService *clientService
 	apiRegistrar  *apiRegistrar
-	queueNotifier *queueNotifier
 }
 
 func (srv *server) APIRegistrar() APIRegistrar {
@@ -441,6 +440,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 					CleanStart:     false,
 					Version:        client.version,
 					ReadBytesLimit: client.opts.ClientMaxPacketSize,
+					Notifier:       client.queueNotifier,
 				})
 				if err != nil {
 					return err
@@ -470,7 +470,8 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 	}
 	if !sessionResume {
 		// create new session
-		qs, err = srv.persistence.NewQueueStore(srv.config, srv.queueNotifier, client.opts.ClientID)
+		// It is ok to pass nil to defaultNotifier, because we will call Init to override it.
+		qs, err = srv.persistence.NewQueueStore(srv.config, nil, client.opts.ClientID)
 		if err != nil {
 			return err
 		}
@@ -478,6 +479,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			CleanStart:     true,
 			Version:        client.version,
 			ReadBytesLimit: client.opts.ClientMaxPacketSize,
+			Notifier:       client.queueNotifier,
 		})
 		if err != nil {
 			return err
@@ -636,7 +638,7 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 		},
 	})
 	if err != nil {
-		srv.queueNotifier.notifyDropped(clientID, msg, &queue.InternalError{Err: err})
+		srv.clients[clientID].queueNotifier.notifyDropped(msg, &queue.InternalError{Err: err})
 		return
 	}
 }
@@ -906,14 +908,10 @@ func (srv *server) init(opts ...Options) (err error) {
 		srv:          srv,
 		sessionStore: srv.sessionStore,
 	}
-	srv.queueNotifier = &queueNotifier{
-		dropHook: srv.hooks.OnMsgDropped,
-		sts:      srv.statsManager,
-	}
 
 	// init queue store & unack store from persistence
 	for _, v := range sts {
-		q, err := srv.persistence.NewQueueStore(srv.config, srv.queueNotifier, v.ClientID)
+		q, err := srv.persistence.NewQueueStore(srv.config, defaultNotifier(srv.hooks.OnMsgDropped, srv.statsManager, v.ClientID), v.ClientID)
 		if err != nil {
 			return err
 		}
@@ -1091,6 +1089,11 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
+	client.queueNotifier = &queueNotifier{
+		dropHook: srv.hooks.OnMsgDropped,
+		sts:      srv.statsManager,
+		cli:      client,
+	}
 	client.setConnecting()
 
 	return client, nil

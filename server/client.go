@@ -190,9 +190,10 @@ type client struct {
 
 	config config.Config
 
-	queueStore queue.Store
-	unackStore unack.Store
-	pl         *packetIDLimiter
+	queueStore    queue.Store
+	unackStore    unack.Store
+	pl            *packetIDLimiter
+	queueNotifier *queueNotifier
 }
 
 func (client *client) SessionInfo() *gmqtt.Session {
@@ -880,7 +881,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 						},
 					})
 					if err != nil {
-						srv.queueNotifier.notifyDropped(client.opts.ClientID, v, &queue.InternalError{Err: err})
+						client.queueNotifier.notifyDropped(v, &queue.InternalError{Err: err})
 						if codesErr, ok := err.(*codes.Error); ok {
 							return codesErr
 						}

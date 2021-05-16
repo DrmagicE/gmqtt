@@ -68,7 +68,7 @@ func (s *RedisSuite) TestQueue() {
 	a := assert.New(s.T())
 	cfg := queue_test.TestServerConfig
 	cfg.Persistence.Redis = redisConfig
-	qs, err := s.p.NewQueueStore(cfg, queue_test.TestNotifier, queue_test.TestClientID)
+	qs, err := s.p.NewQueueStore(cfg, queue_test.TestClientID)
 	a.Nil(err)
 	queue_test.TestQueue(s.T(), qs)
 }

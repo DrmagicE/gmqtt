@@ -14,6 +14,7 @@ type InitOptions struct {
 	Version packets.Version
 	// ReadBytesLimit indicates the maximum publish size that is allow to read.
 	ReadBytesLimit uint32
+	Notifier       Notifier
 }
 
 // Store represents a queue store for one client.
@@ -60,12 +61,12 @@ type Store interface {
 }
 
 type Notifier interface {
-	// NotifyDropped will be called when the element for the clientID is dropped.
+	// NotifyDropped will be called when the element in the queue is dropped.
 	// The err indicates the reason of why it is dropped.
 	// The MessageWithID field in elem param can be queue.Pubrel or queue.Publish.
-	NotifyDropped(clientID string, elem *Elem, err error)
-	NotifyInflightAdded(clientID string, delta int)
-	NotifyMsgQueueAdded(clientID string, delta int)
+	NotifyDropped(elem *Elem, err error)
+	NotifyInflightAdded(delta int)
+	NotifyMsgQueueAdded(delta int)
 }
 
 // ElemExpiry return whether the elem is expired

@@ -77,13 +77,13 @@ func (r *redis) Open() error {
 	return err
 }
 
-func (r *redis) NewQueueStore(config config.Config, notifier queue.Notifier, clientID string) (queue.Store, error) {
+func (r *redis) NewQueueStore(config config.Config, defaultNotifier queue.Notifier, clientID string) (queue.Store, error) {
 	return redis_queue.New(redis_queue.Options{
-		MaxQueuedMsg:   config.MQTT.MaxQueuedMsg,
-		InflightExpiry: config.MQTT.InflightExpiry,
-		ClientID:       clientID,
-		Notifier:       notifier,
-		Pool:           r.pool,
+		MaxQueuedMsg:    config.MQTT.MaxQueuedMsg,
+		InflightExpiry:  config.MQTT.InflightExpiry,
+		ClientID:        clientID,
+		Pool:            r.pool,
+		DefaultNotifier: defaultNotifier,
 	})
 }
 
