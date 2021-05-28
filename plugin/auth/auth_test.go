@@ -67,6 +67,28 @@ func TestAuth_validate(t *testing.T) {
 
 }
 
+func TestAuth_EmptyPassword(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	auth := &Auth{
+		config: &Config{
+			Hash: Plain,
+		},
+		indexer: admin.NewIndexer(),
+	}
+
+	hashed, err := auth.generatePassword("abc")
+	a.Nil(err)
+	auth.indexer.Set("user", &Account{
+		Username: "user",
+		Password: hashed,
+	})
+	ok, err := auth.validate("user", "")
+	a.False(ok)
+	a.Nil(err)
+}
+
 func TestAuth_Load_CreateFile(t *testing.T) {
 	a := assert.New(t)
 	ctrl := gomock.NewController(t)
