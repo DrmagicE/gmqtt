@@ -94,9 +94,6 @@ func (a *Auth) validate(username, password string) (permitted bool, err error) {
 	}
 	ac := elem.Value.(*Account)
 	hashedPassword = ac.Password
-	if hashedPassword == "" || password == "" {
-		return true, nil
-	}
 	var h hash.Hash
 	switch a.config.Hash {
 	case Plain:
