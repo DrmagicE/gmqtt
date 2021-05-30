@@ -11,7 +11,7 @@ News: Cluster mode is now supported, see [federation plugin](./plugin/federation
 * Support tls/ssl and websocket
 * Provide flexible plugable mechanism. See `server/plugin.go` and `/plugin` for details.
 * Provide Go interface for extensions to interact with the server. For examples, the extensions or plugins can publish message or add/remove subscription through function call.
-See `Server` interface in `server/server.go` and [admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/READEME.md) for details.
+See `Server` interface in `server/server.go` and [admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/README.md) for details.
 * Provide metrics (by using Prometheus). (plugin: [prometheus](https://github.com/DrmagicE/gmqtt/blob/master/plugin/prometheus/README.md))
 * Provide GRPC and REST APIs to interact with server. (plugin:[admin](https://github.com/DrmagicE/gmqtt/blob/master/plugin/admin/README.md))
 * Provide session persistence which means the broker can retrieve the session data after restart. 
