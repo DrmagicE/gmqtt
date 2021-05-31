@@ -4,8 +4,9 @@ News: 集群模式已支持，示例和详情请参考[federation plugin](./plug
 
 Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的MQTT broker，其完整实现了MQTT V3.1.1和V5协议。
 
-# 安装
-```$ go get -u github.com/DrmagicE/gmqtt/```
+# 更多资料
+[Gmqtt插件机制详解](https://juejin.cn/post/6908305981923409934)  
+[Gmqtt——Go语言实现的MQTT broker](https://juejin.cn/post/6905898448743038990)
 
 # 功能特性
 * 内置了许多实用的钩子方法，使用者可以方便的定制需要的MQTT服务器（鉴权,ACL等功能）
@@ -18,15 +19,18 @@ Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的M
 * 支持集群, 示例和详情请参考[federation plugin](./plugin/federation/README.md)。
 
 # 开始
+我们需要通过源码编译的方式启动，请确保您所在的机器上已经具备Go环境。
 
 下列命令会使用默认配置启动Gmqtt服务，该服务使用1883端口[tcp]和8883端口[websocket]端口提供MQTT broker服务，并加载admin和prometheus插件。
 ```bash
-$ cd cmd/gmqttd
+$ git clone https://github.com/DrmagicE/gmqtt
+$ cd gmqtt/cmd/gmqttd
 $ go run . start -c default_config.yml
 ```
 
 ## 配置
-Gmqtt通过`-c`来指定配置文件路径，如果没有指定，Gmqtt默认读取`$HOME/gmqtt.yml`为配置文件，如果文件不存在，Gmqtt将以[默认配置](https://github.com/DrmagicE/Gmqtt/blob/master/cmd/Gmqttd/default_config.yml)。
+Gmqtt通过`-c`来指定配置文件路径，如果没有指定，Gmqtt默认读取`$HOME/gmqtt.yml`为配置文件。
+[配置示例](https://github.com/DrmagicE/Gmqtt/blob/master/cmd/Gmqttd/default_config.yml)。
 
 ## 使用持久化存储
 Gmqtt默认使用内存存储，这也是Gmqtt推荐的存储方式，内存存储具备绝佳的性能优势，但缺点是session信息会在broker重启后丢失。
@@ -85,7 +89,7 @@ Gmqtt实现了下列钩子方法。
 | hook | 说明 | 用途示例 |
 |------|------------|------------|
 | OnAccept  | TCP连接建立时调用|  TCP连接限速，黑白名单等.      |
-| OnStop  | Broker退出时调用 |    |
+| OnStop  | 当gmqtt退出时调用 |    |
 | OnSubscribe  | 收到订阅请求时调用| 校验订阅是否合法    |
 | OnSubscribed  | 订阅成功后调用   |   统计订阅报文数量   |
 | OnUnsubscribe  | 取消订阅时调用       | 校验是否允许取消订阅       |
