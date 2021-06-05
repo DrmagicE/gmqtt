@@ -165,6 +165,7 @@ type client struct {
 	in           chan packets.Packet
 	out          chan packets.Packet
 	close        chan struct{}
+	closed       chan struct{}
 	connected    chan struct{}
 	status       int32
 	// if 1, when client close, the session expiry interval will be ignored and the session will be removed.
@@ -724,6 +725,7 @@ func (client *client) internalClose() {
 	}
 	putBufioReader(client.bufr)
 	putBufioWriter(client.bufw)
+	close(client.closed)
 
 }
 

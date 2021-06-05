@@ -326,7 +326,7 @@ func (srv *server) lockDuplicatedID(c *client) (oldSession *gmqtt.Session, err e
 			)
 			oldClient.setError(codes.NewError(codes.SessionTakenOver))
 			oldClient.Close()
-			oldClient.wg.Wait()
+			<-oldClient.closed
 			continue
 		}
 		break
@@ -1078,6 +1078,7 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 		bufr:          newBufioReaderSize(c, readBufferSize),
 		bufw:          newBufioWriterSize(c, writeBufferSize),
 		close:         make(chan struct{}),
+		closed:        make(chan struct{}),
 		connected:     make(chan struct{}),
 		error:         make(chan error, 1),
 		in:            make(chan packets.Packet, 8),
@@ -1426,20 +1427,20 @@ func (srv *server) Stop(ctx context.Context) error {
 	}
 	// close all idle clients
 	srv.mu.Lock()
-	wgs := make([]*sync.WaitGroup, len(srv.clients))
+	chs := make([]chan struct{}, len(srv.clients))
 	i := 0
 	for _, c := range srv.clients {
-		wgs[i] = &c.wg
+		chs[i] = c.closed
 		i++
 		c.Close()
 	}
 	srv.mu.Unlock()
 
 	done := make(chan struct{})
-	if len(wgs) != 0 {
+	if len(chs) != 0 {
 		go func() {
-			for _, v := range wgs {
-				v.Wait()
+			for _, v := range chs {
+				<-v
 			}
 			close(done)
 		}()
@@ -1449,7 +1450,7 @@ func (srv *server) Stop(ctx context.Context) error {
 	defer close(srv.exitedChan)
 	select {
 	case <-ctx.Done():
-		zaplog.Warn("server stop timeout, forced exit", zap.String("error", ctx.Err().Error()))
+		zaplog.Warn("server stop timeout, force exit", zap.String("error", ctx.Err().Error()))
 		return ctx.Err()
 	case <-done:
 		for _, v := range srv.plugins {
