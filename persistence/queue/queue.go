@@ -29,7 +29,7 @@ type Store interface {
 	Init(opts *InitOptions) error
 	Clean() error
 	// Add inserts a elem to the queue.
-	// When the len of queue is reaching the maximum setting, the implementation should drop non-inflight messages according the following priorities:
+	// When the len of queue is reaching the maximum setting, the implementation should drop messages according the following priorities:
 	// 1. Drop the expired inflight message.
 	// 2. Drop the current elem if there is no more non-inflight messages.
 	// 3. Drop expired non-inflight message.

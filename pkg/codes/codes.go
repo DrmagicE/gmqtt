@@ -90,6 +90,9 @@ type ErrorDetails struct {
 }
 
 func (e *Error) Error() string {
+	if e == nil {
+		return ""
+	}
 	return fmt.Sprintf("operation error: Code = %x, reasonString: %s", e.Code, e.ReasonString)
 }
 func NewError(code Code) *Error {

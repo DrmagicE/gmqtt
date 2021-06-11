@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"container/list"
+	"context"
+	"errors"
 	"io"
 	"net"
 	"reflect"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/config"
@@ -852,15 +855,15 @@ func TestClient_publishHandler_common(t *testing.T) {
 
 			var deliverMessageCalled bool
 
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+			c, er := srv.newClient(noopConn{})
+			a.NoError(er)
+			c.deliverMessage = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				deliverMessageCalled = true
 				return v.topicMatched
 			}
 
-			c, er := srv.newClient(noopConn{})
-			a.Nil(er)
 			c.unackStore = unack_mem.New(unack_mem.Options{
 				ClientID: v.clientID,
 			})
@@ -973,13 +976,15 @@ func TestClient_publishHandler_retainedMessage(t *testing.T) {
 				config:     config.DefaultConfig(),
 				retainedDB: retainedDB,
 			}
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+
+			c, er := srv.newClient(noopConn{})
+			a.NoError(er)
+			c.deliverMessage = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return v.topicMatched
 			}
-			c, er := srv.newClient(noopConn{})
-			a.Nil(er)
+
 			c.unackStore = unack_mem.New(unack_mem.Options{
 				ClientID: v.clientID,
 			})
@@ -1079,13 +1084,14 @@ func TestClient_publishHandler_topicAlias(t *testing.T) {
 			srv := &server{
 				config: config.DefaultConfig(),
 			}
-			srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+
+			c, er := srv.newClient(noopConn{})
+			a.NoError(er)
+			c.deliverMessage = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 				a.Equal(v.clientID, srcClientID)
 				a.Equal(gmqtt.MessageFromPublish(v.in), msg)
 				return true
 			}
-			c, er := srv.newClient(noopConn{})
-			a.Nil(er)
 
 			c.opts.ClientID = v.clientID
 			c.version = v.version
@@ -1142,14 +1148,15 @@ func TestClient_publishHandler_matchTopicAlias(t *testing.T) {
 		config: config.DefaultConfig(),
 	}
 	var deliveredMsg []*gmqtt.Message
-	srv.deliverMessageHandler = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+
+	serverTopicAliasMax := uint16(5)
+	c, er := srv.newClient(noopConn{})
+	a.NoError(er)
+	c.deliverMessage = func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
 		a.Equal("cid", srcClientID)
 		deliveredMsg = append(deliveredMsg, msg)
 		return true
 	}
-	serverTopicAliasMax := uint16(5)
-	c, er := srv.newClient(noopConn{})
-	a.Nil(er)
 	c.aliasMapper = make([][]byte, serverTopicAliasMax+1)
 	c.opts.ClientID = "cid"
 	c.version = packets.Version5
@@ -1446,4 +1453,406 @@ func TestMsg_TotalBytes(t *testing.T) {
 		})
 	}
 
+}
+
+func TestClient_defaultAuthOptions(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	srv := defaultServer()
+	c, _ := srv.newClient(noopConn{})
+
+	c.config.MQTT.MaxKeepAlive = 20
+	c.config.MQTT.SessionExpiry = 20 * time.Second
+	c.version = packets.Version5
+	conn := &packets.Connect{
+		Version:   packets.Version5,
+		KeepAlive: 100,
+		ClientID:  []byte("cid"),
+		Properties: &packets.Properties{
+			SessionExpiryInterval: proto.Uint32(12),
+		},
+	}
+	opts := c.defaultAuthOptions(conn)
+	a.EqualValues(20, opts.KeepAlive)
+	a.EqualValues(12, opts.SessionExpiry)
+
+	conn = &packets.Connect{
+		Version:    packets.Version5,
+		KeepAlive:  10,
+		ClientID:   []byte("cid"),
+		Properties: &packets.Properties{},
+	}
+	opts = c.defaultAuthOptions(conn)
+	a.EqualValues(10, opts.KeepAlive)
+	a.EqualValues(0, opts.SessionExpiry)
+
+}
+
+func TestClient_connectWithTimeOut_BasicAuth(t *testing.T) {
+	var tt = []struct {
+		name           string
+		connect        *packets.Connect
+		register       func(connect *packets.Connect, client *client) (sessionResume bool, err error)
+		basicAuth      OnBasicAuth
+		ok             bool
+		assertConnack  func(a *assert.Assertions, ack *packets.Connack)
+		finalAssertion func(a *assert.Assertions, client *client)
+	}{
+		{
+			name: "success_session_resume",
+			connect: &packets.Connect{
+				Version:    packets.Version311,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return true, nil
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				return nil
+			},
+			ok: true,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.True(ack.SessionPresent)
+			},
+		},
+		{
+			name: "success_new_session",
+			connect: &packets.Connect{
+				Version:    packets.Version311,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return false, nil
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				return nil
+			},
+			ok: true,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.False(ack.SessionPresent)
+			},
+		},
+		{
+			name: "authentication_failed_v5",
+			connect: &packets.Connect{
+				Version:    packets.Version5,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+				Properties: &packets.Properties{},
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				panic("should not call reigster if authentication failed")
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				return codes.NewError(codes.ServerBusy)
+			},
+			ok: false,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.Equal(codes.ServerBusy, ack.Code)
+			},
+		},
+		{
+			name: "authentication_failed_v3",
+			connect: &packets.Connect{
+				Version:    packets.Version311,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				panic("should not call register if authentication failed")
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				return codes.NewError(codes.ServerBusy)
+			},
+			ok: false,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.Equal(codes.NotAuthorized, ack.Code)
+			},
+		},
+		{
+			name: "register_failed",
+			connect: &packets.Connect{
+				Version:    packets.Version311,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return false, errors.New("error")
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				return nil
+			},
+			ok: false,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.Equal(codes.NotAuthorized, ack.Code)
+			},
+		},
+		{
+			name: "override_options",
+			connect: &packets.Connect{
+				Version:    packets.Version311,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return false, nil
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				req.Options.MaxInflight = 1
+				return nil
+			},
+			ok: true,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.Equal(codes.Success, ack.Code)
+			},
+			finalAssertion: func(a *assert.Assertions, cli *client) {
+				a.EqualValues(1, cli.opts.MaxInflight)
+			},
+		},
+		{
+			name: "connack_properties",
+			connect: &packets.Connect{
+				Version:    packets.Version5,
+				CleanStart: false,
+				KeepAlive:  0,
+				Properties: &packets.Properties{},
+			},
+			register: func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return false, nil
+			},
+			basicAuth: func(ctx context.Context, client Client, req *ConnectRequest) (err error) {
+				req.Options.SessionExpiry = 5
+				req.Options.ReceiveMax = 100
+				req.Options.AssignedClientID = []byte("cid")
+				return nil
+			},
+			ok: true,
+			assertConnack: func(a *assert.Assertions, ack *packets.Connack) {
+				a.Equal(codes.Success, ack.Code)
+				a.EqualValues(5, *ack.Properties.SessionExpiryInterval)
+				a.EqualValues(100, *ack.Properties.ReceiveMaximum)
+				a.Equal("cid", string(ack.Properties.AssignedClientID))
+			},
+		},
+	}
+	for _, v := range tt {
+		t.Run(v.name, func(t *testing.T) {
+			a := assert.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			srv := defaultServer()
+			c, _ := srv.newClient(noopConn{})
+			c.in <- v.connect
+			c.register = v.register
+			c.server.hooks.OnBasicAuth = v.basicAuth
+			ok := c.connectWithTimeOut()
+			a.Equal(v.ok, ok)
+			var connack *packets.Connack
+			select {
+			case p := <-c.out:
+				connack = p.(*packets.Connack)
+			default:
+
+			}
+			v.assertConnack(a, connack)
+			if v.finalAssertion != nil {
+				v.finalAssertion(a, c)
+			}
+		})
+	}
+
+}
+
+func TestClient_connectWithTimeOut_Timeout(t *testing.T) {
+	a := assert.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srv := defaultServer()
+	c, _ := srv.newClient(noopConn{})
+
+	ok := c.connectWithTimeOut()
+	a.False(ok)
+	select {
+	case p := <-c.out:
+		a.FailNow("unexpected send: %v", p)
+	default:
+	}
+	a.Equal(ErrConnectTimeOut, c.err)
+}
+
+func TestClient_connectWithTimeOut_EnhancedAuth(t *testing.T) {
+	authMethod := []byte("authMethod")
+	authData := []byte("authData")
+	var authIndex int
+	var tt = []struct {
+		name           string
+		connect        *packets.Connect
+		auth           []*packets.Auth
+		register       func(connect *packets.Connect, client *client) (sessionResume bool, err error)
+		enhancedAuth   OnEnhancedAuth
+		ok             bool
+		assertConnack  func(a *assert.Assertions, ack *packets.Connack)
+		assertOut      func(out <-chan packets.Packet) func(a *assert.Assertions)
+		finalAssertion func(a *assert.Assertions, client *client)
+	}{
+		{
+			name: "success_continue_false",
+			enhancedAuth: func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error) {
+				return &EnhancedAuthResponse{
+					Continue: false,
+				}, nil
+			},
+			ok: true,
+		},
+		{
+			name: "success_continue_true",
+			auth: []*packets.Auth{
+				{
+					Code: codes.ContinueAuthentication,
+					Properties: &packets.Properties{
+						AuthData:   []byte("1"),
+						AuthMethod: authMethod,
+					},
+				},
+				{
+					Code: codes.ContinueAuthentication,
+					Properties: &packets.Properties{
+						AuthData:   []byte("2"),
+						AuthMethod: authMethod,
+					},
+				},
+			},
+			enhancedAuth: func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error) {
+				return &EnhancedAuthResponse{
+					Continue: true,
+					OnAuth: func(ctx context.Context, client Client, req *AuthRequest) (resp *AuthResponse, e error) {
+						defer func() {
+							authIndex++
+						}()
+						if authIndex == 0 {
+							return &AuthResponse{
+								Continue: true,
+								AuthData: []byte("data2"),
+							}, nil
+						}
+						if authIndex == 1 {
+							return &AuthResponse{
+								Continue: false,
+								AuthData: nil,
+							}, nil
+						}
+
+						panic("unexpected onAuth call")
+					},
+					AuthData: []byte("data1"),
+				}, nil
+			},
+			ok: true,
+			assertOut: func(out <-chan packets.Packet) func(a *assert.Assertions) {
+				return func(a *assert.Assertions) {
+					i := 0
+					for p := range out {
+						if i == 0 {
+							auth := p.(*packets.Auth)
+							a.Equal([]byte("data1"), auth.Properties.AuthData)
+							a.Equal(authMethod, auth.Properties.AuthMethod)
+						}
+						if i == 1 {
+							auth := p.(*packets.Auth)
+							a.Equal([]byte("data2"), auth.Properties.AuthData)
+							a.Equal(authMethod, auth.Properties.AuthMethod)
+						}
+						if i == 2 {
+							connack := p.(*packets.Connack)
+							a.Equal(codes.Success, connack.Code)
+						}
+						i++
+					}
+				}
+			},
+			finalAssertion: func(a *assert.Assertions, client *client) {
+				a.Equal(2, authIndex)
+			},
+		},
+		{
+			// The Client responds to an AUTH packet from the Server by sending a further AUTH packet.
+			// This packet MUST contain a Reason Code of 0x18 (Continue authentication) [MQTT-4.12.0-3]
+			name: "success_continue_error",
+			auth: []*packets.Auth{
+				{
+					Code: codes.Success,
+					Properties: &packets.Properties{
+						AuthData:   []byte("1"),
+						AuthMethod: authMethod,
+					},
+				},
+			},
+			enhancedAuth: func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error) {
+				return &EnhancedAuthResponse{
+					Continue: true,
+					OnAuth: func(ctx context.Context, client Client, req *AuthRequest) (resp *AuthResponse, e error) {
+						panic("unexpected OnAuth call")
+					},
+					AuthData: []byte("data1"),
+				}, nil
+			},
+			ok: false,
+			finalAssertion: func(a *assert.Assertions, client *client) {
+				a.Equal(codes.ErrProtocol, client.err)
+			},
+		},
+	}
+	for _, v := range tt {
+		t.Run(v.name, func(t *testing.T) {
+			authIndex = 0
+			connect := &packets.Connect{
+				Version:    packets.Version5,
+				CleanStart: false,
+				KeepAlive:  0,
+				ClientID:   []byte("cid"),
+				Properties: &packets.Properties{
+					AuthMethod: authMethod,
+					AuthData:   authData,
+				},
+			}
+			a := assert.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			srv := defaultServer()
+			c, _ := srv.newClient(noopConn{})
+			c.in <- connect
+			for _, v := range v.auth {
+				c.in <- v
+			}
+			c.register = func(connect *packets.Connect, client *client) (sessionResume bool, err error) {
+				return false, nil
+			}
+			c.server.hooks.OnEnhancedAuth = v.enhancedAuth
+			var afn func(a *assert.Assertions)
+			if v.assertOut != nil {
+				afn = v.assertOut(c.out)
+			}
+			ok := c.connectWithTimeOut()
+			a.Equal(v.ok, ok)
+			close(c.out)
+			if afn != nil {
+				afn(a)
+			}
+			if v.finalAssertion != nil {
+				v.finalAssertion(a, c)
+			}
+		})
+	}
 }
