@@ -200,21 +200,56 @@ type OnClosed func(ctx context.Context, client Client, err error)
 
 type OnClosedWrapper func(OnClosed) OnClosed
 
+// AuthOptions provides several options which controls how the server interacts with the client.
+// The default value of these options is defined in the configuration file.
 type AuthOptions struct {
-	SessionExpiry        uint32
-	ReceiveMax           uint16
-	MaximumQoS           uint8
-	MaxPacketSize        uint32
-	TopicAliasMax        uint16
-	RetainAvailable      bool
+	// SessionExpiry is session expired time in seconds.
+	SessionExpiry uint32
+	// ReceiveMax limits the number of QoS 1 and QoS 2 publications that the server is willing to process concurrently for the client.
+	// If the client version is v5, this value will be set into  Receive Maximum property in CONNACK packet.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901083
+	ReceiveMax uint16
+	// MaximumQoS is the highest QOS level permitted for a Publish.
+	MaximumQoS uint8
+	// MaxPacketSize is the maximum packet size that the server is willing to accept from the client.
+	// If the client version is v5, this value will be set into Receive Maximum property in CONNACK packet.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901086
+	MaxPacketSize uint32
+	// TopicAliasMax indicates the highest value that the server will accept as a Topic Alias sent by the client.
+	// The server uses this value to limit the number of Topic Aliases that it is willing to hold on this connection.
+	// This option only affect v5 client.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901088
+	TopicAliasMax uint16
+	// RetainAvailable indicates whether the server supports retained messages.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901085
+	RetainAvailable bool
+	// WildcardSubAvailable indicates whether the server supports Wildcard Subscriptions.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901091
 	WildcardSubAvailable bool
-	SubIDAvailable       bool
-	SharedSubAvailable   bool
-	KeepAlive            uint16
-	UserProperties       []*packets.UserProperty
-	AssignedClientID     []byte
-	ResponseInfo         []byte
-	MaxInflight          uint16
+	// SubIDAvailable indicates whether the server supports Subscription Identifiers.
+	// This option only affect v5 client.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901092
+	SubIDAvailable bool
+	// SharedSubAvailable indicates whether the server supports Shared Subscriptions.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901093
+	SharedSubAvailable bool
+	// KeepAlive is the keep alive time assigned by the server.
+	// This option only affect v5 client.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901094
+	KeepAlive uint16
+	// UserProperties is be used to provide additional information to the client.
+	// This option only affect v5 client.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901090
+	UserProperties []*packets.UserProperty
+	// AssignedClientID allows the server to assign a client id for the client.
+	// It will override the client id in the connect packet.
+	AssignedClientID []byte
+	// ResponseInfo is used as the basis for creating a Response Topic.
+	// This option only affect v5 client.
+	// See: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901095
+	ResponseInfo []byte
+	// MaxInflight limits the number of QoS 1 and QoS 2 publications that the client is willing to process concurrently.
+	MaxInflight uint16
 }
 
 // OnBasicAuth will be called when receive v311 connect packet or v5 connect packet with empty auth method property.
@@ -235,10 +270,9 @@ type OnBasicAuthWrapper func(OnBasicAuth) OnBasicAuth
 type OnEnhancedAuth func(ctx context.Context, client Client, req *ConnectRequest) (resp *EnhancedAuthResponse, err error)
 
 type EnhancedAuthResponse struct {
-	Continue   bool
-	OnAuth     OnAuth
-	AuthData   []byte
-	AuthMethod []byte
+	Continue bool
+	OnAuth   OnAuth
+	AuthData []byte
 }
 type OnEnhancedAuthWrapper func(OnEnhancedAuth) OnEnhancedAuth
 

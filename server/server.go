@@ -191,8 +191,6 @@ type server struct {
 	statsManager         *statsManager
 	publishService       Publisher
 	newTopicAliasManager NewTopicAliasManager
-	// for testing
-	deliverMessageHandler func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool)
 
 	clientService *clientService
 	apiRegistrar  *apiRegistrar
@@ -253,6 +251,8 @@ const (
 
 // GetConfig returns the config of the server
 func (srv *server) GetConfig() config.Config {
+	srv.configMu.Lock()
+	defer srv.configMu.Unlock()
 	return srv.config
 }
 
@@ -335,8 +335,7 @@ func (srv *server) lockDuplicatedID(c *client) (oldSession *gmqtt.Session, err e
 }
 
 // 已经判断是成功了，注册
-func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.Properties, client *client) (err error) {
-	var sessionResume bool
+func (srv *server) registerClient(connect *packets.Connect, client *client) (sessionResume bool, err error) {
 	var qs queue.Store
 	var ua unack.Store
 	var sess *gmqtt.Session
@@ -344,10 +343,9 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 	now := time.Now()
 	oldSession, err = srv.lockDuplicatedID(client)
 	if err != nil {
-		return err
+		return
 	}
 	defer func() {
-		var connack *packets.Connack
 		if err == nil {
 			var willMsg *gmqtt.Message
 			var willDelayInterval, expiryInterval uint32
@@ -402,14 +400,8 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			if client.version == packets.Version5 {
 				client.topicAliasManager = srv.newTopicAliasManager(client.config, client.opts.ClientTopicAliasMax, client.opts.ClientID)
 			}
-			connack = connect.NewConnackPacket(codes.Success, sessionResume)
-		} else {
-			connack = connect.NewConnackPacket(codes.UnspecifiedError, sessionResume)
 		}
 		srv.mu.Unlock()
-		connack.Properties = connackPpt
-		client.out <- connack
-
 	}()
 
 	client.setConnected(time.Now())
@@ -436,21 +428,21 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		} else {
 			qs = srv.queueStore[client.opts.ClientID]
 			if qs != nil {
-				err := qs.Init(&queue.InitOptions{
+				err = qs.Init(&queue.InitOptions{
 					CleanStart:     false,
 					Version:        client.version,
 					ReadBytesLimit: client.opts.ClientMaxPacketSize,
 					Notifier:       client.queueNotifier,
 				})
 				if err != nil {
-					return err
+					return
 				}
 			}
 			ua = srv.unackStore[client.opts.ClientID]
 			if ua != nil {
-				err := ua.Init(false)
+				err = ua.Init(false)
 				if err != nil {
-					return err
+					return
 				}
 			}
 			if ua == nil || qs == nil {
@@ -473,7 +465,7 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 		// It is ok to pass nil to defaultNotifier, because we will call Init to override it.
 		qs, err = srv.persistence.NewQueueStore(srv.config, nil, client.opts.ClientID)
 		if err != nil {
-			return err
+			return
 		}
 		err = qs.Init(&queue.InitOptions{
 			CleanStart:     true,
@@ -482,16 +474,16 @@ func (srv *server) registerClient(connect *packets.Connect, connackPpt *packets.
 			Notifier:       client.queueNotifier,
 		})
 		if err != nil {
-			return err
+			return
 		}
 
 		ua, err = srv.persistence.NewUnackStore(srv.config, client.opts.ClientID)
 		if err != nil {
-			return err
+			return
 		}
 		err = ua.Init(true)
 		if err != nil {
-			return err
+			return
 		}
 		zaplog.Info("logged in with new session",
 			zap.String("remote_addr", client.rwc.RemoteAddr().String()),
@@ -528,7 +520,7 @@ func (srv *server) sendWillLocked(msg *gmqtt.Message, clientID string) {
 	if req.Message == nil {
 		return
 	}
-	srv.deliverMessageHandler(clientID, msg, defaultIterateOptions(msg.Topic))
+	srv.deliverMessage(clientID, msg, defaultIterateOptions(msg.Topic))
 	if srv.hooks.OnWillPublished != nil {
 		srv.hooks.OnWillPublished(context.Background(), clientID, req.Message)
 	}
@@ -841,8 +833,6 @@ func defaultServer() *server {
 		queueStore:     make(map[string]queue.Store),
 		unackStore:     make(map[string]unack.Store),
 	}
-
-	srv.deliverMessageHandler = srv.deliverMessage
 	srv.publishService = &publishService{server: srv}
 	return srv
 }
@@ -1087,6 +1077,13 @@ func (srv *server) newClient(c net.Conn) (*client, error) {
 		opts:          &ClientOptions{},
 		cleanWillFlag: false,
 		config:        cfg,
+		register:      srv.registerClient,
+		unregister:    srv.unregisterClient,
+		deliverMessage: func(srcClientID string, msg *gmqtt.Message, options subscription.IterationOptions) (matched bool) {
+			srv.mu.Lock()
+			defer srv.mu.Unlock()
+			return srv.deliverMessage(srcClientID, msg, options)
+		},
 	}
 	client.packetReader = packets.NewReader(client.bufr)
 	client.packetWriter = packets.NewWriter(client.bufw)
@@ -1417,6 +1414,7 @@ func (srv *server) Stop(ctx context.Context) error {
 		//zaplog.Sync()
 	}()
 	srv.exit()
+	// TODO race condition
 	srv.wg.Wait()
 
 	for _, l := range srv.tcpListener {

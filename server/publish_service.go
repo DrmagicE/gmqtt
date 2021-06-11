@@ -8,6 +8,6 @@ type publishService struct {
 
 func (p *publishService) Publish(message *gmqtt.Message) {
 	p.server.mu.Lock()
-	p.server.deliverMessageHandler("", message, defaultIterateOptions(message.Topic))
+	p.server.deliverMessage("", message, defaultIterateOptions(message.Topic))
 	p.server.mu.Unlock()
 }
