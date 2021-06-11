@@ -18,7 +18,6 @@ require (
 	github.com/iancoleman/strcase v0.1.2
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.4.0
-	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/cobra v1.0.0
 	github.com/stretchr/testify v1.6.1
 	go.uber.org/zap v1.13.0

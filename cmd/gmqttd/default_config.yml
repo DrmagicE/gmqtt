@@ -40,7 +40,7 @@ mqtt:
   inflight_expiry: 30s
   max_packet_size: 268435456
   server_receive_maximum: 100
-  max_keepalive: 60
+  max_keepalive: 300
   topic_alias_maximum: 10
   subscription_identifier_available: true
   wildcard_subscription_available: true
