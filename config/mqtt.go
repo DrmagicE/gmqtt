@@ -21,7 +21,7 @@ var (
 		InflightExpiry:             30 * time.Second,
 		MaxPacketSize:              packets.MaximumSize,
 		ReceiveMax:                 100,
-		MaxKeepAlive:               60,
+		MaxKeepAlive:               300,
 		TopicAliasMax:              10,
 		SubscriptionIDAvailable:    true,
 		SharedSubAvailable:         true,
