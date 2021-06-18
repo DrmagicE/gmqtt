@@ -272,6 +272,7 @@ func (client *client) setError(err error) {
 		if err != nil && err != io.EOF {
 			zaplog.Error("connection lost",
 				zap.String("client_id", client.opts.ClientID),
+				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.Error(err))
 			client.err = err
 			if client.version == packets.Version5 {
