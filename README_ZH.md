@@ -1,4 +1,4 @@
-# Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Build Status](https://travis-ci.org/DrmagicE/Gmqtt.svg?branch=master)](https://travis-ci.org/DrmagicE/Gmqtt) [![codecov](https://codecov.io/gh/DrmagicE/Gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/Gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/Gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/Gmqtt)
+# Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) ![Build Status](https://github.com/DrmagicE/gmqtt/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
 News: 集群模式已支持，示例和详情请参考[federation plugin](./plugin/federation/README.md)。
 
