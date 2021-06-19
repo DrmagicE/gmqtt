@@ -50,7 +50,7 @@ func (a *Auth) Get(ctx context.Context, req *GetAccountRequest) (resp *GetAccoun
 
 // saveFileHandler is the default handler for auth.saveFile, must call after auth.mu is locked
 func (a *Auth) saveFileHandler() error {
-	tmpfile, err := ioutil.TempFile("", "gmqtt_password")
+	tmpfile, err := ioutil.TempFile("./", "gmqtt_password")
 	if err != nil {
 		return err
 	}
