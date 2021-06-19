@@ -33,7 +33,6 @@ type Options struct {
 }
 
 type Queue struct {
-	once           *sync.Once
 	cond           *sync.Cond
 	clientID       string
 	version        packets.Version
@@ -56,7 +55,6 @@ type Queue struct {
 
 func New(opts Options) (*Queue, error) {
 	return &Queue{
-		once:            &sync.Once{},
 		cond:            sync.NewCond(&sync.Mutex{}),
 		clientID:        opts.ClientID,
 		max:             opts.MaxQueuedMsg,
@@ -92,15 +90,12 @@ func (q *Queue) Close() error {
 }
 
 func (q *Queue) setLen(conn redigo.Conn) error {
-	var err error
-	q.once.Do(func() {
-		l, e := conn.Do("llen", getKey(q.clientID))
-		if e != nil {
-			err = e
-		}
-		q.len = int(l.(int64))
-	})
-	return err
+	l, err := conn.Do("llen", getKey(q.clientID))
+	if err != nil {
+		return err
+	}
+	q.len = int(l.(int64))
+	return nil
 }
 
 func (q *Queue) Init(opts *queue.InitOptions) error {
@@ -150,10 +145,7 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 		q.cond.L.Unlock()
 		q.cond.Signal()
 	}()
-	err = q.setLen(conn)
-	if err != nil {
-		return err
-	}
+
 	defer func() {
 		if drop {
 			if dropErr == queue.ErrDropExpiredInflight {
@@ -165,7 +157,6 @@ func (q *Queue) Add(elem *queue.Elem) (err error) {
 				return
 			} else {
 				err = conn.Send("lrem", getKey(q.clientID), 1, dropBytes)
-
 			}
 			q.notifier.NotifyDropped(dropElem, dropErr)
 		} else {
@@ -293,7 +284,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 	if !q.inflightDrained {
 		panic("must call ReadInflight to drain all inflight messages before Read")
 	}
-	for (q.current >= q.len) && !q.closed {
+	for q.current >= q.len && !q.closed {
 		q.cond.Wait()
 	}
 	if q.closed {
@@ -351,6 +342,7 @@ func (q *Queue) Read(pids []packets.PacketID) (elems []*queue.Elem, err error) {
 			}
 			pflag++
 			nb := e.Encode()
+
 			err = conn.Send("lset", getKey(q.clientID), q.current, nb)
 			q.current++
 			inflightDelta++
