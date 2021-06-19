@@ -28,12 +28,13 @@ func (a *Auth) OnBasicAuthWrapper(pre server.OnBasicAuth) server.OnBasicAuth {
 		}
 		if !ok {
 			log.Debug("authentication failed", zap.String("username", string(req.Connect.Username)))
-			switch client.Version() {
-			case packets.Version311:
+			v := client.Version()
+			if packets.IsVersion3X(v) {
 				return &codes.Error{
 					Code: codes.V3NotAuthorized,
 				}
-			case packets.Version5:
+			}
+			if packets.IsVersion5(v) {
 				return &codes.Error{
 					Code: codes.NotAuthorized,
 				}

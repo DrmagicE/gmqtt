@@ -51,7 +51,7 @@ func (p *Unsuback) Unpack(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if p.Version == Version311 {
+	if IsVersion3X(p.Version) {
 		return nil
 	}
 

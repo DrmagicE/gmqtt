@@ -31,3 +31,12 @@ func TestReadConnectPacketErr_V311(t *testing.T) {
 	a.Nil(connectPacket)
 	a.Error(codes.ErrMalformed, err)
 }
+
+func TestReadConnect_V31(t *testing.T) {
+	a := assert.New(t)
+	b := []byte{0x10, 0x0f, 0, 0x06, 'M', 'Q', 'I', 's', 'd', 'p', 0x03, 0x02, 0x00, 0x0a, 0x00, 0x01, 0x74}
+	buf := bytes.NewBuffer(b)
+	connectPacket, err := NewReader(buf).ReadPacket()
+	a.NoError(err)
+	a.EqualValues(10, connectPacket.(*Connect).KeepAlive)
+}

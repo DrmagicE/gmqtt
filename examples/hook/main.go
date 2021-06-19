@@ -56,12 +56,14 @@ func main() {
 			return nil
 		}
 		// check the client version, return a compatible reason code.
-		switch client.Version() {
-		case packets.Version5:
-			return codes.NewError(codes.BadUserNameOrPassword)
-		case packets.Version311:
+		v := client.Version()
+		if packets.IsVersion3X(v) {
 			return codes.NewError(codes.V3BadUsernameorPassword)
 		}
+		if packets.IsVersion5(v) {
+			return codes.NewError(codes.BadUserNameOrPassword)
+		}
+
 		// return nil if pass authentication.
 		return nil
 	}

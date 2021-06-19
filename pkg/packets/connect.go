@@ -149,12 +149,12 @@ func (c *Connect) Unpack(r io.Reader) (err error) {
 		return codes.ErrMalformed
 	}
 	c.Version = c.ProtocolLevel
-	if c.ProtocolLevel != Version311 && c.ProtocolLevel != Version5 {
+	if name, ok := version2protoName[c.ProtocolLevel]; !ok {
 		return codes.NewError(codes.V3UnacceptableProtocolVersion)
-	}
-	if !bytes.Equal(c.ProtocolName, []byte{'M', 'Q', 'T', 'T'}) {
+	} else if !bytes.Equal(c.ProtocolName, name) {
 		return codes.NewError(codes.UnsupportedProtocolVersion)
 	}
+
 	connectFlags, err := bufr.ReadByte()
 	if err != nil {
 		return codes.ErrMalformed
@@ -198,7 +198,7 @@ func (c *Connect) unpackPayload(bufr *bytes.Buffer) error {
 		return err
 	}
 
-	if c.Version == Version311 && len(c.ClientID) == 0 && !c.CleanStart { // v311 [MQTT-3.1.3-7]
+	if IsVersion3X(c.Version) && len(c.ClientID) == 0 && !c.CleanStart { // v311 [MQTT-3.1.3-7]
 		return codes.NewError(codes.V3IdentifierRejected) // v311 //[MQTT-3.1.3-8]
 	}
 
