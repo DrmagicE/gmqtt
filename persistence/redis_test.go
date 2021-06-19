@@ -1,8 +1,9 @@
+// +build !windows
+
 package persistence
 
 import (
 	"os/exec"
-	"runtime"
 	"testing"
 	"time"
 
@@ -104,17 +105,8 @@ func TestRedis(t *testing.T) {
 }
 
 func runContainer() (string, error) {
-	if runtime.GOOS == "windows" {
-		_ = exec.Command("cmd", "/c", "docker rm -f gmqtt-testing").Run()
-	} else {
-		_ = exec.Command("/bin/sh", "-c", "docker rm -f gmqtt-testing").Run()
-	}
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", "docker run -d --name gmqtt-testing -p 6379:6379 redis")
-	} else {
-		cmd = exec.Command("/bin/sh", "-c", "docker run -d --name gmqtt-testing -p 6379:6379 redis")
-	}
+	_ = exec.Command("/bin/sh", "-c", "docker rm -f gmqtt-testing").Run()
+	cmd := exec.Command("/bin/sh", "-c", "docker run -d --name gmqtt-testing -p 6379:6379 redis")
 	name, err := cmd.Output()
 	if err != nil {
 		return "", err
