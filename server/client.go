@@ -434,7 +434,9 @@ func (client *client) readLoop() {
 
 // Close closes the client connection. The returned channel will be closed after unregisterClient process has been done
 func (client *client) Close() {
-	_ = client.rwc.Close()
+	if client.rwc != nil {
+		_ = client.rwc.Close()
+	}
 }
 
 var pid = os.Getpid()
@@ -503,7 +505,7 @@ func convertUint32(u *uint32, defaultValue uint32) uint32 {
 func sendErrConnack(cli *client, err error) {
 	codeErr := converError(err)
 	// Override the error code if it is invalid for V3 client.
-	if cli.version == packets.Version311 && codeErr.Code > codes.V3NotAuthorized {
+	if packets.IsVersion3X(cli.version) && codeErr.Code > codes.V3NotAuthorized {
 		codeErr.Code = codes.NotAuthorized
 	}
 	cli.out <- &packets.Connack{
@@ -560,7 +562,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 					code = codes.Success
 				}
 			case *packets.Auth:
-				if conn == nil || client.version == packets.Version311 {
+				if conn == nil || packets.IsVersion3X(client.version) {
 					err = codes.ErrProtocol
 					break
 				}
@@ -648,6 +650,7 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				} else {
 					maxQoS = byte(0)
 				}
+
 				connackPpt = &packets.Properties{
 					SessionExpiryInterval: &authOpts.SessionExpiry,
 					ReceiveMaximum:        &authOpts.ReceiveMax,
@@ -682,7 +685,6 @@ func (client *client) connectWithTimeOut() (ok bool) {
 				connack.Properties = connackPpt
 			}
 			client.write(connack)
-			//client.out <- connack
 			return
 		case <-timeout.C:
 			err = ErrConnectTimeOut
@@ -730,7 +732,7 @@ func (client *client) connectHandler(conn *packets.Connect) (authOpts *AuthOptio
 	// default auth options
 	authOpts = client.defaultAuthOptions(conn)
 
-	if client.version == packets.Version311 || (client.version == packets.Version5 && conn.Properties.AuthMethod == nil) {
+	if packets.IsVersion3X(client.version) || (packets.IsVersion5(client.version) && conn.Properties.AuthMethod == nil) {
 		err = client.basicAuth(conn, authOpts)
 	}
 	if client.version == packets.Version5 && conn.Properties.AuthMethod != nil {
@@ -861,10 +863,9 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		if ce := converError(err); ce != nil {
 			suback.Properties = getErrorProperties(client, &ce.ErrorDetails)
 			for k := range suback.Payload {
-				switch client.version {
-				case packets.Version311:
+				if packets.IsVersion3X(client.version) {
 					suback.Payload[k] = packets.SubscribeFailure
-				case packets.Version5:
+				} else {
 					suback.Payload[k] = ce.Code
 				}
 			}
@@ -901,7 +902,7 @@ func (client *client) subscribeHandler(sub *packets.Subscribe) *codes.Error {
 		var err error
 		if subErr != nil {
 			code = subErr.Code
-			if client.version == packets.Version311 {
+			if packets.IsVersion3X(client.version) {
 				code = packets.SubscribeFailure
 			}
 		}

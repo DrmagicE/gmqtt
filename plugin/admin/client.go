@@ -49,9 +49,9 @@ func (c *clientService) Delete(ctx context.Context, req *DeleteClientRequest) (*
 	if req.CleanSession {
 		c.a.clientService.TerminateSession(req.ClientId)
 	} else {
-		c := c.a.clientService.GetClient(req.ClientId)
-		if c != nil {
-			c.Close()
+		client := c.a.clientService.GetClient(req.ClientId)
+		if client != nil {
+			client.Close()
 		}
 	}
 	return &empty.Empty{}, nil

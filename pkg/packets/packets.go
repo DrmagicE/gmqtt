@@ -21,7 +21,14 @@ type Version = byte
 
 type QoS = byte
 
+var version2protoName = map[Version][]byte{
+	Version31:  {'M', 'Q', 'I', 's', 'd', 'p'},
+	Version311: {'M', 'Q', 'T', 'T'},
+	Version5:   {'M', 'Q', 'T', 'T'},
+}
+
 const (
+	Version31  Version = 0x03
 	Version311 Version = 0x04
 	Version5   Version = 0x05
 	// The maximum packet size of a MQTT packet
@@ -79,6 +86,14 @@ const (
 	PayloadFormatBytes  PayloadFormat = 0
 	PayloadFormatString PayloadFormat = 1
 )
+
+func IsVersion3X(v Version) bool {
+	return v == Version311 || v == Version31
+}
+
+func IsVersion5(v Version) bool {
+	return v == Version5
+}
 
 // FixHeader represents the FixHeader of the MQTT packet
 type FixHeader struct {

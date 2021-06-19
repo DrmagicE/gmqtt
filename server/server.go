@@ -130,7 +130,10 @@ func (c *clientService) IterateClient(fn ClientIterateFn) {
 func (c *clientService) GetClient(clientID string) Client {
 	c.srv.mu.Lock()
 	defer c.srv.mu.Unlock()
-	return c.srv.clients[clientID]
+	if c, ok := c.srv.clients[clientID]; ok {
+		return c
+	}
+	return nil
 }
 
 func (c *clientService) GetSession(clientID string) (*gmqtt.Session, error) {
@@ -358,7 +361,7 @@ func (srv *server) registerClient(connect *packets.Connect, client *client) (ses
 				setWillProperties(connect.WillProperties, willMsg)
 			}
 			// use default expiry if the client version is version3.1.1
-			if client.version == packets.Version311 && !connect.CleanStart {
+			if packets.IsVersion3X(client.version) && !connect.CleanStart {
 				expiryInterval = uint32(srv.config.MQTT.SessionExpiry.Seconds())
 			} else if connect.Properties != nil {
 				willDelayInterval = convertUint32(connect.WillProperties.WillDelayInterval, 0)
@@ -1398,6 +1401,7 @@ func (srv *server) Run() (err error) {
 		server.Server.Handler = mux
 		go srv.serveWebSocket(server)
 	}
+	srv.wg.Wait()
 	<-srv.exitedChan
 	return srv.err
 }
@@ -1410,12 +1414,10 @@ func (srv *server) Run() (err error) {
 func (srv *server) Stop(ctx context.Context) error {
 	zaplog.Info("stopping gmqtt server")
 	defer func() {
+		defer close(srv.exitedChan)
 		zaplog.Info("server stopped")
-		//zaplog.Sync()
 	}()
 	srv.exit()
-	// TODO race condition
-	srv.wg.Wait()
 
 	for _, l := range srv.tcpListener {
 		l.Close()
@@ -1445,7 +1447,7 @@ func (srv *server) Stop(ctx context.Context) error {
 	} else {
 		close(done)
 	}
-	defer close(srv.exitedChan)
+
 	select {
 	case <-ctx.Done():
 		zaplog.Warn("server stop timeout, force exit", zap.String("error", ctx.Err().Error()))

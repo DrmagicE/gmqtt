@@ -25,7 +25,7 @@ func (d *Disconnect) String() string {
 func (d *Disconnect) Pack(w io.Writer) error {
 	var err error
 	d.FixHeader = &FixHeader{PacketType: DISCONNECT, Flags: FlagReserved}
-	if d.Version == Version311 {
+	if IsVersion3X(d.Version) {
 		d.FixHeader.RemainLength = 0
 		return d.FixHeader.Pack(w)
 	}
