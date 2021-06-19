@@ -54,8 +54,6 @@ func (a *Auth) saveFileHandler() error {
 	if err != nil {
 		return err
 	}
-	defer tmpfile.Close()
-
 	w := bufio.NewWriter(tmpfile)
 	// get all accounts
 	var accounts []*Account
@@ -76,6 +74,7 @@ func (a *Auth) saveFileHandler() error {
 	if err != nil {
 		return err
 	}
+	tmpfile.Close()
 	// replace the old password file.
 	return os.Rename(tmpfile.Name(), a.config.PasswordFile)
 }
