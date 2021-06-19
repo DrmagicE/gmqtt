@@ -50,12 +50,10 @@ func (a *Auth) Get(ctx context.Context, req *GetAccountRequest) (resp *GetAccoun
 
 // saveFileHandler is the default handler for auth.saveFile, must call after auth.mu is locked
 func (a *Auth) saveFileHandler() error {
-	tmpfile, err := ioutil.TempFile("", "gmqtt_password")
+	tmpfile, err := ioutil.TempFile("./", "gmqtt_password")
 	if err != nil {
 		return err
 	}
-	defer tmpfile.Close()
-
 	w := bufio.NewWriter(tmpfile)
 	// get all accounts
 	var accounts []*Account
@@ -76,6 +74,7 @@ func (a *Auth) saveFileHandler() error {
 	if err != nil {
 		return err
 	}
+	tmpfile.Close()
 	// replace the old password file.
 	return os.Rename(tmpfile.Name(), a.config.PasswordFile)
 }

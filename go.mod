@@ -3,7 +3,6 @@ module github.com/DrmagicE/gmqtt
 go 1.14
 
 require (
-	github.com/gogo/protobuf v1.2.1
 	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.4.2
 	github.com/gomodule/redigo v1.8.2
@@ -23,7 +22,7 @@ require (
 	go.uber.org/zap v1.13.0
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd
-	golang.org/x/tools v0.0.0-20191112195655-aa38f8e97acc
+	golang.org/x/tools v0.0.0-20191112195655-aa38f8e97acc // indirect
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013
 	google.golang.org/grpc v1.34.0
 	google.golang.org/protobuf v1.25.0
