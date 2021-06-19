@@ -654,14 +654,12 @@ func testClose(a *assert.Assertions, store queue.Store) {
 			len int
 			err error
 		}{len: len(rs), err: err}
-
 	}()
 	select {
-	case <-t:
+	case <-result:
 		a.Fail("Read must be blocked before Close")
-	default:
+	case <-t:
 	}
-
 	a.NoError(store.Close())
 	timeout := time.After(5 * time.Second)
 	select {
