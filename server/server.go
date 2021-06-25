@@ -603,7 +603,8 @@ func (srv *server) unregisterClient(client *client) {
 }
 
 func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqtt.Message, sub *gmqtt.Subscription, ids []uint32, q queue.Store) {
-	if !srv.config.MQTT.QueueQos0Msg {
+	mqttCfg := srv.config.MQTT
+	if !mqttCfg.QueueQos0Msg {
 		// If the client with the clientID is not connected, skip qos0 messages.
 		if c := srv.clients[clientID]; c == nil && msg.QoS == packets.Qos0 {
 			return
@@ -622,7 +623,13 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 		msg.Retained = false
 	}
 	var expiry time.Time
-	if msg.MessageExpiry != 0 {
+	if mqttCfg.MessageExpiry != 0 {
+		if msg.MessageExpiry != 0 && int(msg.MessageExpiry) <= int(mqttCfg.MessageExpiry) {
+			expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
+		} else {
+			expiry = now.Add(mqttCfg.MessageExpiry)
+		}
+	} else if msg.MessageExpiry != 0{
 		expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
 	}
 	err := q.Add(&queue.Elem{
