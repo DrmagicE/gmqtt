@@ -42,11 +42,11 @@ type MQTT struct {
 	// SessionExpiryCheckInterval is the interval time for session expiry checker to check whether there
 	// are expired sessions.
 	SessionExpiryCheckInterval time.Duration `yaml:"session_expiry_check_interval"`
-	// MessageExpiry is the lifetime of the message in seconds.
+	// MessageExpiry is the maximum lifetime of the message in seconds.
+	// If a message in the queue is not sent in MessageExpiry time, it will be removed, which means it will not be sent to the subscriber.
 	MessageExpiry time.Duration `yaml:"message_expiry"`
 	// InflightExpiry is the lifetime of the "inflight" message in seconds.
-	// If a "inflight" message is not been acknowledged by a client in InflightExpiry time,
-	// it will be removed when the message queue become full.
+	// If a "inflight" message is not acknowledged by a client in InflightExpiry time, it will be removed when the message queue is full.
 	InflightExpiry time.Duration `yaml:"inflight_expiry"`
 	// MaxPacketSize is the maximum packet size that the server is willing to accept from the client
 	MaxPacketSize uint32 `yaml:"max_packet_size"`
@@ -59,9 +59,10 @@ type MQTT struct {
 	// But if the client version is 3.x, the server has no way to inform the client that the keepalive time has been changed.
 	MaxKeepAlive uint16 `yaml:"max_keepalive"`
 	// TopicAliasMax indicates the highest value that the server will accept as a Topic Alias sent by the client.
-	// This option only affect v5 client.
+	// No-op if the client version is MQTTv3.x
 	TopicAliasMax uint16 `yaml:"topic_alias_maximum"`
 	// SubscriptionIDAvailable indicates whether the server supports Subscription Identifiers.
+	// No-op if the client version is MQTTv3.x .
 	SubscriptionIDAvailable bool `yaml:"subscription_identifier_available"`
 	// SharedSubAvailable indicates whether the server supports Shared Subscriptions.
 	SharedSubAvailable bool `yaml:"shared_subscription_available"`
@@ -75,7 +76,7 @@ type MQTT struct {
 	MaxQueuedMsg int `yaml:"max_queued_messages"`
 	// MaxInflight limits inflight message length of the outgoing messages.
 	// Inflight message is also stored in the message queue, so it must be less than or equal to MaxQueuedMsg.
-	// Inflight message is the QoS 1 or QoS 2 messages that has been sent out to a client but not been acknowledged yet.
+	// Inflight message is the QoS 1 or QoS 2 message that has been sent out to a client but not been acknowledged yet.
 	MaxInflight uint16 `yaml:"max_inflight"`
 	// MaximumQoS is the highest QOS level permitted for a Publish.
 	MaximumQoS uint8 `yaml:"maximum_qos"`
@@ -86,7 +87,7 @@ type MQTT struct {
 	// When set to "overlap" , the server will deliver one message for each matching subscription and respecting the subscription’s QoS in each case.
 	// When set to "onlyonce",the server will deliver the message to the client respecting the maximum QoS of all the matching subscriptions.
 	DeliveryMode string `yaml:"delivery_mode"`
-	// AllowZeroLenClientID indicates whether to allow a client connected with empty client id.
+	// AllowZeroLenClientID indicates whether to allow a client to connect with empty client id.
 	AllowZeroLenClientID bool `yaml:"allow_zero_length_clientid"`
 }
 

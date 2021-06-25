@@ -34,23 +34,55 @@ api:
 #        key: "path_to_key_file"
 
 mqtt:
+  # The maximum session expiry interval in seconds.
   session_expiry: 2h
+  # The interval time for session expiry checker to check whether there are expired sessions.
   session_expiry_check_timer: 20s
+  # The maximum lifetime of the message in seconds.
+  # If a message in the queue is not sent in message_expiry time, it will be dropped, which means it will not be sent to the subscriber.
   message_expiry: 2h
+  # The lifetime of the "inflight" message in seconds.
+  #	If a "inflight" message is not acknowledged by a client in inflight_expiry time, it will be removed when the message queue is full.
   inflight_expiry: 30s
+  # The maximum packet size that the server is willing to accept from the client.
   max_packet_size: 268435456
+  # The maximum number of QoS 1 and QoS 2 publications that the server is willing to process concurrently for the client.
   server_receive_maximum: 100
+  # The maximum keep alive time in seconds allows by the server.
+  #	If the client requests a keepalive time bigger than MaxKeepalive,the server will use MaxKeepAlive as the keepalive time.
+  #	In this case, if the client version is v5, the server will set MaxKeepalive into CONNACK to inform the client.
+  #	But if the client version is 3.x, the server has no way to inform the client that the keepalive time has been changed.
   max_keepalive: 300
+  # The highest value that the server will accept as a Topic Alias sent by the client.
+  # No-op if the client version is MQTTv3.x .
   topic_alias_maximum: 10
+  # Whether the server supports Subscription Identifiers.
+  # No-op if the client version is MQTTv3.x .
   subscription_identifier_available: true
+  # Whether the server supports Wildcard Subscriptions.
   wildcard_subscription_available: true
+  # Whether the server supports Shared Subscriptions.
   shared_subscription_available: true
+  # The highest QOS level permitted for a Publish.
   maximum_qos: 2
+  # Whether the server supports retained messages.
   retain_available: true
+  # The maximum queue length of the outgoing messages.
+  #	If the queue is full, some message will be dropped.
+  #	The message dropping strategy is described in the document of the persistence/queue.Store interface.
   max_queued_messages: 1000
+  # The limits of inflight message length of the outgoing messages.
+  #	Inflight message is also stored in the message queue, so it must be less than or equal to max_queued_messages.
+  #	Inflight message is the QoS 1 or QoS 2 message that has been sent out to a client but not been acknowledged yet.
   max_inflight: 100
+  # Whether to store QoS 0 message for a offline session.
   queue_qos0_messages: true
-  delivery_mode: onlyonce # overlap or onlyonce
+  # The delivery mode. The possible value can be "overlap" or "onlyonce".
+  #	It is possible for a client’s subscriptions to overlap so that a published message might match multiple filters.
+  #	When set to "overlap" , the server will deliver one message for each matching subscription and respecting the subscription’s QoS in each case.
+  #	When set to "onlyonce", the server will deliver the message to the client respecting the maximum QoS of all the matching subscriptions.
+  delivery_mode: onlyonce
+  # Whether to allow a client to connect with empty client id.
   allow_zero_length_clientid: true
 
 persistence:
