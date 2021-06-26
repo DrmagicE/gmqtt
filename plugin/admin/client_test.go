@@ -11,9 +11,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 	"github.com/DrmagicE/gmqtt/server"
 )
+
+var mockConfig = config.Config{
+	MQTT: config.MQTT{
+		MaxQueuedMsg: 10,
+	},
+}
 
 type dummyConn struct {
 	net.Conn
@@ -38,7 +45,7 @@ func TestClientService_List_Get(t *testing.T) {
 	admin := &Admin{
 		statsReader:   sr,
 		clientService: cs,
-		store:         newStore(sr),
+		store:         newStore(sr, mockConfig),
 	}
 	c := &clientService{
 		a: admin,
@@ -96,7 +103,7 @@ func TestClientService_List_Get(t *testing.T) {
 			DisconnectedAt:       nil,
 			SessionExpiry:        uint32(k),
 			MaxInflight:          uint32(k),
-			MaxQueue:             uint32(k),
+			MaxQueue:             uint32(mockConfig.MQTT.MaxQueuedMsg),
 			PacketsReceivedBytes: 0,
 			PacketsReceivedNums:  0,
 			PacketsSendBytes:     0,
@@ -132,7 +139,7 @@ func TestClientService_Delete(t *testing.T) {
 	admin := &Admin{
 		statsReader:   sr,
 		clientService: cs,
-		store:         newStore(sr),
+		store:         newStore(sr, mockConfig),
 	}
 	c := &clientService{
 		a: admin,
@@ -158,7 +165,7 @@ func TestClientService_Delete_CleanSession(t *testing.T) {
 	admin := &Admin{
 		statsReader:   sr,
 		clientService: cs,
-		store:         newStore(sr),
+		store:         newStore(sr, mockConfig),
 	}
 	c := &clientService{
 		a: admin,

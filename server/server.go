@@ -629,7 +629,7 @@ func (srv *server) addMsgToQueueLocked(now time.Time, clientID string, msg *gmqt
 		} else {
 			expiry = now.Add(mqttCfg.MessageExpiry)
 		}
-	} else if msg.MessageExpiry != 0{
+	} else if msg.MessageExpiry != 0 {
 		expiry = now.Add(time.Duration(msg.MessageExpiry) * time.Second)
 	}
 	err := q.Add(&queue.Elem{

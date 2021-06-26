@@ -110,5 +110,9 @@ func (c MQTT) Validate() error {
 	if c.DeliveryMode != Overlap && c.DeliveryMode != OnlyOnce {
 		return fmt.Errorf("invalid delivery_mode: %s", c.DeliveryMode)
 	}
+
+	if c.MaxQueuedMsg < int(c.MaxInflight) {
+		return fmt.Errorf("max_queued_message cannot be less than max_inflight")
+	}
 	return nil
 }

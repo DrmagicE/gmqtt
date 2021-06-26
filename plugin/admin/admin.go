@@ -56,7 +56,7 @@ func (a *Admin) Load(service server.Server) error {
 		return err
 	}
 	a.statsReader = service.StatsManager()
-	a.store = newStore(a.statsReader)
+	a.store = newStore(a.statsReader, service.GetConfig())
 	a.store.subscriptionService = service.SubscriptionService()
 	a.publisher = service.Publisher()
 	a.clientService = service.ClientService()
