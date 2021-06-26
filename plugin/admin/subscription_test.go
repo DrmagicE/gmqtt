@@ -21,7 +21,7 @@ func TestSubscriptionService_List(t *testing.T) {
 	ss := server.NewMockSubscriptionService(ctrl)
 	client := server.NewMockClient(ctrl)
 	admin := &Admin{
-		store: newStore(nil),
+		store: newStore(nil, mockConfig),
 	}
 	sub := &subscriptionService{
 		a: admin,
@@ -63,7 +63,7 @@ func TestSubscriptionService_Filter(t *testing.T) {
 
 	ss := server.NewMockSubscriptionService(ctrl)
 	admin := &Admin{
-		store: newStore(nil),
+		store: newStore(nil, mockConfig),
 	}
 	sub := &subscriptionService{
 		a: admin,
@@ -185,7 +185,7 @@ func TestSubscriptionService_Filter_InvalidArgument(t *testing.T) {
 
 			ss := server.NewMockSubscriptionService(ctrl)
 			admin := &Admin{
-				store: newStore(nil),
+				store: newStore(nil, mockConfig),
 			}
 			sub := &subscriptionService{
 				a: admin,
@@ -208,7 +208,7 @@ func TestSubscriptionService_Subscribe(t *testing.T) {
 
 	ss := server.NewMockSubscriptionService(ctrl)
 	admin := &Admin{
-		store: newStore(nil),
+		store: newStore(nil, mockConfig),
 	}
 	sub := &subscriptionService{
 		a: admin,
@@ -307,7 +307,7 @@ func TestSubscriptionService_Subscribe_InvalidArgument(t *testing.T) {
 
 			ss := server.NewMockSubscriptionService(ctrl)
 			admin := &Admin{
-				store: newStore(nil),
+				store: newStore(nil, mockConfig),
 			}
 			sub := &subscriptionService{
 				a: admin,
@@ -328,7 +328,7 @@ func TestSubscriptionService_Unsubscribe(t *testing.T) {
 
 	ss := server.NewMockSubscriptionService(ctrl)
 	admin := &Admin{
-		store: newStore(nil),
+		store: newStore(nil, mockConfig),
 	}
 	sub := &subscriptionService{
 		a: admin,
@@ -375,7 +375,7 @@ func TestSubscriptionService_Unsubscribe_InvalidArgument(t *testing.T) {
 
 			ss := server.NewMockSubscriptionService(ctrl)
 			admin := &Admin{
-				store: newStore(nil),
+				store: newStore(nil, mockConfig),
 			}
 			sub := &subscriptionService{
 				a: admin,

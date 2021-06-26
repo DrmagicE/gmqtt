@@ -21,11 +21,12 @@ type store struct {
 	subscriptionService server.SubscriptionService
 }
 
-func newStore(statsReader server.StatsReader) *store {
+func newStore(statsReader server.StatsReader, config config.Config) *store {
 	return &store{
 		clientIndexer: NewIndexer(),
 		subIndexer:    NewIndexer(),
 		statsReader:   statsReader,
+		config:        config,
 	}
 }
 
@@ -54,7 +55,7 @@ func (s *store) removeSubscription(clientID string, topicName string) {
 }
 
 func (s *store) addClient(client server.Client) {
-	c := newClientInfo(client)
+	c := newClientInfo(client, uint32(s.config.MQTT.MaxQueuedMsg))
 	s.clientMu.Lock()
 	s.clientIndexer.Set(c.ClientId, c)
 	s.clientMu.Unlock()
@@ -85,7 +86,7 @@ func (s *store) GetClientByID(clientID string) *Client {
 	return c
 }
 
-func newClientInfo(client server.Client) *Client {
+func newClientInfo(client server.Client, maxQueue uint32) *Client {
 	clientOptions := client.ClientOptions()
 	rs := &Client{
 		ClientId:       clientOptions.ClientID,
@@ -98,7 +99,7 @@ func newClientInfo(client server.Client) *Client {
 		DisconnectedAt: nil,
 		SessionExpiry:  clientOptions.SessionExpiry,
 		MaxInflight:    uint32(clientOptions.MaxInflight),
-		MaxQueue:       uint32(clientOptions.ReceiveMax),
+		MaxQueue:       maxQueue,
 	}
 	return rs
 }
