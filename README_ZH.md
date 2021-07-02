@@ -1,8 +1,7 @@
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) ![Build Status](https://github.com/DrmagicE/gmqtt/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
-News: 集群模式已支持，示例和详情请参考[federation plugin](./plugin/federation/README.md)。
 
-Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的MQTT broker，其完整实现了MQTT V3.1.1和V5协议。
+Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的MQTT broker，其完整实现了MQTT V3.x和V5协议。
 
 # 更多资料
 [Gmqtt插件机制详解](https://juejin.cn/post/6908305981923409934)  
