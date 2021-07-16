@@ -113,7 +113,7 @@ func TestPeer_initStream_CleanStart(t *testing.T) {
 	}).Times(4)
 
 	client.EXPECT().EventStream(gomock.Any())
-	_, err := p.initStream(client)
+	_, err := p.initStream(client, nil)
 
 	a.NoError(err)
 	for k, v := range msgEvents {
@@ -166,11 +166,7 @@ func TestPeer_initStream_CleanStartFalse(t *testing.T) {
 
 	client.EXPECT().EventStream(gomock.Any())
 
-	_, err := p.initStream(client)
+	_, err := p.initStream(client,nil)
 	a.NoError(err)
-
-}
-
-func TestEventQueue(t *testing.T) {
 
 }
