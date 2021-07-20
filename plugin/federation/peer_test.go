@@ -166,7 +166,7 @@ func TestPeer_initStream_CleanStartFalse(t *testing.T) {
 
 	client.EXPECT().EventStream(gomock.Any())
 
-	_, err := p.initStream(client,nil)
+	_, err := p.initStream(client, nil)
 	a.NoError(err)
 
 }

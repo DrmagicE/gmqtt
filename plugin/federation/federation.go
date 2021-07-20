@@ -174,9 +174,19 @@ func (s *sessionMgr) add(nodeName string, id string) (cleanStart bool, nextID ui
 			// TODO config
 			seenEvents:  newLRUCache(100),
 			nextEventID: 0,
+			close:       make(chan struct{}),
 		}
 	}
 	return
+}
+
+func (s *sessionMgr) del(nodeName string) {
+	s.Lock()
+	defer s.Unlock()
+	if sess := s.sessions[nodeName]; sess != nil {
+		close(sess.close)
+	}
+	delete(s.sessions, nodeName)
 }
 
 func (s *sessionMgr) get(nodeName string) *session {
@@ -334,6 +344,7 @@ type session struct {
 	nextEventID uint64
 	// seenEvents cache recently seen events to avoid duplicate events.
 	seenEvents *lruCache
+	close      chan struct{}
 }
 
 // lruCache is the cache for recently seen events.
@@ -387,6 +398,11 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 	if err != nil {
 		return nil, err
 	}
+	f.memberMu.Lock()
+	if f.peers[nodeName] == nil {
+		return nil, status.Errorf(codes.Internal, "Hello: the node [%s] has not yet joined", nodeName)
+	}
+	f.memberMu.Unlock()
 	cleanStart, nextID := f.sessionMgr.add(nodeName, req.SessionId)
 	if cleanStart {
 		_ = f.fedSubStore.UnsubscribeAll(nodeName)
@@ -449,31 +465,50 @@ func (f *Federation) EventStream(stream Federation_EventStreamServer) (err error
 	}
 	sess := f.sessionMgr.get(nodeName)
 	if sess == nil {
-		return status.Errorf(codes.Internal, "EventStream: node not exist")
+		return status.Errorf(codes.Internal, "EventStream: node [%s] does not exist", nodeName)
 	}
-	for {
-		var in *Event
-		in, err = stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if ce := log.Check(zapcore.DebugLevel, "event received"); ce != nil {
-			ce.Write(zap.String("event", in.String()))
-		}
-		ack := f.eventStreamHandler(sess, in)
+	errCh := make(chan error, 1)
+	done := make(chan struct{})
+	// close the session if the client node has been mark as failed.
+	go func() {
+		<-sess.close
+		errCh <- fmt.Errorf("EventStream: the session of node [%s] has been closed", nodeName)
+		close(done)
+	}()
+	go func() {
+		for {
+			var in *Event
+			select {
+			case <-done:
+			default:
+				in, err = stream.Recv()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if ce := log.Check(zapcore.DebugLevel, "event received"); ce != nil {
+					ce.Write(zap.String("event", in.String()))
+				}
 
-		err = stream.Send(ack)
-		if err != nil {
-			return err
+				ack := f.eventStreamHandler(sess, in)
+
+				err = stream.Send(ack)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if ce := log.Check(zapcore.DebugLevel, "event ack sent"); ce != nil {
+					ce.Write(zap.Uint64("id", ack.EventId))
+				}
+				sess.nextEventID = ack.EventId + 1
+			}
 		}
-		if ce := log.Check(zapcore.DebugLevel, "event ack sent"); ce != nil {
-			ce.Write(zap.Uint64("id", ack.EventId))
-		}
-		sess.nextEventID = ack.EventId + 1
+	}()
+	err = <-errCh
+	if err == io.EOF {
+		return nil
 	}
+	return err
 }
 
 func (f *Federation) mustEmbedUnimplementedFederationServer() {

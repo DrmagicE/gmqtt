@@ -94,6 +94,7 @@ func (f *Federation) nodeFail(member serf.MemberEvent) {
 			p.stop()
 			delete(f.peers, v.Name)
 			_ = f.fedSubStore.UnsubscribeAll(v.Name)
+			f.sessionMgr.del(v.Name)
 		}
 	}
 }
