@@ -412,6 +412,7 @@ func TestFederation_Hello(t *testing.T) {
 	p, _ := New(testConfig)
 	f := p.(*Federation)
 	clientNodeName := "node1"
+	f.peers[clientNodeName] = &peer{}
 	clientSid := "session_id"
 	f.fedSubStore.Subscribe(clientNodeName, &gmqtt.Subscription{
 		TopicFilter: "topicA",
