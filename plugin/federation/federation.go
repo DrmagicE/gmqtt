@@ -399,10 +399,12 @@ func (f *Federation) Hello(ctx context.Context, req *ClientHello) (resp *ServerH
 		return nil, err
 	}
 	f.memberMu.Lock()
-	if f.peers[nodeName] == nil {
+	p := f.peers[nodeName]
+	f.memberMu.Unlock()
+	if p == nil {
 		return nil, status.Errorf(codes.Internal, "Hello: the node [%s] has not yet joined", nodeName)
 	}
-	f.memberMu.Unlock()
+
 	cleanStart, nextID := f.sessionMgr.add(nodeName, req.SessionId)
 	if cleanStart {
 		_ = f.fedSubStore.UnsubscribeAll(nodeName)

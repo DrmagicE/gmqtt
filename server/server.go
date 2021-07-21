@@ -163,6 +163,7 @@ func (c *clientService) TerminateSession(clientID string) {
 type server struct {
 	wg       sync.WaitGroup
 	initOnce sync.Once
+	stopOnce sync.Once
 	mu       sync.RWMutex //gard clients & offlineClients map
 	status   int32        //server status
 	// clients stores the  online clients
@@ -1419,58 +1420,61 @@ func (srv *server) Run() (err error) {
 //  3. Waiting for all connections have been closed
 //  4. Triggering OnStop()
 func (srv *server) Stop(ctx context.Context) error {
-	zaplog.Info("stopping gmqtt server")
-	defer func() {
-		defer close(srv.exitedChan)
-		zaplog.Info("server stopped")
-	}()
-	srv.exit()
-
-	for _, l := range srv.tcpListener {
-		l.Close()
-	}
-	for _, ws := range srv.websocketServer {
-		ws.Server.Shutdown(ctx)
-	}
-	// close all idle clients
-	srv.mu.Lock()
-	chs := make([]chan struct{}, len(srv.clients))
-	i := 0
-	for _, c := range srv.clients {
-		chs[i] = c.closed
-		i++
-		c.Close()
-	}
-	srv.mu.Unlock()
-
-	done := make(chan struct{})
-	if len(chs) != 0 {
-		go func() {
-			for _, v := range chs {
-				<-v
-			}
-			close(done)
+	var err error
+	srv.stopOnce.Do(func() {
+		zaplog.Info("stopping gmqtt server")
+		defer func() {
+			defer close(srv.exitedChan)
+			zaplog.Info("server stopped")
 		}()
-	} else {
-		close(done)
-	}
+		srv.exit()
 
-	select {
-	case <-ctx.Done():
-		zaplog.Warn("server stop timeout, force exit", zap.String("error", ctx.Err().Error()))
-		return ctx.Err()
-	case <-done:
-		for _, v := range srv.plugins {
-			zaplog.Info("unloading plugin", zap.String("name", v.Name()))
-			err := v.Unload()
-			if err != nil {
-				zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
+		for _, l := range srv.tcpListener {
+			l.Close()
+		}
+		for _, ws := range srv.websocketServer {
+			ws.Server.Shutdown(ctx)
+		}
+		// close all idle clients
+		srv.mu.Lock()
+		chs := make([]chan struct{}, len(srv.clients))
+		i := 0
+		for _, c := range srv.clients {
+			chs[i] = c.closed
+			i++
+			c.Close()
+		}
+		srv.mu.Unlock()
+
+		done := make(chan struct{})
+		if len(chs) != 0 {
+			go func() {
+				for _, v := range chs {
+					<-v
+				}
+				close(done)
+			}()
+		} else {
+			close(done)
+		}
+
+		select {
+		case <-ctx.Done():
+			zaplog.Warn("server stop timeout, force exit", zap.String("error", ctx.Err().Error()))
+			err = ctx.Err()
+			return
+		case <-done:
+			for _, v := range srv.plugins {
+				zaplog.Info("unloading plugin", zap.String("name", v.Name()))
+				err := v.Unload()
+				if err != nil {
+					zaplog.Warn("plugin unload error", zap.String("error", err.Error()))
+				}
+			}
+			if srv.hooks.OnStop != nil {
+				srv.hooks.OnStop(context.Background())
 			}
 		}
-		if srv.hooks.OnStop != nil {
-			srv.hooks.OnStop(context.Background())
-		}
-		return nil
-	}
-
+	})
+	return err
 }
