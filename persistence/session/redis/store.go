@@ -111,6 +111,7 @@ func (s *Store) Iterate(fn session.IterateFn) error {
 		}
 		if len(arr) >= 1 {
 			for _, v := range arr[1:] {
+				if len( v.([]interface{})) > 1 {
 				for _, vv := range v.([]interface{}) {
 					sess, err := getSessionLocked(string(vv.([]uint8)), c)
 					if err != nil {
@@ -119,10 +120,12 @@ func (s *Store) Iterate(fn session.IterateFn) error {
 					cont := fn(sess)
 					if !cont {
 						return nil
+						}
 					}
 				}
 			}
 		}
+
 		iter, _ = redis.Int(arr[0], nil)
 		if iter == 0 {
 			break
