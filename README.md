@@ -124,6 +124,3 @@ $ go test -race ./...
 
 ## Integration Test
 [paho.mqtt.testing](https://github.com/eclipse/paho.mqtt.testing).
-
-# Buy Me a Coffee
-<img src="./docs/images/wechat.jpg" width="300"> &nbsp; &nbsp; &nbsp;<img src="./docs/images/alipay.jpg" width="300">
