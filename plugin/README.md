@@ -1,14 +1,14 @@
 # Plugin
 [Gmqtt插件机制详解](https://juejin.cn/post/6908305981923409934)
 ## How to write plugins
-Gmqtt uses code generator to generate plugin template. 
+Gmqtt uses code generator to generate plugin template.
 
-First, install the CLI tool:
+## 1. Install the CLI tool
 ```bash
 # run under gmqtt project root directory. 
 go install ./cmd/gmqctl 
 ```
-Enjoy: 
+## 2. Run `gmqctl gen plugin`
 ```bash
 $ gmqctl gen plugin --help
 code generator
@@ -27,7 +27,20 @@ Flags:
   -H, --hooks string    The hooks use by the plugin, multiple hooks are separated by ','
   -n, --name string     The plugin name.
   -o, --output string   The output directory.
-
 ```
 
-Details...TODO
+## 3. Edit `plugin_imports.yml`
+Append your plugin name to `plugin_imports.yml`.
+```yaml
+packages:
+  - admin
+  - prometheus
+  - federation
+  - auth
+  # for external plugin, use full import path
+  # - github.com/DrmagicE/gmqtt/plugin/prometheu
+```
+
+## 4. Run `go generate ./...`
+Run `go generate ./...` under the project root directory. The command will recreate the `./cmd/gmqttd/plugins.go` file, 
+which is needed during the compile time.
