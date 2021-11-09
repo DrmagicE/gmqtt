@@ -107,7 +107,6 @@ Gmqtt实现了下列钩子方法。
 | OnWillPublish | 发布遗嘱消息前 | 修改或丢弃遗嘱消息|
 | OnWillPublished| 发布遗嘱消息后| |
 
-在 `/examples/hook` 中有常用钩子的使用方法介绍。
 
 ## 怎么写插件
 [How to write plugins](https://github.com/DrmagicE/gmqtt/blob/master/plugin/README.md)

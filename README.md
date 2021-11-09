@@ -108,7 +108,6 @@ Gmqtt implements the following hooks:
 | OnWillPublish | When the client is going to deliver a will message | Modify or drop the will message |
 | OnWillPublished| When a will message has been delivered| |
 
-See `/examples/hook` for details.
 
 ## How to write plugins
 [How to write plugins](https://github.com/DrmagicE/gmqtt/blob/master/plugin/README.md)
