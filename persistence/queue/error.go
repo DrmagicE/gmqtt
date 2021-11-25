@@ -19,5 +19,5 @@ type InternalError struct {
 }
 
 func (i *InternalError) Error() string {
-	return i.Error()
+	return i.Err.Error()
 }
