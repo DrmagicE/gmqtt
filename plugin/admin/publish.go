@@ -19,7 +19,7 @@ func (p *publisher) mustEmbedUnimplementedPublishServiceServer() {
 
 // Publish publishes a message into broker.
 func (p *publisher) Publish(ctx context.Context, req *PublishRequest) (resp *empty.Empty, err error) {
-	if !packets.ValidV5Topic([]byte(req.TopicName)) {
+	if !packets.ValidTopicName(false, []byte(req.TopicName)) {
 		return nil, ErrInvalidArgument("topic_name", "")
 	}
 	if req.Qos > uint32(packets.Qos2) {

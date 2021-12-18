@@ -72,7 +72,7 @@ func TestPublisher_Publish_InvalidArgument(t *testing.T) {
 			name:  "invalid_topic_name",
 			field: "topic_name",
 			req: &PublishRequest{
-				TopicName: "$share/a",
+				TopicName: "/a/b/+",
 				Qos:       2,
 			},
 		},
