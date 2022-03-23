@@ -3,9 +3,9 @@ package server
 import (
 	"net"
 
-	"go.uber.org/zap"
-
 	"github.com/DrmagicE/gmqtt/config"
+	"github.com/DrmagicE/gmqtt/retained"
+	"go.uber.org/zap"
 )
 
 type Options func(srv *server)
@@ -48,5 +48,12 @@ func WithHook(hooks Hooks) Options {
 func WithLogger(logger *zap.Logger) Options {
 	return func(srv *server) {
 		zaplog = logger
+	}
+}
+
+// WithRetainedStore set retained db of the server. Notice: WithRetainedStore(s) will overwrite retainedDB.
+func WithRetainedStore(store retained.Store) Options {
+	return func(srv *server) {
+		srv.retainedDB = store
 	}
 }
