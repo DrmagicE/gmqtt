@@ -1,5 +1,14 @@
 [中文文档](https://github.com/DrmagicE/gmqtt/blob/master/README_ZH.md)
-# Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Gitter](https://badges.gitter.im/gmqtt/community.svg)](https://gitter.im/gmqtt/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge) ![Build Status](https://github.com/DrmagicE/gmqtt/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
+# Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)  ![Build Status](https://github.com/DrmagicE/gmqtt/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
+
+# Project state
+This project is less maintained due to personal reasons. Here are some information for people who want to use this project.
+
+Gmqtt was used in production and worked well. The production environment was serving hundreds of clients(or maybe thousands or 10 thousands now), and 
+each client published QoS 1 message to report their state every 15 seconds. The subscribers on the cloud would store those state into persist backend.
+All clients were non-persistent session and using v3.1.1 protocol.
+
+It is suggested to evaluate and test carefully before running in your production environment.
 
 
 # Features
@@ -12,7 +21,7 @@ See `Server` interface in `server/server.go` and [admin](https://github.com/Drma
 * Provide GRPC and REST APIs to interact with server. (plugin:[admin](https://github.com/DrmagicE/gmqtt/blob/master/plugin/admin/README.md))
 * Provide session persistence which means the broker can retrieve the session data after restart. 
 Currently, only redis backend is supported.
-* Provide clustering, see [federation plugin](./plugin/federation/README.md) for examples and details.
+* Provide clustering, see [federation plugin](./plugin/federation/README.md) for examples and details. (WARNING: This is an experimental feature, and has never been used in production environment.)
 
 
 # Get Started
