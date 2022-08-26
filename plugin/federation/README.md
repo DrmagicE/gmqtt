@@ -1,4 +1,5 @@
 # Federation
+**WARNING: This is an experimental feature, and has never been used in production environment.**
 
 Federation is a kind of clustering mechanism which provides high-availability and horizontal scaling.
 In Federation mode, multiple gmqtt brokers can be grouped together and "act as one".

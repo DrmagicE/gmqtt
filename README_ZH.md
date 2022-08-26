@@ -1,7 +1,12 @@
 # Gmqtt [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) [![Gitter](https://badges.gitter.im/gmqtt/community.svg)](https://gitter.im/gmqtt/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge) ![Build Status](https://github.com/DrmagicE/gmqtt/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/DrmagicE/gmqtt/branch/master/graph/badge.svg)](https://codecov.io/gh/DrmagicE/gmqtt) [![Go Report Card](https://goreportcard.com/badge/github.com/DrmagicE/gmqtt)](https://goreportcard.com/report/github.com/DrmagicE/gmqtt)
 
-
 Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的MQTT broker，其完整实现了MQTT V3.x和V5协议。
+
+# 项目现状
+由于个人原因，该项目较少维护。以下是一些提供给想使用此项目的人的信息。  
+Gmqtt已用于生产，效果良好。生产环境服务于大约数百个客户（现在可能是数千个或10000个），并且每个客户端以15s一次的频率发布QoS 1消息来报告其状态。
+云上的订阅者会将这些状态存储到持久后端。  
+所有客户端都是非持久会话，使用v3.1.1协议。
 
 # 更多资料
 [Gmqtt插件机制详解](https://juejin.cn/post/6908305981923409934)  
@@ -15,7 +20,7 @@ Gmqtt是用Go语言实现的一个具备灵活灵活扩展能力，高性能的M
 * 提供监控指标，支持prometheus。 (plugin: [prometheus](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/prometheus/READEME.md))
 * GRPC和REST API 支持. (plugin:[admin](https://github.com/DrmagicE/Gmqtt/blob/master/plugin/admin/READEME.md))
 * 支持session持久化，broker重启消息不丢失，目前支持redis持久化。
-* 支持集群, 示例和详情请参考[federation plugin](./plugin/federation/README.md)。
+* 支持集群, 示例和详情请参考[federation plugin](./plugin/federation/README.md)。(注意: 这项特性并没有在生产环境中验证过)
 
 # 开始
 我们需要通过源码编译的方式启动，请确保您所在的机器上已经具备Go环境。
