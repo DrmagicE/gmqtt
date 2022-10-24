@@ -275,6 +275,7 @@ func (client *client) setError(err error) {
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.Error(err))
 			client.err = err
+			client.Close()
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
 					if client.IsConnected() {
