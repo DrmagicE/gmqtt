@@ -1485,6 +1485,7 @@ func (client *client) serve() {
 
 	if client.err != nil {
 		client.Close()
+		fmt.Println("CLOSING CONNECTION")
 		return
 	}
 
