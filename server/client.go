@@ -1473,10 +1473,6 @@ func (client *client) serve() {
 	}
 	readWg.Wait()
 
-	if client.err != nil {
-		client.Close()
-	}
-
 	if client.queueStore != nil {
 		qerr := client.queueStore.Close()
 		if qerr != nil {
@@ -1486,6 +1482,12 @@ func (client *client) serve() {
 	if client.pl != nil {
 		client.pl.close()
 	}
+
+	if client.err != nil {
+		client.Close()
+		return
+	}
+
 	client.wg.Wait()
 	_ = client.rwc.Close()
 }
