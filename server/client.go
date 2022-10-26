@@ -270,12 +270,12 @@ func (client *client) IsConnected() bool {
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
 		if err != nil && err != io.EOF {
-			zaplog.Warn("connection lost",
+			zaplog.Warn("FORKED connection lost",
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.Error(err))
 			client.err = err
-			client.Close()
+			//client.Close()
 			if client.version == packets.Version5 {
 				if code, ok := err.(*codes.Error); ok {
 					if client.IsConnected() {
@@ -1472,6 +1472,10 @@ func (client *client) serve() {
 
 	}
 	readWg.Wait()
+
+	if client.err != nil {
+		client.Close()
+	}
 
 	if client.queueStore != nil {
 		qerr := client.queueStore.Close()
