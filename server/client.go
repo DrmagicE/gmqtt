@@ -270,7 +270,7 @@ func (client *client) IsConnected() bool {
 func (client *client) setError(err error) {
 	client.errOnce.Do(func() {
 		if err != nil && err != io.EOF {
-			zaplog.Warn("FORKED connection lost",
+			zaplog.Warn("connection lost",
 				zap.String("client_id", client.opts.ClientID),
 				zap.String("remote_addr", client.rwc.RemoteAddr().String()),
 				zap.Error(err))
