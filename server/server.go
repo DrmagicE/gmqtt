@@ -1027,11 +1027,13 @@ var defaultUpgrader = &websocket.Upgrader{
 	Subprotocols: []string{"mqtt"},
 }
 
-//实现io.ReadWriter接口
+// 实现io.ReadWriter接口
 // wsConn implements the io.readWriter
 type wsConn struct {
 	net.Conn
-	c *websocket.Conn
+	c   *websocket.Conn
+	buf []byte
+	r   int // buf copy positions
 }
 
 func (ws *wsConn) Close() error {
@@ -1039,14 +1041,24 @@ func (ws *wsConn) Close() error {
 }
 
 func (ws *wsConn) Read(p []byte) (n int, err error) {
-	msgType, r, err := ws.c.NextReader()
-	if err != nil {
-		return 0, err
+	if ws.buf == nil {
+		msgType, buf, err := ws.c.ReadMessage()
+		if err != nil {
+			return 0, err
+		}
+		if msgType != websocket.BinaryMessage {
+			return 0, ErrInvalWsMsgType
+		}
+		ws.buf = buf
 	}
-	if msgType != websocket.BinaryMessage {
-		return 0, ErrInvalWsMsgType
+	n = copy(p, ws.buf[ws.r:])
+	ws.r += n
+	// reset reader buffer
+	if ws.r+1 >= len(ws.buf) {
+		ws.buf = nil
+		ws.r = 0
 	}
-	return r.Read(p)
+	return
 }
 
 func (ws *wsConn) Write(p []byte) (n int, err error) {
@@ -1363,7 +1375,7 @@ func (srv *server) wsHandler() http.HandlerFunc {
 			return
 		}
 		defer c.Close()
-		conn := &wsConn{c.UnderlyingConn(), c}
+		conn := &wsConn{Conn: c.UnderlyingConn(), c: c}
 		client, err := srv.newClient(conn)
 		if err != nil {
 			zaplog.Error("new client fail", zap.Error(err))
