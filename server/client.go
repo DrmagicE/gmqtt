@@ -1295,7 +1295,7 @@ func (client *client) readHandle() {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		close(client.close)
+		safeClose(client.close)
 	}()
 	for packet := range client.in {
 		if client.version == packets.Version5 {
@@ -1484,9 +1484,18 @@ func (client *client) serve() {
 	}
 
 	if client.err != nil {
-		close(client.close)
+		safeClose(client.close)
 	}
 
 	client.wg.Wait()
 	_ = client.rwc.Close()
+}
+
+func safeClose(ch chan struct{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			zaplog.Error(fmt.Sprint("Recovered in channel close %v", r))
+		}
+	}()
+	close(ch)
 }
