@@ -24,7 +24,7 @@ message Subscribe {
 
 message Message{
     string topic_name = 1;
-    string payload = 2;
+    bytes  payload = 2;
     uint32 qos = 3;
     bool retained = 4;
     // the following fields are using in v5 client.
