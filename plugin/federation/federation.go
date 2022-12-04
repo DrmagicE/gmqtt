@@ -581,7 +581,7 @@ func (f *Federation) Name() string {
 func messageToEvent(msg *gmqtt.Message) *Message {
 	eventMsg := &Message{
 		TopicName:       msg.Topic,
-		Payload:         string(msg.Payload),
+		Payload:         msg.Payload,
 		Qos:             uint32(msg.QoS),
 		Retained:        msg.Retained,
 		ContentType:     msg.ContentType,
@@ -607,7 +607,7 @@ func eventToMessage(event *Message) *gmqtt.Message {
 		QoS:             byte(event.Qos),
 		Retained:        event.Retained,
 		Topic:           event.TopicName,
-		Payload:         []byte(event.Payload),
+		Payload:         event.Payload,
 		ContentType:     event.ContentType,
 		CorrelationData: []byte(event.CorrelationData),
 		MessageExpiry:   event.MessageExpiry,

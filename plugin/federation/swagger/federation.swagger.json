@@ -14,7 +14,7 @@
     "/v1/federation/force_leave": {
       "post": {
         "summary": "ForceLeave force forces a member of a Serf cluster to enter the \"left\" state.\nNote that if the member is still actually alive, it will eventually rejoin the cluster.\nThe true purpose of this method is to force remove \"failed\" nodes\nSee https://www.serf.io/docs/commands/force-leave.html for details.",
-        "operationId": "ForceLeave",
+        "operationId": "Membership_ForceLeave",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,7 +23,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -47,7 +47,7 @@
     "/v1/federation/join": {
       "post": {
         "summary": "Join tells the local node to join the an existing cluster.\nSee https://www.serf.io/docs/commands/join.html for details.",
-        "operationId": "Join",
+        "operationId": "Membership_Join",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -56,7 +56,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -80,7 +80,7 @@
     "/v1/federation/leave": {
       "post": {
         "summary": "Leave triggers a graceful leave for the local node.\nThis is used to ensure other nodes see the node as \"left\" instead of \"failed\".\nNote that a leaved node cannot re-join the cluster unless you restart the leaved node.",
-        "operationId": "Leave",
+        "operationId": "Membership_Leave",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -89,7 +89,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -113,7 +113,7 @@
     "/v1/federation/members": {
       "get": {
         "summary": "ListMembers lists all known members in the Serf cluster.",
-        "operationId": "ListMembers",
+        "operationId": "Membership_ListMembers",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -122,7 +122,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -201,15 +201,15 @@
           "type": "string"
         },
         "payload": {
-          "type": "string"
+          "type": "string",
+          "format": "byte"
         },
         "qos": {
           "type": "integer",
           "format": "int64"
         },
         "retained": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "content_type": {
           "type": "string",
@@ -241,8 +241,7 @@
       "type": "object",
       "properties": {
         "clean_start": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "next_event_id": {
           "type": "string",
