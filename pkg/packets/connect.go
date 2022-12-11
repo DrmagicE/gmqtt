@@ -213,7 +213,7 @@ func (c *Connect) unpackPayload(bufr *bytes.Buffer) error {
 		if err != nil {
 			return err
 		}
-		c.WillMsg, err = readUTF8String(true, bufr)
+		c.WillMsg, err = readUTF8String(false, bufr)
 		if err != nil {
 			return err
 		}
