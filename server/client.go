@@ -291,6 +291,7 @@ func (client *client) setError(err error) {
 				}
 			}
 		}
+		close(client.close)
 	})
 }
 
@@ -1294,7 +1295,6 @@ func (client *client) readHandle() {
 			err = errors.New(fmt.Sprint(re))
 		}
 		client.setError(err)
-		close(client.close)
 	}()
 	for packet := range client.in {
 		if client.version == packets.Version5 {
