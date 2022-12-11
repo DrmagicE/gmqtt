@@ -173,7 +173,7 @@ func TestMessageToEvent(t *testing.T) {
 			},
 			expected: &Message{
 				TopicName:       "topic1",
-				Payload:         "topic1",
+				Payload:         []byte("topic1"),
 				Qos:             1,
 				Retained:        true,
 				ContentType:     "ct",
@@ -239,7 +239,7 @@ func TestFederation_eventStreamHandler(t *testing.T) {
 	msgEvent := &Event_Message{
 		Message: &Message{
 			TopicName: "a",
-			Payload:   "b",
+			Payload:   []byte("b"),
 			Qos:       1,
 		},
 	}
