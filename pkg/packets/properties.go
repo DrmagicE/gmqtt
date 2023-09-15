@@ -412,9 +412,10 @@ func (p *Properties) Unpack(bufr *bytes.Buffer, packetType byte) error {
 		case PropTopicAliasMaximum:
 			p.TopicAliasMaximum, err = propertyReadUint16(p.TopicAliasMaximum, newBufr, propType, nil)
 		case PropTopicAlias:
-			p.TopicAlias, err = propertyReadUint16(p.TopicAlias, newBufr, propType, func(u uint16) bool {
-				return u != 0 // [MQTT-3.3.2-8]
-			})
+			p.TopicAlias, err = propertyReadUint16(p.TopicAlias, newBufr, propType, nil)
+			if p.TopicAlias != nil && *p.TopicAlias == 0 {
+				err = codes.NewError(codes.TopicAliasInvalid)
+			}
 		case PropMaximumQoS:
 			p.MaximumQoS, err = propertyReadBool(p.MaximumQoS, newBufr, propType)
 		case PropRetainAvailable:
