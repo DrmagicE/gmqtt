@@ -395,39 +395,44 @@ func (client *client) readLoop() {
 		close(client.in)
 	}()
 	for {
-		var packet packets.Packet
-		if client.IsConnected() {
-			if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
-				_ = client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
-			}
-		}
-		packet, err = client.packetReader.ReadPacket()
-		if err != nil {
-			if err != io.EOF && packet != nil {
-				zaplog.Error("read error", zap.String("packet_type", reflect.TypeOf(packet).String()))
-			}
+		select {
+		case <- client.close:
 			return
-		}
-
-		if pub, ok := packet.(*packets.Publish); ok {
-			srv.statsManager.messageReceived(pub.Qos, client.opts.ClientID)
-			if client.version == packets.Version5 && pub.Qos > packets.Qos0 {
-				err = client.tryDecServerQuota()
-				if err != nil {
-					return
+		default:
+			var packet packets.Packet
+			if client.IsConnected() {
+				if keepAlive := client.opts.KeepAlive; keepAlive != 0 { //KeepAlive
+					_ = client.rwc.SetReadDeadline(time.Now().Add(time.Duration(keepAlive/2+keepAlive) * time.Second))
 				}
 			}
-		}
-		client.in <- packet
-		<-client.connected
-		srv.statsManager.packetReceived(packet, client.opts.ClientID)
-		if client.server.config.Log.DumpPacket {
-			if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
-				ce.Write(
-					zap.String("packet", packet.String()),
-					zap.String("remote_addr", client.rwc.RemoteAddr().String()),
-					zap.String("client_id", client.opts.ClientID),
-				)
+			packet, err = client.packetReader.ReadPacket()
+			if err != nil {
+				if err != io.EOF && packet != nil {
+					zaplog.Error("read error", zap.String("packet_type", reflect.TypeOf(packet).String()))
+				}
+				return
+			}
+
+			if pub, ok := packet.(*packets.Publish); ok {
+				srv.statsManager.messageReceived(pub.Qos, client.opts.ClientID)
+				if client.version == packets.Version5 && pub.Qos > packets.Qos0 {
+					err = client.tryDecServerQuota()
+					if err != nil {
+						return
+					}
+				}
+			}
+			client.in <- packet
+			<-client.connected
+			srv.statsManager.packetReceived(packet, client.opts.ClientID)
+			if client.server.config.Log.DumpPacket {
+				if ce := zaplog.Check(zapcore.DebugLevel, "received packet"); ce != nil {
+					ce.Write(
+						zap.String("packet", packet.String()),
+						zap.String("remote_addr", client.rwc.RemoteAddr().String()),
+						zap.String("client_id", client.opts.ClientID),
+					)
+				}
 			}
 		}
 	}
