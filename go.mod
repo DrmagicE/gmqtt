@@ -20,8 +20,8 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/zap v1.13.0
-	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
-	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10
+	golang.org/x/crypto v0.36.0
+	golang.org/x/sys v0.31.0
 	google.golang.org/genproto v0.0.0-20221201204527-e3fa12d562f3
 	google.golang.org/grpc v1.50.1
 	google.golang.org/protobuf v1.28.1
@@ -54,10 +54,11 @@ require (
 	go.uber.org/multierr v1.3.0 // indirect
 	go.uber.org/tools v0.0.0-20190618225709-2cfd321de3ee // indirect
 	golang.org/x/lint v0.0.0-20190930215403-16217165b5de // indirect
-	golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4 // indirect
-	golang.org/x/net v0.0.0-20221014081412-f15817d10f9b // indirect
-	golang.org/x/text v0.4.0 // indirect
-	golang.org/x/tools v0.1.12 // indirect
+	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 	honnef.co/go/tools v0.0.1-2019.2.3 // indirect
 )
