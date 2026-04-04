@@ -48,7 +48,8 @@ func NewUnsubscribePacket(fh *FixHeader, version Version, r io.Reader) (*Unsubsc
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (u *Unsubscribe) Pack(w io.Writer) error {
 	u.FixHeader = &FixHeader{PacketType: UNSUBSCRIBE, Flags: FlagUnsubscribe}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, u.PacketID)
 	if u.Version == Version5 {
 		u.Properties.Pack(bufw, UNSUBSCRIBE)

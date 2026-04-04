@@ -29,7 +29,8 @@ func (d *Disconnect) Pack(w io.Writer) error {
 		d.FixHeader.RemainLength = 0
 		return d.FixHeader.Pack(w)
 	}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	if d.Code != codes.Success || d.Properties != nil {
 		bufw.WriteByte(d.Code)
 		d.Properties.Pack(bufw, DISCONNECT)

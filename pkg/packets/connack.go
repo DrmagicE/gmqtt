@@ -25,7 +25,8 @@ func (c *Connack) String() string {
 func (c *Connack) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNACK, Flags: FlagReserved}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	if c.SessionPresent {
 		bufw.WriteByte(1)
 	} else {

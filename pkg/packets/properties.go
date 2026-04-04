@@ -192,7 +192,8 @@ func (p *Properties) String() string {
 }
 
 func (p *Properties) PackWillProperties(bufw *bytes.Buffer) {
-	newBufw := &bytes.Buffer{}
+	newBufw := getBuffer()
+	defer putBuffer(newBufw)
 	defer func() {
 		b, _ := DecodeRemainLength(newBufw.Len())
 		bufw.Write(b)
@@ -219,7 +220,8 @@ func (p *Properties) PackWillProperties(bufw *bytes.Buffer) {
 // Pack takes all the defined properties for an Properties and produces
 // a slice of bytes representing the wire format for the Info
 func (p *Properties) Pack(bufw *bytes.Buffer, packetType byte) {
-	newBufw := &bytes.Buffer{}
+	newBufw := getBuffer()
+	defer putBuffer(newBufw)
 	defer func() {
 		b, _ := DecodeRemainLength(newBufw.Len())
 		bufw.Write(b)

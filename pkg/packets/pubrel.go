@@ -41,7 +41,8 @@ func (p *Pubrel) NewPubcomp() *Pubcomp {
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubrel) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBREL, Flags: FlagPubrel}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, p.PacketID)
 	if p.Code != codes.Success || p.Properties != nil {
 		bufw.WriteByte(p.Code)
