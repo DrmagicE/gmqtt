@@ -35,7 +35,8 @@ func NewSubackPacket(fh *FixHeader, version Version, r io.Reader) (*Suback, erro
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Suback) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: SUBACK, Flags: FlagReserved}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, p.PacketID)
 	if p.Version == Version5 {
 		p.Properties.Pack(bufw, SUBACK)

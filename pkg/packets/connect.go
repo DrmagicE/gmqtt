@@ -45,7 +45,8 @@ func (c *Connect) Pack(w io.Writer) error {
 	var err error
 	c.FixHeader = &FixHeader{PacketType: CONNECT, Flags: FlagReserved}
 
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	bufw.Write([]byte{0x00, 0x04})
 	bufw.Write(c.ProtocolName)
 	bufw.WriteByte(c.ProtocolLevel)

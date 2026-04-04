@@ -20,7 +20,8 @@ func (a *Auth) String() string {
 
 func (a *Auth) Pack(w io.Writer) error {
 	a.FixHeader = &FixHeader{PacketType: AUTH, Flags: FlagReserved}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	if a.Code != codes.Success || a.Properties != nil {
 		bufw.WriteByte(a.Code)
 		a.Properties.Pack(bufw, AUTH)

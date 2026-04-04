@@ -56,7 +56,8 @@ func NewSubscribePacket(fh *FixHeader, version Version, r io.Reader) (*Subscribe
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Subscribe) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: SUBSCRIBE, Flags: FlagSubscribe}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, p.PacketID)
 	var nl, rap byte
 	if p.Version == Version5 {

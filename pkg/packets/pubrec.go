@@ -42,7 +42,8 @@ func (p *Pubrec) NewPubrel() *Pubrel {
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubrec) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBREC, Flags: FlagReserved}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, p.PacketID)
 	if p.Version == Version5 && (p.Code != codes.Success || p.Properties != nil) {
 		bufw.WriteByte(p.Code)

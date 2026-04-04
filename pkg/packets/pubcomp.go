@@ -34,7 +34,8 @@ func NewPubcompPacket(fh *FixHeader, version Version, r io.Reader) (*Pubcomp, er
 // Pack encodes the packet struct into bytes and writes it into io.Writer.
 func (p *Pubcomp) Pack(w io.Writer) error {
 	p.FixHeader = &FixHeader{PacketType: PUBCOMP, Flags: FlagReserved}
-	bufw := &bytes.Buffer{}
+	bufw := getBuffer()
+	defer putBuffer(bufw)
 	writeUint16(bufw, p.PacketID)
 	if p.Version == Version5 && (p.Code != codes.Success || p.Properties != nil) {
 		bufw.WriteByte(p.Code)
