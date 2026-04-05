@@ -1,5 +1,7 @@
 package server
 
+//go:generate mockgen -source=./client.go -destination=./client_mock.go -package=server
+
 import (
 	"bufio"
 	"bytes"

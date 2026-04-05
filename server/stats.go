@@ -1,5 +1,7 @@
 package server
 
+//go:generate mockgen -source=./stats.go -destination=./stats_mock.go -package=server
+
 import (
 	"sync"
 	"sync/atomic"

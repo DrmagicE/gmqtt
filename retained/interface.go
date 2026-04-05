@@ -1,5 +1,7 @@
 package retained
 
+//go:generate mockgen -source=./interface.go -destination=./interface_mock.go -package=retained
+
 import (
 	"github.com/DrmagicE/gmqtt"
 )

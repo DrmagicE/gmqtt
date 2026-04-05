@@ -1,5 +1,7 @@
 package server
 
+//go:generate mockgen -source=./service.go -destination=./service_mock.go -package=server
+
 import (
 	"github.com/DrmagicE/gmqtt"
 	"github.com/DrmagicE/gmqtt/persistence/session"

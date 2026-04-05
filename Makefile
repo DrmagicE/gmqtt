@@ -95,9 +95,6 @@ generate-grpcgw:
 generate-swagger:
 	echo 'To Be implemented'
 
-# generate mock code
-generate-mocks:
-	@./mock_gen.sh
 
 go-generate:
 	go generate ./...

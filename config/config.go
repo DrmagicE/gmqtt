@@ -1,5 +1,7 @@
 package config
 
+//go:generate mockgen -source=./config.go -destination=./config_mock.go -package=config
+
 import (
 	"fmt"
 	"io/ioutil"

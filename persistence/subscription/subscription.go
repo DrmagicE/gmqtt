@@ -1,5 +1,7 @@
 package subscription
 
+//go:generate mockgen -source=./subscription.go -destination=./subscription_mock.go -package=subscription
+
 import (
 	"errors"
 	"strings"

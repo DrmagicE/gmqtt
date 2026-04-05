@@ -1,5 +1,7 @@
 package server
 
+//go:generate mockgen -source=./server.go -destination=./server_mock.go -package=server
+
 import (
 	"context"
 	"errors"
