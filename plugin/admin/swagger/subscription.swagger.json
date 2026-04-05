@@ -4,6 +4,11 @@
     "title": "subscription.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "SubscriptionService"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,38 +19,38 @@
     "/v1/filter_subscriptions": {
       "get": {
         "summary": "Filter subscriptions, paging is not supported in this API.",
-        "operationId": "Filter",
+        "operationId": "SubscriptionService_Filter",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiFilterSubscriptionResponse"
+              "$ref": "#/definitions/gmqtt.admin.api.FilterSubscriptionResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "client_id",
+            "name": "clientId",
             "description": "If set, only filter the subscriptions that belongs to the client.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "filter_type",
-            "description": "filter_type indicates what kinds of topics are going to filter.\nIf there are multiple types, use ',' to separate. e.g : 1,2\nThere are 3 kinds of topic can be filtered, defined by SubFilterType:\n1 = System Topic(begin with '$')\n2 = Shared Topic\n3 = NonShared Topic.",
+            "name": "filterType",
+            "description": "filter_type indicates what kinds of topics are going to filter.\nIf there are multiple types, use ',' to separate. e.g : 1,2\nThere are 3 kinds of topic can be filtered, defined by SubFilterType:\n1 = System Topic(begin with '$')\n2 = Shared Topic\n3 = NonShared Topic",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "match_type",
+            "name": "matchType",
             "description": "If 1 (SUB_MATCH_TYPE_MATCH_NAME), the server will return subscriptions which has the same topic name with request topic_name.\nIf 2 (SUB_MATCH_TYPE_MATCH_FILTER),the server will return subscriptions which match the request topic_name .\nmatch_type must be set when filter_type is not empty.",
             "in": "query",
             "required": false,
@@ -58,7 +63,7 @@
             "default": "SUB_MATCH_TYPE_MATCH_UNSPECIFIED"
           },
           {
-            "name": "topic_name",
+            "name": "topicName",
             "description": "topic_name must be set when match_type is not zero.",
             "in": "query",
             "required": false,
@@ -81,18 +86,18 @@
     "/v1/subscribe": {
       "post": {
         "summary": "Subscribe topics for the client.",
-        "operationId": "Subscribe",
+        "operationId": "SubscriptionService_Subscribe",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiSubscribeResponse"
+              "$ref": "#/definitions/gmqtt.admin.api.SubscribeResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -102,7 +107,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiSubscribeRequest"
+              "$ref": "#/definitions/gmqtt.admin.api.SubscribeRequest"
             }
           }
         ],
@@ -114,24 +119,24 @@
     "/v1/subscriptions": {
       "get": {
         "summary": "List subscriptions.",
-        "operationId": "List",
+        "operationId": "SubscriptionService_List",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiListSubscriptionResponse"
+              "$ref": "#/definitions/gmqtt.admin.api.ListSubscriptionResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "page_size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -153,18 +158,19 @@
     "/v1/unsubscribe": {
       "post": {
         "summary": "Unsubscribe topics for the client.",
-        "operationId": "Unsubscribe",
+        "operationId": "SubscriptionService_Unsubscribe",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -174,7 +180,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiUnsubscribeRequest"
+              "$ref": "#/definitions/gmqtt.admin.api.UnsubscribeRequest"
             }
           }
         ],
@@ -185,33 +191,35 @@
     }
   },
   "definitions": {
-    "apiFilterSubscriptionResponse": {
+    "gmqtt.admin.api.FilterSubscriptionResponse": {
       "type": "object",
       "properties": {
         "subscriptions": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiSubscription"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.admin.api.Subscription"
           }
         }
       }
     },
-    "apiListSubscriptionResponse": {
+    "gmqtt.admin.api.ListSubscriptionResponse": {
       "type": "object",
       "properties": {
         "subscriptions": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiSubscription"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.admin.api.Subscription"
           }
         },
-        "total_count": {
+        "totalCount": {
           "type": "integer",
           "format": "int64"
         }
       }
     },
-    "apiSubMatchType": {
+    "gmqtt.admin.api.SubMatchType": {
       "type": "string",
       "enum": [
         "SUB_MATCH_TYPE_MATCH_UNSPECIFIED",
@@ -220,37 +228,37 @@
       ],
       "default": "SUB_MATCH_TYPE_MATCH_UNSPECIFIED"
     },
-    "apiSubscribeRequest": {
+    "gmqtt.admin.api.SubscribeRequest": {
       "type": "object",
       "properties": {
-        "client_id": {
+        "clientId": {
           "type": "string"
         },
         "subscriptions": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiSubscription"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.admin.api.Subscription"
           }
         }
       }
     },
-    "apiSubscribeResponse": {
+    "gmqtt.admin.api.SubscribeResponse": {
       "type": "object",
       "properties": {
         "new": {
           "type": "array",
           "items": {
-            "type": "boolean",
-            "format": "boolean"
+            "type": "boolean"
           },
           "description": "indicates whether it is a new subscription or the subscription is already existed."
         }
       }
     },
-    "apiSubscription": {
+    "gmqtt.admin.api.Subscription": {
       "type": "object",
       "properties": {
-        "topic_name": {
+        "topicName": {
           "type": "string"
         },
         "id": {
@@ -261,27 +269,25 @@
           "type": "integer",
           "format": "int64"
         },
-        "no_local": {
-          "type": "boolean",
-          "format": "boolean"
+        "noLocal": {
+          "type": "boolean"
         },
-        "retain_as_published": {
-          "type": "boolean",
-          "format": "boolean"
+        "retainAsPublished": {
+          "type": "boolean"
         },
-        "retain_handling": {
+        "retainHandling": {
           "type": "integer",
           "format": "int64"
         },
-        "client_id": {
+        "clientId": {
           "type": "string"
         }
       }
     },
-    "apiUnsubscribeRequest": {
+    "gmqtt.admin.api.UnsubscribeRequest": {
       "type": "object",
       "properties": {
-        "client_id": {
+        "clientId": {
           "type": "string"
         },
         "topics": {
@@ -292,24 +298,18 @@
         }
       }
     },
-    "protobufAny": {
+    "google.protobuf.Any": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
-    "runtimeError": {
+    "google.rpc.Status": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -320,7 +320,8 @@
         "details": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
           }
         }
       }

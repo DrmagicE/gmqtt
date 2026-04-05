@@ -4,6 +4,11 @@
     "title": "account.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "AccountService"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,24 +19,24 @@
     "/v1/accounts": {
       "get": {
         "summary": "List all accounts",
-        "operationId": "List",
+        "operationId": "AccountService_List",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiListAccountsResponse"
+              "$ref": "#/definitions/gmqtt.auth.api.ListAccountsResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "page_size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -53,18 +58,18 @@
     "/v1/accounts/{username}": {
       "get": {
         "summary": "Get the account for given username.\nReturn NotFound error when account not found.",
-        "operationId": "Get",
+        "operationId": "AccountService_Get",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiGetAccountResponse"
+              "$ref": "#/definitions/gmqtt.auth.api.GetAccountResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -82,18 +87,19 @@
       },
       "delete": {
         "summary": "Delete the account for given username",
-        "operationId": "Delete",
+        "operationId": "AccountService_Delete",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -111,18 +117,19 @@
       },
       "post": {
         "summary": "Update the password for the account.\nThis API will create the account if not exists.",
-        "operationId": "Update",
+        "operationId": "AccountService_Update",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -138,7 +145,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiUpdateAccountRequest"
+              "$ref": "#/definitions/gmqtt.auth.api.AccountService.UpdateBody"
             }
           }
         ],
@@ -149,7 +156,7 @@
     }
   },
   "definitions": {
-    "apiAccount": {
+    "gmqtt.auth.api.Account": {
       "type": "object",
       "properties": {
         "username": {
@@ -160,58 +167,50 @@
         }
       }
     },
-    "apiGetAccountResponse": {
+    "gmqtt.auth.api.AccountService.UpdateBody": {
       "type": "object",
       "properties": {
-        "account": {
-          "$ref": "#/definitions/apiAccount"
+        "password": {
+          "type": "string"
         }
       }
     },
-    "apiListAccountsResponse": {
+    "gmqtt.auth.api.GetAccountResponse": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/gmqtt.auth.api.Account"
+        }
+      }
+    },
+    "gmqtt.auth.api.ListAccountsResponse": {
       "type": "object",
       "properties": {
         "accounts": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiAccount"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.auth.api.Account"
           }
         },
-        "total_count": {
+        "totalCount": {
           "type": "integer",
           "format": "int64"
         }
       }
     },
-    "apiUpdateAccountRequest": {
+    "google.protobuf.Any": {
       "type": "object",
       "properties": {
-        "username": {
-          "type": "string"
-        },
-        "password": {
+        "@type": {
           "type": "string"
         }
-      }
+      },
+      "additionalProperties": {}
     },
-    "protobufAny": {
+    "google.rpc.Status": {
       "type": "object",
       "properties": {
-        "type_url": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
-        }
-      }
-    },
-    "runtimeError": {
-      "type": "object",
-      "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -222,7 +221,8 @@
         "details": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
           }
         }
       }

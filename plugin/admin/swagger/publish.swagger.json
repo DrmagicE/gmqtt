@@ -4,6 +4,11 @@
     "title": "publish.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "PublishService"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,18 +19,19 @@
     "/v1/publish": {
       "post": {
         "summary": "Publish message to broker",
-        "operationId": "Publish",
+        "operationId": "PublishService_Publish",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -35,7 +41,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiPublishRequest"
+              "$ref": "#/definitions/gmqtt.admin.api.PublishRequest"
             }
           }
         ],
@@ -46,10 +52,10 @@
     }
   },
   "definitions": {
-    "apiPublishRequest": {
+    "gmqtt.admin.api.PublishRequest": {
       "type": "object",
       "properties": {
-        "topic_name": {
+        "topicName": {
           "type": "string"
         },
         "payload": {
@@ -60,36 +66,36 @@
           "format": "int64"
         },
         "retained": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
-        "content_type": {
+        "contentType": {
           "type": "string",
           "description": "the following fields are using in v5 client."
         },
-        "correlation_data": {
+        "correlationData": {
           "type": "string"
         },
-        "message_expiry": {
+        "messageExpiry": {
           "type": "integer",
           "format": "int64"
         },
-        "payload_format": {
+        "payloadFormat": {
           "type": "integer",
           "format": "int64"
         },
-        "response_topic": {
+        "responseTopic": {
           "type": "string"
         },
-        "user_properties": {
+        "userProperties": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiUserProperties"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.admin.api.UserProperties"
           }
         }
       }
     },
-    "apiUserProperties": {
+    "gmqtt.admin.api.UserProperties": {
       "type": "object",
       "properties": {
         "K": {
@@ -102,24 +108,18 @@
         }
       }
     },
-    "protobufAny": {
+    "google.protobuf.Any": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
-    "runtimeError": {
+    "google.rpc.Status": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -130,7 +130,8 @@
         "details": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
           }
         }
       }
