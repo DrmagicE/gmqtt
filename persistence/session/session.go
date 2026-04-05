@@ -1,5 +1,7 @@
 package session
 
+//go:generate mockgen -source=./session.go -destination=./session_mock.go -package=session
+
 import (
 	"github.com/DrmagicE/gmqtt"
 )

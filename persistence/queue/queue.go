@@ -1,5 +1,7 @@
 package queue
 
+//go:generate mockgen -source=./queue.go -destination=./queue_mock.go -package=queue
+
 import (
 	"time"
 

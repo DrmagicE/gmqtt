@@ -1,5 +1,7 @@
 package server
 
+//go:generate mockgen -source=./persistence.go -destination=./persistence_mock.go -package=server
+
 import (
 	"github.com/DrmagicE/gmqtt/config"
 	"github.com/DrmagicE/gmqtt/persistence/queue"

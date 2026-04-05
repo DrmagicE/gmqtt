@@ -1,5 +1,7 @@
 package unack
 
+//go:generate mockgen -source=./unack.go -destination=./unack_mock.go -package=unack
+
 import (
 	"github.com/DrmagicE/gmqtt/pkg/packets"
 )

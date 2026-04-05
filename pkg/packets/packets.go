@@ -1,5 +1,7 @@
 package packets
 
+//go:generate mockgen -source=./packets.go -destination=./packets_mock.go -package=packets
+
 import (
 	"bufio"
 	"bytes"

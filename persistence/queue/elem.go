@@ -1,5 +1,7 @@
 package queue
 
+//go:generate mockgen -source=./elem.go -destination=./elem_mock.go -package=queue
+
 import (
 	"bytes"
 	"encoding/binary"
