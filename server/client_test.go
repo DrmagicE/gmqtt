@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/DrmagicE/gmqtt"

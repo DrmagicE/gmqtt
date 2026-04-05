@@ -1,0 +1,37 @@
+version: v2
+managed:
+  enabled: true
+  disable:
+    - module: buf.build/googleapis/googleapis
+    - path: protoc-gen-openapiv2
+  override:
+    - file_option: go_package_prefix
+      value: github.com/DrmagicE/gmqtt/auth
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-validate
+    out: .
+    opt:
+      - lang=go
+      - paths=source_relative
+  - local: protoc-gen-grpc-gateway
+    out: .
+    opt:
+      - logtostderr=true
+      - paths=source_relative
+  - local: protoc-gen-openapiv2
+    out: swagger
+    opt:
+      - logtostderr=true
+      - json_names_for_fields=true
+      - openapi_naming_strategy=fqn
+  - local: protoc-gen-go-grpc
+    out: .
+    opt:
+      - paths=source_relative
+inputs:
+  - directory: protos
+

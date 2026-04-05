@@ -4,6 +4,14 @@
     "title": "federation.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Membership"
+    },
+    {
+      "name": "Federation"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -19,13 +27,14 @@
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
             "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -35,7 +44,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiForceLeaveRequest"
+              "$ref": "#/definitions/gmqtt.federation.api.ForceLeaveRequest"
             }
           }
         ],
@@ -52,13 +61,14 @@
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
             "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -68,7 +78,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/apiJoinRequest"
+              "$ref": "#/definitions/gmqtt.federation.api.JoinRequest"
             }
           }
         ],
@@ -85,13 +95,14 @@
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
             "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -101,6 +112,7 @@
             "in": "body",
             "required": true,
             "schema": {
+              "type": "object",
               "properties": {}
             }
           }
@@ -118,13 +130,13 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiListMembersResponse"
+              "$ref": "#/definitions/gmqtt.federation.api.ListMembersResponse"
             }
           },
           "default": {
             "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
@@ -135,24 +147,15 @@
     }
   },
   "definitions": {
-    "apiAck": {
+    "gmqtt.federation.api.ForceLeaveRequest": {
       "type": "object",
       "properties": {
-        "event_id": {
-          "type": "string",
-          "format": "uint64"
-        }
-      }
-    },
-    "apiForceLeaveRequest": {
-      "type": "object",
-      "properties": {
-        "node_name": {
+        "nodeName": {
           "type": "string"
         }
       }
     },
-    "apiJoinRequest": {
+    "gmqtt.federation.api.JoinRequest": {
       "type": "object",
       "properties": {
         "hosts": {
@@ -163,18 +166,19 @@
         }
       }
     },
-    "apiListMembersResponse": {
+    "gmqtt.federation.api.ListMembersResponse": {
       "type": "object",
       "properties": {
         "members": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiMember"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.federation.api.Member"
           }
         }
       }
     },
-    "apiMember": {
+    "gmqtt.federation.api.Member": {
       "type": "object",
       "properties": {
         "name": {
@@ -190,67 +194,11 @@
           }
         },
         "status": {
-          "$ref": "#/definitions/apiStatus"
+          "$ref": "#/definitions/gmqtt.federation.api.Status"
         }
       }
     },
-    "apiMessage": {
-      "type": "object",
-      "properties": {
-        "topic_name": {
-          "type": "string"
-        },
-        "payload": {
-          "type": "string",
-          "format": "byte"
-        },
-        "qos": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "retained": {
-          "type": "boolean"
-        },
-        "content_type": {
-          "type": "string",
-          "description": "the following fields are using in v5 client."
-        },
-        "correlation_data": {
-          "type": "string"
-        },
-        "message_expiry": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "payload_format": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "response_topic": {
-          "type": "string"
-        },
-        "user_properties": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/apiUserProperty"
-          }
-        }
-      }
-    },
-    "apiServerHello": {
-      "type": "object",
-      "properties": {
-        "clean_start": {
-          "type": "boolean"
-        },
-        "next_event_id": {
-          "type": "string",
-          "format": "uint64"
-        }
-      },
-      "description": "ServerHello is the response message in handshake process."
-    },
-    "apiStatus": {
+    "gmqtt.federation.api.Status": {
       "type": "string",
       "enum": [
         "STATUS_UNSPECIFIED",
@@ -261,57 +209,18 @@
       ],
       "default": "STATUS_UNSPECIFIED"
     },
-    "apiSubscribe": {
+    "google.protobuf.Any": {
       "type": "object",
       "properties": {
-        "share_name": {
-          "type": "string"
-        },
-        "topic_filter": {
+        "@type": {
           "type": "string"
         }
       },
-      "description": "Subscribe represents the subscription for a node, it is used to route message among nodes,\nso only shared_name and topic_filter is required."
+      "additionalProperties": {}
     },
-    "apiUnsubscribe": {
+    "google.rpc.Status": {
       "type": "object",
       "properties": {
-        "topic_name": {
-          "type": "string"
-        }
-      }
-    },
-    "apiUserProperty": {
-      "type": "object",
-      "properties": {
-        "K": {
-          "type": "string",
-          "format": "byte"
-        },
-        "V": {
-          "type": "string",
-          "format": "byte"
-        }
-      }
-    },
-    "protobufAny": {
-      "type": "object",
-      "properties": {
-        "type_url": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
-        }
-      }
-    },
-    "runtimeError": {
-      "type": "object",
-      "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -322,32 +231,8 @@
         "details": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/protobufAny"
-          }
-        }
-      }
-    },
-    "runtimeStreamError": {
-      "type": "object",
-      "properties": {
-        "grpc_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "http_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "message": {
-          "type": "string"
-        },
-        "http_status": {
-          "type": "string"
-        },
-        "details": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
           }
         }
       }

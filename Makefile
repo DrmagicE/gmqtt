@@ -10,7 +10,7 @@ BUILD_DIR	?= build
 # Binaries
 PROTOC		?= protoc
 
-.PHONY: help clean fmt lint vet test test-cover build build-docker all
+.PHONY: help clean fmt lint vet test test-cover build build-docker tools all
 
 default: help
 
@@ -50,14 +50,15 @@ clean-all:
 
 # fetch and install all required tools
 tools:
-	go get -u golang.org/x/tools/cmd/goimports
-	go get -u github.com/golang/lint/golint
-	go get github.com/golang/mock/mockgen@v1.4.4
-	# Reqire when adding proto and grpc compilation
-	# go get -u github.com/golang/protobuf/protoc-gen-go
-	# go get -u github.com/mwitkow/go-proto-validators/protoc-gen-govalidators
-	# go get -u github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway
-	# go get -u github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger
+	@echo "Installing tools..."
+	go install \
+		github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway \
+		github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2 \
+		github.com/envoyproxy/protoc-gen-validate \
+		google.golang.org/protobuf/cmd/protoc-gen-go \
+		google.golang.org/grpc/cmd/protoc-gen-go-grpc \
+		github.com/go-swagger/go-swagger/cmd/swagger \
+		go.uber.org/mock/mockgen
 
 # format the go source files
 fmt:

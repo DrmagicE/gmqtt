@@ -11,12 +11,13 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	gcodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/DrmagicE/gmqtt/config"
 )
@@ -170,7 +171,12 @@ func buildHTTPServer(endpoint *config.Endpoint) (*httpServer, error) {
 			return nil, err
 		}
 	}
-	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{OrigName: true, EmitDefaults: true}))
+	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
+		MarshalOptions: protojson.MarshalOptions{
+			UseProtoNames:     true,
+			EmitDefaultValues: true,
+		},
+	}))
 	server := &http.Server{
 		Handler: mux,
 	}

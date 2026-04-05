@@ -4,6 +4,11 @@
     "title": "client.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "ClientService"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,24 +19,24 @@
     "/v1/clients": {
       "get": {
         "summary": "List clients",
-        "operationId": "List",
+        "operationId": "ClientService_List",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiListClientResponse"
+              "$ref": "#/definitions/gmqtt.admin.api.ListClientResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "page_size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -50,27 +55,27 @@
         ]
       }
     },
-    "/v1/clients/{client_id}": {
+    "/v1/clients/{clientId}": {
       "get": {
         "summary": "Get the client for given client id.\nReturn NotFound error when client not found.",
-        "operationId": "Get",
+        "operationId": "ClientService_Get",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/apiGetClientResponse"
+              "$ref": "#/definitions/gmqtt.admin.api.GetClientResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "client_id",
+            "name": "clientId",
             "in": "path",
             "required": true,
             "type": "string"
@@ -82,34 +87,34 @@
       },
       "delete": {
         "summary": "Disconnect the client for given client id.",
-        "operationId": "Delete",
+        "operationId": "ClientService_Delete",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
+              "type": "object",
               "properties": {}
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/google.rpc.Status"
             }
           }
         },
         "parameters": [
           {
-            "name": "client_id",
+            "name": "clientId",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "clean_session",
+            "name": "cleanSession",
             "in": "query",
             "required": false,
-            "type": "boolean",
-            "format": "boolean"
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -119,16 +124,16 @@
     }
   },
   "definitions": {
-    "apiClient": {
+    "gmqtt.admin.api.Client": {
       "type": "object",
       "properties": {
-        "client_id": {
+        "clientId": {
           "type": "string"
         },
         "username": {
           "type": "string"
         },
-        "keep_alive": {
+        "keepAlive": {
           "type": "integer",
           "format": "int32"
         },
@@ -136,111 +141,106 @@
           "type": "integer",
           "format": "int32"
         },
-        "remote_addr": {
+        "remoteAddr": {
           "type": "string"
         },
-        "local_addr": {
+        "localAddr": {
           "type": "string"
         },
-        "connected_at": {
+        "connectedAt": {
           "type": "string",
           "format": "date-time"
         },
-        "disconnected_at": {
+        "disconnectedAt": {
           "type": "string",
           "format": "date-time"
         },
-        "session_expiry": {
+        "sessionExpiry": {
           "type": "integer",
           "format": "int64"
         },
-        "max_inflight": {
+        "maxInflight": {
           "type": "integer",
           "format": "int64"
         },
-        "inflight_len": {
+        "inflightLen": {
           "type": "integer",
           "format": "int64"
         },
-        "max_queue": {
+        "maxQueue": {
           "type": "integer",
           "format": "int64"
         },
-        "queue_len": {
+        "queueLen": {
           "type": "integer",
           "format": "int64"
         },
-        "subscriptions_current": {
+        "subscriptionsCurrent": {
           "type": "integer",
           "format": "int64"
         },
-        "subscriptions_total": {
+        "subscriptionsTotal": {
           "type": "integer",
           "format": "int64"
         },
-        "packets_received_bytes": {
+        "packetsReceivedBytes": {
           "type": "string",
           "format": "uint64"
         },
-        "packets_received_nums": {
+        "packetsReceivedNums": {
           "type": "string",
           "format": "uint64"
         },
-        "packets_send_bytes": {
+        "packetsSendBytes": {
           "type": "string",
           "format": "uint64"
         },
-        "packets_send_nums": {
+        "packetsSendNums": {
           "type": "string",
           "format": "uint64"
         },
-        "message_dropped": {
+        "messageDropped": {
           "type": "string",
           "format": "uint64"
         }
       }
     },
-    "apiGetClientResponse": {
+    "gmqtt.admin.api.GetClientResponse": {
       "type": "object",
       "properties": {
         "client": {
-          "$ref": "#/definitions/apiClient"
+          "$ref": "#/definitions/gmqtt.admin.api.Client"
         }
       }
     },
-    "apiListClientResponse": {
+    "gmqtt.admin.api.ListClientResponse": {
       "type": "object",
       "properties": {
         "clients": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/apiClient"
+            "type": "object",
+            "$ref": "#/definitions/gmqtt.admin.api.Client"
           }
         },
-        "total_count": {
+        "totalCount": {
           "type": "integer",
           "format": "int64"
         }
       }
     },
-    "protobufAny": {
+    "google.protobuf.Any": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
-    "runtimeError": {
+    "google.rpc.Status": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -251,7 +251,8 @@
         "details": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
           }
         }
       }
